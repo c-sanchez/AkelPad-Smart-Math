@@ -14,6 +14,6 @@ sub ShowAboutDialog(byval hWnd as HWND)
            "Open official GitHub repository?"
   
   if MessageBoxW(hWnd, @sAbout, wstr("SmartMath - Information"), MB_YESNOCANCEL or MB_ICONINFORMATION) = IDYES then
-    ShellExecuteW(0, wstr("open"), wstr("https://github.com/c-sanchez/npp-smart-math"), 0, 0, SW_SHOWNORMAL)
+    ShellExecuteW(0, wstr("open"), wstr("https://github.com/c-sanchez/AkelPad-Smart-Math"), 0, 0, SW_SHOWNORMAL)
   end if
 end sub
