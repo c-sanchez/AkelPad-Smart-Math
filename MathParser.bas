@@ -76,10 +76,14 @@ const FB_STR_SORT as string = "sort"
 const FB_STR_SORTED as string = "sorted"
 const FB_STR_SORTBY as string = "sortby"
 const FB_STR_RATIO as string = "ratio"
+const FB_STR_RANGE as string = "range"
 const FB_STR_REVERSE as string = "reverse"
 const FB_STR_REVERSED as string = "reversed"
 const FB_STR_UNIQUE as string = "unique"
 const FB_STR_UNPACK as string = "unpack"
+const FB_STR_REPEAT as string = "repeat"
+const FB_STR_LEN as string = "len"
+const FB_STR_LENGTH as string = "length"
 const FB_STR_FACT as string = "fact"
 const FB_STR_FACTORIAL as string = "factorial"
 const FB_STR_FACTORINT as string = "factorint"
@@ -122,6 +126,13 @@ const FB_STR_PAR_VALUE_COMMA_MIN_COMMA_MAX as string = "(value, min, max)"
 const FB_STR_PAR_X_COMMA_Y as string = "(x, y)"
 const FB_STR_PAR_A_COMMA_B as string = "(a, b)"
 const FB_STR_PAR_N_COMMA_R as string = "(n, r)"
+const FB_STR_PAR_X_COMMA_N as string = "(x, n)"
+const FB_STR_PAR_X as string = "(x)"
+const FB_STR_PAR_START_COMMA_STOP_COMMA_STEP as string = "(start, stop [, step])"
+const FB_STR_PAR_STEP_MUST_NOT_BE_ZERO as string = "() step must not be zero"
+const FB_STR_PAR_PRODUCES_NO_VALUES as string = "() produces no values"
+const FB_STR_PAR_PRODUCES_TOO_MANY_VALUES as string = "() produces too many values"
+const BUILTIN_MAX_PRODUCED_ITEMS as Integer = 1000
 const FB_STR_PAR_ANS as string = "(ans)"
 const FB_STR_PREFIX_HEX as string = "0x"
 const FB_STR_PREFIX_OCT as string = "0o"
@@ -136,6 +147,7 @@ const FB_STR_MISMATCHED_CLOSING_PARENTHESIS as string = "mismatched closing pare
 const FB_STR_MISMATCHED_CLOSING_BRACE as string = "mismatched closing brace"
 const FB_STR_MISSING_CLOSING_BRACKET as string = "missing closing bracket"
 const FB_STR_ARRAY_INDEX_IS_OUT_OF_RANGE as string = "array index is out of range"
+const FB_STR_SLICE_STEP_MUST_NOT_BE_ZERO as string = "slice step must not be zero"
 const FB_STR_PAR_EXPECTS as string = "() expects "
 const FB_STR_ARGUMENT_PAR_S_COMMA as string = " argument(s), "
 const FB_STR_GIVEN as string = " given"
@@ -169,13 +181,16 @@ const FB_STR_PHASE as string = "phase"
 const FB_STR_POLAR as string = "polar"
 const FB_STR_CART as string = "cart"
 const FB_STR_CONJ as string = "conj"
-const FB_STR_PAR_EXPECTS_AT_LEAST_1 as string = "() expects at least 1 argument"
+const FB_STR_PAR_EXPECTS_AT_LEAST as string = "() expects at least "
+const FB_STR_ARGUMENT as string = " argument"
+const FB_STR_ARGUMENTS as string = " arguments"
 const FB_STR_MISSING_OPENING_BRACKET as string = "missing opening bracket"
 const FB_STR_UNEXPECTED_COMMA as string = "unexpected comma"
 const FB_STR_MISMATCHED_CLOSING_BRACKET as string = "mismatched closing bracket"
 const FB_STR_MISSING_CLOSING_PARENTHESIS as string = "missing closing parenthesis"
 const FB_STR_NUMERIC_ERROR_IN as string = "numeric error in "
 const FB_STR_PAR_EXPECTS_A_NON_DASH as string = "() expects a non-negative integer"
+const FB_STR_PAR_EXPECTS_A_POSITIVE_INTEGER as string = "() expects a positive integer"
 const FB_STR_PAR_EXPECTS_SCALAR_VALUES as string = "() expects scalar values"
 const FB_STR_PAR_EXPECTS_SCALAR_MIN_SLASH as string = "() expects scalar min/max"
 const FB_STR_PAR_EXPECTS_INTEGER_VALUES as string = "() expects integer values"
@@ -413,9 +428,12 @@ enum BuiltinFunctionId
   FUNC_SORT
   FUNC_SORTBY
   FUNC_RATIO
+  FUNC_RANGE
   FUNC_REVERSE
   FUNC_UNIQUE
   FUNC_UNPACK
+  FUNC_REPEAT
+  FUNC_LEN
   FUNC_FACT
   FUNC_FACTORINT
   FUNC_AVG
@@ -526,6 +544,8 @@ enum BuiltinCategory
   BC_DEG_RAD
   BC_AGGREGATE
   BC_ARRAY_TRANSFORM
+  BC_REPEAT
+  BC_RANGE
   BC_SORTBY
   BC_RATIO
   BC_FACTORIAL
@@ -553,6 +573,9 @@ enum BuiltinHintKind
   BHK_X_Y
   BHK_A_B
   BHK_N_R
+  BHK_X_N
+  BHK_X
+  BHK_START_STOP_STEP
   BHK_ARRAY_FUNC
 end enum
 
@@ -786,6 +809,7 @@ dim shared variables() as VarEntry
 dim shared userFunctions() as FuncEntry
 dim shared pStream as ZString ptr
 dim shared parseError as Integer
+dim shared arrayIndexBracketDepth as Integer = 0
 dim shared wasPercentage as Boolean
 dim shared lastErrorText as String
 dim shared lastRawResultValid as Boolean = FALSE
@@ -1249,9 +1273,12 @@ dim shared as BuiltinMetaRow K_BUILTIN_META_ROWS(0 to FUNC__COUNT - 1) = { _
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Sort
   (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_ARRAY_FUNC, USK_NONE, BC_SORTBY), _ ' Sortby
   (BUILTIN_FLAG_UNARY, 1, 1, BHK_VALUE, USK_NONE, BC_RATIO), _ ' Ratio
+  (BUILTIN_FLAG_NON_CALCULATING, 2, 3, BHK_START_STOP_STEP, USK_NONE, BC_RANGE), _ ' Range
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Reverse
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Unique
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Unpack
+  (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_X_N, USK_NONE, BC_REPEAT), _ ' Repeat
+  (BUILTIN_FLAG_NON_CALCULATING, 0, BUILTIN_META_ARITY_UNBOUNDED, BHK_X, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Len
   (BUILTIN_FLAG_UNARY or BUILTIN_FLAG_INTEGER_ONLY, 1, 1, BHK_N, USK_NONE, BC_FACTORIAL), _ ' Fact
   (BUILTIN_FLAG_UNARY or BUILTIN_FLAG_INTEGER_ONLY, 1, 1, BHK_N, USK_NONE, BC_FACTORINT), _ ' Factorint
   (0u, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_AGGREGATE), _ ' Avg
@@ -1385,9 +1412,12 @@ private sub EnsureFunctionNames()
   FunctionNames(FUNC_SORT) = FB_STR_SORT
   FunctionNames(FUNC_SORTBY) = FB_STR_SORTBY
   FunctionNames(FUNC_RATIO) = FB_STR_RATIO
+  FunctionNames(FUNC_RANGE) = FB_STR_RANGE
   FunctionNames(FUNC_REVERSE) = FB_STR_REVERSE
   FunctionNames(FUNC_UNIQUE) = FB_STR_UNIQUE
   FunctionNames(FUNC_UNPACK) = FB_STR_UNPACK
+  FunctionNames(FUNC_REPEAT) = FB_STR_REPEAT
+  FunctionNames(FUNC_LEN) = FB_STR_LEN
   FunctionNames(FUNC_FACT) = FB_STR_FACT
   FunctionNames(FUNC_FACTORINT) = FB_STR_FACTORINT
   FunctionNames(FUNC_AVG) = FB_STR_AVG
@@ -1469,6 +1499,7 @@ private sub EnsureBuiltinFunctionLookup()
   InsertBuiltinFnAliasLookup FB_STR_REVERSED, FUNC_REVERSE
   InsertBuiltinFnAliasLookup FB_STR_FACTORIAL, FUNC_FACT
   InsertBuiltinFnAliasLookup FB_STR_PROD, FUNC_PRODUCT
+  InsertBuiltinFnAliasLookup FB_STR_LENGTH, FUNC_LEN
   BuiltinFnLookupInitialized = TRUE
 end sub
 
@@ -1608,6 +1639,8 @@ private function GetBuiltinHintDisplayName(byval id as Integer, byref lowFn as S
       if lowFn = FB_STR_FACTORIAL then return GetFunctionName(FUNC_FACT)
     case FUNC_PRODUCT
       if lowFn = FB_STR_PROD then return GetFunctionName(FUNC_PRODUCT)
+    case FUNC_LEN
+      if lowFn = FB_STR_LENGTH then return GetFunctionName(FUNC_LEN)
   end select
   return lowFn
 end function
@@ -1633,6 +1666,9 @@ private function TryGetBuiltinSignatureHint(byref fn as String, byref hint as St
     case BHK_X_Y: hint = GetFunctionName(id) & FB_STR_PAR_X_COMMA_Y
     case BHK_A_B: hint = lowFn & FB_STR_PAR_A_COMMA_B
     case BHK_N_R: hint = lowFn & FB_STR_PAR_N_COMMA_R
+    case BHK_X_N: hint = GetFunctionName(id) & FB_STR_PAR_X_COMMA_N
+    case BHK_X: hint = displayFn & FB_STR_PAR_X
+    case BHK_START_STOP_STEP: hint = GetFunctionName(id) & FB_STR_PAR_START_COMMA_STOP_COMMA_STEP
     case BHK_ARRAY_FUNC: hint = displayFn & FB_STR_PAR_ARRAY_COMMA_FUNC
     case else: return FALSE
   end select
@@ -3790,8 +3826,18 @@ private sub SetNumericErrorInFunction(byref fnName as String)
   SetParseError(FB_STR_NUMERIC_ERROR_IN & fnName & FB_STR_PAR)
 end sub
 
+private sub SetAtLeastNArgsError(byref fnName as String, byval minArgs as Integer)
+  dim suffix as String
+  if minArgs = 1 then
+    suffix = FB_STR_ARGUMENT
+  else
+    suffix = FB_STR_ARGUMENTS
+  end if
+  SetParseError(fnName & FB_STR_PAR_EXPECTS_AT_LEAST & ltrim(str(minArgs)) & suffix)
+end sub
+
 private sub SetAtLeastOneArgError(byref fnName as String)
-  SetParseError(fnName & FB_STR_PAR_EXPECTS_AT_LEAST_1)
+  SetAtLeastNArgsError(fnName, 1)
 end sub
 
 private sub SetExactArgCountError(byref fnName as String, byval expectedCount as Integer, byval actualCount as Integer)
@@ -3827,7 +3873,7 @@ private function ValidateCallArity(byval minArgs as Integer, byval maxArgs as In
     return TRUE
   end if
   if argc < minArgs then
-    SetAtLeastOneArgError(fnName)
+    SetAtLeastNArgsError(fnName, minArgs)
     return FALSE
   end if
   if (maxArgs <> BUILTIN_ARITY_UNBOUNDED) andalso (argc > maxArgs) then
@@ -3860,6 +3906,48 @@ end sub
 private sub SetNonNegativeIntegerError(byref fnName as String)
   SetParseError(fnName & FB_STR_PAR_EXPECTS_A_NON_DASH)
 end sub
+
+private sub SetPositiveIntegerError(byref fnName as String)
+  SetParseError(fnName & FB_STR_PAR_EXPECTS_A_POSITIVE_INTEGER)
+end sub
+
+private sub SetRangeStepZeroError(byref fnName as String)
+  SetParseError(fnName & FB_STR_PAR_STEP_MUST_NOT_BE_ZERO)
+end sub
+
+private sub SetRangeEmptyError(byref fnName as String)
+  SetParseError(fnName & FB_STR_PAR_PRODUCES_NO_VALUES)
+end sub
+
+private sub SetTooManyValuesError(byref fnName as String)
+  SetParseError(fnName & FB_STR_PAR_PRODUCES_TOO_MANY_VALUES)
+end sub
+
+' CPython-style length of range(start, stop, step) using unsigned wraparound arithmetic.
+private function EstimateRangeItemCount(byval startV as LongInt, byval stopV as LongInt, byval stepV as LongInt) as ULongInt
+  dim uLo as ULongInt, uHi as ULongInt, uStep as ULongInt
+  if stepV > 0 then
+    if startV >= stopV then return 0ull
+    uLo = CULngInt(startV)
+    uHi = CULngInt(stopV)
+    uStep = CULngInt(stepV)
+  else
+    if startV <= stopV then return 0ull
+    uLo = CULngInt(stopV)
+    uHi = CULngInt(startV)
+    uStep = 0ull - CULngInt(stepV)
+  end if
+  return (uHi - uLo - 1ull) \ uStep + 1ull
+end function
+
+' Returns TRUE when count is within limit; FALSE sets too-many-values error.
+private function AcceptProducedItemCount(byref fnName as String, byval count as ULongInt) as Boolean
+  if count > CULngInt(BUILTIN_MAX_PRODUCED_ITEMS) then
+    SetTooManyValuesError(fnName)
+    return FALSE
+  end if
+  return TRUE
+end function
 
 private function EvalValuesHaveMismatchedArrayLengths(byref leftV as EvalValue, byref rightV as EvalValue) as Boolean
   return (leftV.kind = VK_ARRAY) andalso (rightV.kind = VK_ARRAY) andalso (ValueArrayLen(leftV) <> ValueArrayLen(rightV))
@@ -4127,6 +4215,8 @@ private function ClassifyNumericLiteralAtCursor() as Integer
     if PeekCompactTimeSuffixAfterDigitRun(digitEnd) then return NLK_COMPACT_TIME
     return NLK_PLAIN
   end if
+  '' Inside ``[...]``, top-level ``:`` is slice syntax, not a time literal (``a[1:30]``).
+  if arrayIndexBracketDepth > 0 then return NLK_PLAIN
   dim colonEnd as ZString ptr = 0
   if ScanColonTimeLiteralEnd(pStream, colonEnd) then return NLK_COLON_TIME
   return NLK_PLAIN
@@ -4237,6 +4327,7 @@ end function
 
 private function TryParseScalarTimeLiteral(byref outV as EvalValue) as Boolean
   if Parser_SupportTimeValues = FALSE then return FALSE
+  if arrayIndexBracketDepth > 0 then return FALSE
   dim p0 as ZString ptr = pStream
   dim q as ZString ptr = 0
   if ScanColonTimeLiteralEnd(p0, q) = FALSE then return FALSE
@@ -4309,44 +4400,91 @@ private function TryValidateAssignmentTargetName(byref varName as String, byref 
   return TryValidateIdentifierIsNotReserved(varName, errText)
 end function
 
-private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue as EvalValue) as Boolean
-  outValue = baseValue
-  SkipSpaces()
-  if pStream[0] <> CHAR_LBRACKET then return TRUE
-
-  pStream += 1
-  SkipSpaces()
-  if pStream[0] = CHAR_RBRACKET then
-    SetParseErrorById(PARSE_ERR_MISSING_INDEX)
-    return FALSE
-  end if
-
-  dim idxValue as EvalValue = ParseExpression()
-  if parseError then return FALSE
+private function TryGetArrayIndexIntFromEvalValue(byref idxValue as EvalValue, byref outIdx as LongInt) as Boolean
   if idxValue.kind <> VK_SCALAR then
     SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
     return FALSE
   end if
-
-  dim idxRaw as Double = idxValue.scalar
-  dim idxInt as Integer = cint(idxRaw)
-  if idxRaw <> idxInt then
+  dim sv as ScalarValue = idxValue.scalarValue
+  ScalarRepairExactMetadata(sv)
+  if ScalarHasNonzeroImaginaryPart(sv) then
     SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
     return FALSE
   end if
-  SkipSpaces()
-  if pStream[0] <> CHAR_RBRACKET then
-    if pStream[0] = CHAR_RPAREN then
-      SetParseErrorById(PARSE_ERR_MISMATCHED_CLOSING_PARENTHESIS)
-    elseif pStream[0] = CHAR_RBRACE then
-      SetParseErrorById(PARSE_ERR_MISMATCHED_CLOSING_BRACE)
-    else
-      SetParseErrorById(PARSE_ERR_MISSING_CLOSING_BRACKET)
+  select case sv.scalarStorageKind
+  case SSK_INT64
+    outIdx = sv.exactInt64
+    return TRUE
+  case SSK_UINT64
+    if sv.exactUInt64 > FB_I64_MAX_U then
+      SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
+      return FALSE
     end if
+    outIdx = CLngInt(sv.exactUInt64)
+    return TRUE
+  case else
+    SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
     return FALSE
-  end if
-  pStream += 1
+  end select
+end function
 
+private sub SetMissingClosingBracketAfterIndexError()
+  if pStream[0] = CHAR_RPAREN then
+    SetParseErrorById(PARSE_ERR_MISMATCHED_CLOSING_PARENTHESIS)
+  elseif pStream[0] = CHAR_RBRACE then
+    SetParseErrorById(PARSE_ERR_MISMATCHED_CLOSING_BRACE)
+  else
+    SetParseErrorById(PARSE_ERR_MISSING_CLOSING_BRACKET)
+  end if
+end sub
+
+' CPython slice.indices(length) normalization for start/stop/step.
+private sub NormalizePythonSliceBounds( _
+  byval length as LongInt, _
+  byval hasStart as Boolean, byval startIn as LongInt, _
+  byval hasStop as Boolean, byval stopIn as LongInt, _
+  byval stepIn as LongInt, _
+  byref outStart as LongInt, byref outStop as LongInt _
+)
+  dim stepNeg as Boolean = (stepIn < 0)
+  dim startIdx as LongInt
+  dim stopIdx as LongInt
+  if hasStart = FALSE then
+    if stepNeg then startIdx = length - 1 else startIdx = 0
+  else
+    startIdx = startIn
+    if startIdx < 0 then startIdx += length
+    if startIdx < 0 then
+      if stepNeg then startIdx = -1 else startIdx = 0
+    elseif startIdx >= length then
+      if stepNeg then startIdx = length - 1 else startIdx = length
+    end if
+  end if
+  if hasStop = FALSE then
+    if stepNeg then stopIdx = -1 else stopIdx = length
+  else
+    stopIdx = stopIn
+    if stopIdx < 0 then stopIdx += length
+    if stopIdx < 0 then
+      if stepNeg then stopIdx = -1 else stopIdx = 0
+    elseif stopIdx >= length then
+      if stepNeg then stopIdx = length - 1 else stopIdx = length
+    end if
+  end if
+  outStart = startIdx
+  outStop = stopIdx
+end sub
+
+private function EstimateSliceItemCount(byval startV as LongInt, byval stopV as LongInt, byval stepV as LongInt) as LongInt
+  if stepV > 0 then
+    if startV >= stopV then return 0
+    return (stopV - startV + stepV - 1) \ stepV
+  end if
+  if startV <= stopV then return 0
+  return (startV - stopV - stepV - 1) \ (-stepV)
+end function
+
+private function TryApplyArrayIndex(byref baseValue as EvalValue, byref idxValue as EvalValue, byref outValue as EvalValue) as Boolean
 #ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
   if functionVariableCount > 0 andalso baseValue.kind = VK_SCALAR then
     '' UDF body syntax validation: formal parameters are scalar probes; bounds checked at call time.
@@ -4360,21 +4498,205 @@ private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue
   end if
 #endif
 
+  dim idxInt as LongInt
+  if TryGetArrayIndexIntFromEvalValue(idxValue, idxInt) = FALSE then return FALSE
+
   if baseValue.kind <> VK_ARRAY then
     SetParseErrorById(PARSE_ERR_INDEXING_REQUIRES_ARRAY)
     return FALSE
   end if
 
   dim arrLen as Integer = ValueArrayLen(baseValue)
-  if idxInt < 0 then idxInt = arrLen + idxInt
-  if idxInt < 0 orelse idxInt >= arrLen then
+  dim resolved as LongInt = idxInt
+  if resolved < 0 then resolved = CLngInt(arrLen) + resolved
+  if resolved < 0 orelse resolved >= arrLen then
     SetParseErrorById(PARSE_ERR_ARRAY_INDEX_OUT_OF_RANGE)
     return FALSE
   end if
 
-  dim rawIdx as Integer = lbound(baseValue.arr) + idxInt
+  dim rawIdx as Integer = lbound(baseValue.arr) + CInt(resolved)
   ValueGetArrayElemAsScalar(baseValue, rawIdx, outValue)
   return TRUE
+end function
+
+private function TryApplyArraySlice( _
+  byref baseValue as EvalValue, _
+  byval hasStart as Boolean, byref startValue as EvalValue, _
+  byval hasStop as Boolean, byref stopValue as EvalValue, _
+  byval hasStep as Boolean, byref stepValue as EvalValue, _
+  byref outValue as EvalValue _
+) as Boolean
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+  if functionVariableCount > 0 andalso baseValue.kind = VK_SCALAR then
+    '' UDF body validation: return a 1-element probe array so chained indexing still parses.
+    dim probe as EvalValue
+    dim probeIdx as Integer = FindVariableIndex(FB_STR_FORMAL_VALIDATION_PROBE)
+    if probeIdx >= 0 andalso variables(probeIdx).value.kind = VK_SCALAR then
+      probe = variables(probeIdx).value
+    else
+      ValueSetInt64(probe, 1)
+    end if
+    dim probeVals(0 to 0) as ScalarValue
+    probeVals(0) = ScalarValueFromEvalScalar(probe)
+    ValueSetArrayFromScalarValues(outValue, probeVals())
+    return TRUE
+  end if
+#endif
+
+  dim startIdx as LongInt = 0
+  dim stopIdx as LongInt = 0
+  dim stepIdx as LongInt = 1
+  if hasStart then
+    if TryGetArrayIndexIntFromEvalValue(startValue, startIdx) = FALSE then return FALSE
+  end if
+  if hasStop then
+    if TryGetArrayIndexIntFromEvalValue(stopValue, stopIdx) = FALSE then return FALSE
+  end if
+  if hasStep then
+    if TryGetArrayIndexIntFromEvalValue(stepValue, stepIdx) = FALSE then return FALSE
+  end if
+  if stepIdx = 0 then
+    SetParseError(FB_STR_SLICE_STEP_MUST_NOT_BE_ZERO)
+    return FALSE
+  end if
+
+  if baseValue.kind <> VK_ARRAY then
+    SetParseErrorById(PARSE_ERR_INDEXING_REQUIRES_ARRAY)
+    return FALSE
+  end if
+
+  dim arrLen as LongInt = CLngInt(ValueArrayLen(baseValue))
+  dim normStart as LongInt
+  dim normStop as LongInt
+  NormalizePythonSliceBounds(arrLen, hasStart, startIdx, hasStop, stopIdx, stepIdx, normStart, normStop)
+  dim outCount as LongInt = EstimateSliceItemCount(normStart, normStop, stepIdx)
+  if outCount <= 0 then
+    ValueInitArrayLike(outValue, 0, -1)
+    return TRUE
+  end if
+
+  dim vals() as ScalarValue
+  redim vals(0 to CInt(outCount) - 1)
+  dim i as Integer
+  dim curIdx as LongInt = normStart
+  dim lb as Integer = lbound(baseValue.arr)
+  for i = 0 to CInt(outCount) - 1
+    vals(i) = baseValue.arr(lb + CInt(curIdx))
+    curIdx += stepIdx
+  next i
+  ValueSetArrayFromScalarValues(outValue, vals())
+  return TRUE
+end function
+
+private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue as EvalValue) as Boolean
+  outValue = baseValue
+  SkipSpaces()
+  if pStream[0] <> CHAR_LBRACKET then return TRUE
+
+  pStream += 1
+  arrayIndexBracketDepth += 1
+  SkipSpaces()
+  if pStream[0] = CHAR_RBRACKET then
+    arrayIndexBracketDepth -= 1
+    SetParseErrorById(PARSE_ERR_MISSING_INDEX)
+    return FALSE
+  end if
+
+  dim hasStart as Boolean = FALSE
+  dim hasStop as Boolean = FALSE
+  dim hasStep as Boolean = FALSE
+  dim startValue as EvalValue
+  dim stopValue as EvalValue
+  dim stepValue as EvalValue
+
+  if pStream[0] = CHAR_COLON then
+    hasStart = FALSE
+    pStream += 1
+  else
+    startValue = ParseExpression()
+    if parseError then
+      arrayIndexBracketDepth -= 1
+      return FALSE
+    end if
+    hasStart = TRUE
+    SkipSpaces()
+    if pStream[0] = CHAR_COLON then
+      pStream += 1
+    elseif pStream[0] = CHAR_RBRACKET then
+      pStream += 1
+      arrayIndexBracketDepth -= 1
+      return TryApplyArrayIndex(baseValue, startValue, outValue)
+    else
+      arrayIndexBracketDepth -= 1
+      SetMissingClosingBracketAfterIndexError()
+      return FALSE
+    end if
+  end if
+
+  '' Slice form: ``[start:stop:step]`` with any bound omitted (Python-compatible).
+  SkipSpaces()
+  if pStream[0] = CHAR_RBRACKET then
+    hasStop = FALSE
+    hasStep = FALSE
+  elseif pStream[0] = CHAR_COLON then
+    hasStop = FALSE
+    pStream += 1
+    SkipSpaces()
+    if pStream[0] = CHAR_RBRACKET then
+      hasStep = FALSE
+    else
+      stepValue = ParseExpression()
+      if parseError then
+        arrayIndexBracketDepth -= 1
+        return FALSE
+      end if
+      hasStep = TRUE
+      SkipSpaces()
+      if pStream[0] <> CHAR_RBRACKET then
+        arrayIndexBracketDepth -= 1
+        SetMissingClosingBracketAfterIndexError()
+        return FALSE
+      end if
+    end if
+  else
+    stopValue = ParseExpression()
+    if parseError then
+      arrayIndexBracketDepth -= 1
+      return FALSE
+    end if
+    hasStop = TRUE
+    SkipSpaces()
+    if pStream[0] = CHAR_COLON then
+      pStream += 1
+      SkipSpaces()
+      if pStream[0] = CHAR_RBRACKET then
+        hasStep = FALSE
+      else
+        stepValue = ParseExpression()
+        if parseError then
+          arrayIndexBracketDepth -= 1
+          return FALSE
+        end if
+        hasStep = TRUE
+        SkipSpaces()
+        if pStream[0] <> CHAR_RBRACKET then
+          arrayIndexBracketDepth -= 1
+          SetMissingClosingBracketAfterIndexError()
+          return FALSE
+        end if
+      end if
+    elseif pStream[0] = CHAR_RBRACKET then
+      hasStep = FALSE
+    else
+      arrayIndexBracketDepth -= 1
+      SetMissingClosingBracketAfterIndexError()
+      return FALSE
+    end if
+  end if
+
+  pStream += 1
+  arrayIndexBracketDepth -= 1
+  return TryApplyArraySlice(baseValue, hasStart, startValue, hasStop, stopValue, hasStep, stepValue, outValue)
 end function
 
 private function EvaluateUserFunction(byref fnName as String, args() as EvalValue, byref outV as EvalValue) as Boolean
@@ -9133,6 +9455,122 @@ private sub ReverseScalarValueArrayInPlace(a() as ScalarValue, byval count as In
   next i
 end sub
 
+' Returns: 1 ok, 0 not an integer count (SetIntegerValuesError), -1 non-positive integer (SetPositiveIntegerError).
+private function TryGetRepeatCountArg(byref v as EvalValue, byref outN as LongInt) as Integer
+  if v.kind = VK_ARRAY then return 0
+  if EvalValueInvolvesTime(v) then return 0
+  if Parser_SupportComplexNumbers andalso EvalValueHasNonzeroImaginary(v) then return 0
+  dim n as LongInt
+  if TryGetExactInt64(v, n) = FALSE then return 0
+  if n <= 0 then return -1
+  outN = n
+  return 1
+end function
+
+' Returns 1 when v is a scalar exact integer; 0 otherwise (integer-values error).
+private function TryGetRangeIntegerScalarArg(byref v as EvalValue, byref outN as LongInt) as Integer
+  if v.kind = VK_ARRAY then return 0
+  if EvalValueInvolvesTime(v) then return 0
+  if Parser_SupportComplexNumbers andalso EvalValueHasNonzeroImaginary(v) then return 0
+  if TryGetExactInt64(v, outN) = FALSE then return 0
+  return 1
+end function
+
+private function TryHandleBuiltinRange(byval fnId as Integer, byref fnName as String, args() as EvalValue, byref outV as EvalValue) as Boolean
+  if fnId <> FUNC_RANGE then return FALSE
+
+  dim startV as LongInt, stopV as LongInt, stepV as LongInt
+  if TryGetRangeIntegerScalarArg(args(0), startV) = 0 then
+    SetIntegerValuesError(fnName)
+    return TRUE
+  end if
+  if TryGetRangeIntegerScalarArg(args(1), stopV) = 0 then
+    SetIntegerValuesError(fnName)
+    return TRUE
+  end if
+  if ubound(args) >= 2 then
+    if TryGetRangeIntegerScalarArg(args(2), stepV) = 0 then
+      SetIntegerValuesError(fnName)
+      return TRUE
+    end if
+  else
+    stepV = 1
+  end if
+
+  if stepV = 0 then
+    SetRangeStepZeroError(fnName)
+    return TRUE
+  end if
+
+  if (stepV > 0 andalso startV >= stopV) orelse (stepV < 0 andalso startV <= stopV) then
+    SetRangeEmptyError(fnName)
+    return TRUE
+  end if
+
+  dim estimated as ULongInt = EstimateRangeItemCount(startV, stopV, stepV)
+  if estimated = 0ull then
+    SetRangeEmptyError(fnName)
+    return TRUE
+  end if
+  if AcceptProducedItemCount(fnName, estimated) = FALSE then return TRUE
+
+  dim count as Integer = CInt(estimated)
+  dim vals() as ScalarValue
+  redim vals(0 to count - 1)
+  dim cur as LongInt = startV
+  dim i as Integer
+  for i = 0 to count - 1
+    dim tmp as EvalValue
+    ValueSetInt64(tmp, cur)
+    vals(i) = tmp.scalarValue
+    if i < count - 1 then cur += stepV
+  next i
+
+  ValueSetArrayFromScalarValues(outV, vals())
+  return TRUE
+end function
+
+private function TryHandleBuiltinRepeat(byval fnId as Integer, byref fnName as String, args() as EvalValue, byref outV as EvalValue) as Boolean
+  if fnId <> FUNC_REPEAT then return FALSE
+
+  dim vals() as ScalarValue
+  dim c as Integer = CopySingleArgToScalarValues(args(0), vals(), FALSE)
+  if c <= 0 then
+    SetAtLeastOneArgError(fnName)
+    return TRUE
+  end if
+
+  dim n as LongInt
+  dim countStatus as Integer = TryGetRepeatCountArg(args(1), n)
+  if countStatus = 0 then
+    SetIntegerValuesError(fnName)
+    return TRUE
+  elseif countStatus = -1 then
+    SetPositiveIntegerError(fnName)
+    return TRUE
+  end if
+
+  dim estimated as ULongInt
+  if TryMulULongChecked(CULngInt(c), CULngInt(n), estimated) = FALSE then
+    SetTooManyValuesError(fnName)
+    return TRUE
+  end if
+  if AcceptProducedItemCount(fnName, estimated) = FALSE then return TRUE
+
+  dim total as Integer = CInt(estimated)
+  dim outVals() as ScalarValue
+  redim outVals(0 to total - 1)
+  dim rep as Integer, i as Integer, blockBase as Integer
+  for rep = 0 to CInt(n) - 1
+    blockBase = rep * c
+    for i = 0 to c - 1
+      outVals(blockBase + i) = vals(i)
+    next i
+  next rep
+  ValueSetArrayFromScalarValues(outV, outVals())
+  return TRUE
+end function
+
 sub ValueSetArrayFromScalarValues(byref outV as EvalValue, vals() as ScalarValue)
   ValueSetScalar(outV, 0)
   outV.kind = VK_ARRAY
@@ -9535,7 +9973,7 @@ private function TryBuiltinDispatchWithComplex(byval fnId as Integer, byref fnNa
     case FUNC_MIN, FUNC_MAX, FUNC_SORT, FUNC_MEDIAN, FUNC_VARIANCE, FUNC_STDDEV
       SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
       return TRUE
-    case FUNC_REVERSE, FUNC_UNIQUE, FUNC_UNPACK
+    case FUNC_REVERSE, FUNC_UNIQUE, FUNC_UNPACK, FUNC_REPEAT, FUNC_RANGE, FUNC_LEN
       return FALSE
     case else
       return FALSE
@@ -9587,7 +10025,7 @@ private function TryBuiltinDispatchWithTime(byval fnId as Integer, byref fnName 
         end if
       wend
       return FALSE
-    case FUNC_REVERSE, FUNC_UNPACK, FUNC_UNIQUE
+    case FUNC_REVERSE, FUNC_UNPACK, FUNC_UNIQUE, FUNC_REPEAT, FUNC_RANGE, FUNC_LEN
       return FALSE
     case FUNC_VARIANCE, FUNC_STDDEV
       SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
@@ -9698,6 +10136,9 @@ private function TryHandleBuiltinArrayTransform(byval fnId as Integer, byref fnN
       prep = TrySingleArgPassthroughOrCollect(args(), fnName, FALSE, outV, vals(), c)
       if prep = -1 orelse prep = 1 then return TRUE
       return TryBuiltinUniqueScalars(vals(), c, outV)
+    case FUNC_LEN
+      ValueSetInt64(outV, CountFlattenedArgs(args()))
+      return TRUE
     case else
       return FALSE
   end select
@@ -9821,6 +10262,8 @@ private function TryDispatchBuiltinCall(byval fnId as Integer, byref fnName as S
   if TryBuiltinDispatchWithTime(fnId, fnName, args(), outV) then return TRUE
   if TryEvaluateBuiltinAggregate(fnId, fnName, args(), outV) then return TRUE
   if TryBuiltinDispatchWithComplex(fnId, fnName, args(), outV) then return TRUE
+  if TryHandleBuiltinRange(fnId, fnName, args(), outV) then return TRUE
+  if TryHandleBuiltinRepeat(fnId, fnName, args(), outV) then return TRUE
   if TryHandleBuiltinArrayTransform(fnId, fnName, args(), outV) then return TRUE
   if TryHandleBuiltinScalarBinary(fnId, fnName, args(), outV) then return TRUE
   if TryHandleBuiltinSpecialScalars(fnId, fn, fnName, args(), outV) then return TRUE

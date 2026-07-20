@@ -759,6 +759,17 @@ private sub RunComplexNumberSupportOptionTests()
     subPass += 1
   end if
 
+  if Parser_TryEvaluateEx("a=range(1,101); a[7+3i]", r, rt, ia) then
+    print "[complex-opt] FAIL: a[7+3i] expected integer index error, got """ & rt & """"
+    subFail += 1
+  elseif instr(lcase(Parser_GetLastError()), "array index must be an integer") > 0 then
+    print "[complex-opt] PASS: complex index bound rejected"
+    subPass += 1
+  else
+    print "[complex-opt] FAIL: a[7+3i] expected integer index error, got """ & Parser_GetLastError() & """"
+    subFail += 1
+  end if
+
   dim cxMaxLit as String = "0x7FFFFFFFFFFFFFFF+0x7FFFFFFFFFFFFFFFi"
   dim cxMaxExactExpr(1 to 8) as String
   dim cxMaxExactExpect(1 to 8) as String
@@ -1231,8 +1242,8 @@ private sub RunComplexNumberSupportOptionTests()
   next xi
 
   ' Aggregation/array utilities with complex operands (allowed vs rejected builtins).
-  dim cxAggOk(1 to 32) as String
-  dim cxAggExpect(1 to 32) as String
+  dim cxAggOk(1 to 33) as String
+  dim cxAggExpect(1 to 33) as String
   cxAggOk(1) = "sum(1+2i, 3)": cxAggExpect(1) = "4+2i"
   cxAggOk(2) = "sum((1+2i, 3+4i))": cxAggExpect(2) = "4+6i"
   cxAggOk(3) = "prod(1+i, 2)": cxAggExpect(3) = "2+2i"
@@ -1265,9 +1276,10 @@ private sub RunComplexNumberSupportOptionTests()
   cxAggOk(30) = "unpack(2+Inf*i, 3)": cxAggExpect(30) = "(2+inf*i, 3)"
   cxAggOk(31) = "prod(5, Inf+2i, 3)": cxAggExpect(31) = "inf+30i"
   cxAggOk(32) = "prod(5, 2+Inf*i, 3)": cxAggExpect(32) = "30+inf*i"
+  cxAggOk(33) = "repeat((1, Inf, i), 2)": cxAggExpect(33) = "(1, inf, i, 1, inf, i)"
 
   dim agi as Integer
-  for agi = 1 to 32
+  for agi = 1 to 33
     if Parser_TryEvaluateEx(cxAggOk(agi), r, rt, ia) = FALSE orelse rt <> cxAggExpect(agi) then
       print "[complex-opt] FAIL: """ & cxAggOk(agi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -1276,6 +1288,28 @@ private sub RunComplexNumberSupportOptionTests()
       subPass += 1
     end if
   next agi
+
+  if Parser_TryEvaluateEx("repeat((1,2), i)", r, rt, ia) then
+    print "[complex-opt] FAIL: expected error for ""repeat((1,2), i)"" but got """ & rt & """"
+    subFail += 1
+  elseif instr(lcase(Parser_GetLastError()), "repeat() expects integer values") > 0 then
+    print "[complex-opt] PASS: ""repeat((1,2), i)"" -> repeat() expects integer values"
+    subPass += 1
+  else
+    print "[complex-opt] FAIL: ""repeat((1,2), i)"" expected repeat() expects integer values, got """ & Parser_GetLastError() & """"
+    subFail += 1
+  end if
+
+  if Parser_TryEvaluateEx("range(1, 5, i)", r, rt, ia) then
+    print "[complex-opt] FAIL: expected error for ""range(1, 5, i)"" but got """ & rt & """"
+    subFail += 1
+  elseif instr(lcase(Parser_GetLastError()), "range() expects integer values") > 0 then
+    print "[complex-opt] PASS: ""range(1, 5, i)"" -> range() expects integer values"
+    subPass += 1
+  else
+    print "[complex-opt] FAIL: ""range(1, 5, i)"" expected range() expects integer values, got """ & Parser_GetLastError() & """"
+    subFail += 1
+  end if
 
   dim cxAggErr(1 to 12) as String
   cxAggErr(1) = "min(1+2i, 3)"
@@ -2642,8 +2676,8 @@ private sub RunTimeValuesSupportOptionTests()
     end if
   end if
 
-  dim timeAggOk(1 to 10) as String
-  dim timeAggExpect(1 to 10) as String
+  dim timeAggOk(1 to 11) as String
+  dim timeAggExpect(1 to 11) as String
   timeAggOk(1) = "sum(0:30, 1:00)": timeAggExpect(1) = "01:30"
   timeAggOk(2) = "avg(0:30, 1:30)": timeAggExpect(2) = "01:00"
   timeAggOk(3) = "mean(0:20, 1:00)": timeAggExpect(3) = "00:40"
@@ -2654,8 +2688,9 @@ private sub RunTimeValuesSupportOptionTests()
   timeAggOk(8) = "unpack(0:30, Inf)": timeAggExpect(8) = "(00:30, inf)"
   timeAggOk(9) = "unique(0:30, Inf, 0:30)": timeAggExpect(9) = "(00:30, inf)"
   timeAggOk(10) = "ratio((hours(1:00), 15m/1h))": timeAggExpect(10) = "(1/60, 1/4)"
+  timeAggOk(11) = "repeat((1:00, 2:00), 2)": timeAggExpect(11) = "(01:00, 02:00, 01:00, 02:00)"
   dim tai as Integer
-  for tai = 1 to 10
+  for tai = 1 to 11
     if Parser_TryEvaluateEx(timeAggOk(tai), r, rt, ia) = FALSE orelse rt <> timeAggExpect(tai) then
       print "[time-opt] FAIL: """ & timeAggOk(tai) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -2792,7 +2827,7 @@ private sub RunLambdaFunctionsSupportOptionTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1320) as SmokeCase
+  dim tests(1 to 1402) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4167,6 +4202,90 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1318).expr = "0xAA; hex;": tests(1318).expected = "0xAA" ' [syntax] trailing formatter sugar + semicolon
   tests(1319).expr = "(10,20,30); hex()": tests(1319).expected = "(0xA,0x14,0x1E)" ' [syntax] formatter sugar on array ans
   tests(1320).expr = "(10,20,30); hex;": tests(1320).expected = "(0xA,0x14,0x1E)" ' [syntax] formatter sugar bare name + semicolon
+  tests(1321).expr = "repeat(0, 3)": tests(1321).expected = "(0, 0, 0)" ' [repeat] scalar
+  tests(1322).expr = "repeat((10), 5)": tests(1322).expected = "(10, 10, 10, 10, 10)" ' [repeat] single-element array
+  tests(1323).expr = "repeat((1,2), 1)": tests(1323).expected = "(1, 2)" ' [repeat] array once
+  tests(1324).expr = "repeat(5, 2)": tests(1324).expected = "(5, 5)" ' [repeat] scalar twice
+  tests(1325).expr = "repeat(1, 0)": tests(1325).expectedErrContains = "repeat() expects a positive integer" ' [repeat] zero count
+  tests(1326).expr = "repeat(10, -3)": tests(1326).expectedErrContains = "repeat() expects a positive integer" ' [repeat] negative count
+  tests(1327).expr = "repeat((1,2), -1)": tests(1327).expectedErrContains = "repeat() expects a positive integer" ' [repeat] negative count array
+  tests(1328).expr = "repeat((1,2), 1.23)": tests(1328).expectedErrContains = "repeat() expects integer values" ' [repeat] non-integer count
+  tests(1329).expr = "repeat": tests(1329).expectedErrContains = "function: repeat(x, n)" ' [repeat] hint
+  tests(1330).expr = "repeat()": tests(1330).expectedErrContains = "expects 2 argument(s)" ' [repeat] arity
+  tests(1331).expr = "repeat(1)": tests(1331).expectedErrContains = "expects 2 argument(s)" ' [repeat] arity
+  tests(1332).expr = "repeat(1,2,3)": tests(1332).expectedErrContains = "expects 2 argument(s)" ' [repeat] arity
+  tests(1333).expr = "repeat((1,2), 1:00)": tests(1333).expectedErrContains = "repeat() expects integer values" ' [repeat] time count
+  tests(1334).expr = "a=repeat((18446744073709551615,2), 2); uhex(a[2])": tests(1334).expected = "0xFFFFFFFFFFFFFFFF" ' [repeat] int64 metadata on repeated copy
+  tests(1335).expr = "range(1, 4)": tests(1335).expected = "(1, 2, 3)" ' [range] two-arg exclusive stop
+  tests(1336).expr = "range(1, 10, 3)": tests(1336).expected = "(1, 4, 7)" ' [range] three-arg step
+  tests(1337).expr = "range(10, 0, -2)": tests(1337).expected = "(10, 8, 6, 4, 2)" ' [range] negative step
+  tests(1338).expr = "range(1, 2)": tests(1338).expected = "(1)" ' [range] single value
+  tests(1339).expr = "range(-1, 2)": tests(1339).expected = "(-1, 0, 1)" ' [range] negative start
+  tests(1340).expr = "range(1, 10, 0)": tests(1340).expectedErrContains = "range() step must not be zero" ' [range] zero step
+  tests(1341).expr = "range(1, 10, -1)": tests(1341).expectedErrContains = "range() produces no values" ' [range] empty forward
+  tests(1342).expr = "range(10, 0, 2)": tests(1342).expectedErrContains = "range() produces no values" ' [range] empty reverse
+  tests(1343).expr = "range(0, 0, 2)": tests(1343).expectedErrContains = "range() produces no values" ' [range] empty equal bounds
+  tests(1344).expr = "range(1, 1)": tests(1344).expectedErrContains = "range() produces no values" ' [range] empty default step
+  tests(1345).expr = "range(5, 1)": tests(1345).expectedErrContains = "range() produces no values" ' [range] empty start>=stop
+  tests(1346).expr = "range(1, 2, 1.5)": tests(1346).expectedErrContains = "range() expects integer values" ' [range] float step
+  tests(1347).expr = "range((1,2), 5)": tests(1347).expectedErrContains = "range() expects integer values" ' [range] array arg
+  tests(1348).expr = "range(1, 1:00)": tests(1348).expectedErrContains = "range() expects integer values" ' [range] time arg
+  tests(1349).expr = "range": tests(1349).expectedErrContains = "function: range(start, stop [, step])" ' [range] hint
+  tests(1350).expr = "range()": tests(1350).expectedErrContains = "expects at least 2 arguments" ' [range] arity
+  tests(1351).expr = "range(1)": tests(1351).expectedErrContains = "expects at least 2 arguments" ' [range] arity
+  tests(1352).expr = "range(1,2,3,4)": tests(1352).expectedErrContains = "expects 3 argument(s)" ' [range] arity
+  tests(1353).expr = "hex(range(1,4)[0])": tests(1353).expected = "0x1" ' [range] int64 metadata
+  tests(1354).expr = "sum(range(1,4))": tests(1354).expected = "6" ' [range] aggregate use
+  tests(1355).expr = "range(1, 10, 2)": tests(1355).expected = "(1, 3, 5, 7, 9)" ' [range] even step
+  tests(1356).expr = "range(1, 1001)[999]": tests(1356).expected = "1000" ' [range] max length boundary
+  tests(1357).expr = "range(1, 1002)": tests(1357).expectedErrContains = "range() produces too many values" ' [range] over max length
+  tests(1358).expr = "range(1, 2**53)": tests(1358).expectedErrContains = "range() produces too many values" ' [range] huge length guard
+  tests(1359).expr = "repeat(0, 1000)[999]": tests(1359).expected = "0" ' [repeat] max length boundary
+  tests(1360).expr = "repeat(0, 1001)": tests(1360).expectedErrContains = "repeat() produces too many values" ' [repeat] over max length
+  tests(1361).expr = "repeat((1,2), 500)[999]": tests(1361).expected = "2" ' [repeat] array at max length
+  tests(1362).expr = "repeat((1,2), 501)": tests(1362).expectedErrContains = "repeat() produces too many values" ' [repeat] array over max
+  tests(1363).expr = "repeat(1, 2**53)": tests(1363).expectedErrContains = "repeat() produces too many values" ' [repeat] huge length guard
+  tests(1364).expr = "len((10,20,30))": tests(1364).expected = "3" ' [len] array
+  tests(1365).expr = "len(1:30)": tests(1365).expected = "1" ' [len] time scalar
+  tests(1366).expr = "len(range(0,10))": tests(1366).expected = "10" ' [len] range result
+  tests(1367).expr = "len(1,2,3)": tests(1367).expected = "3" ' [len] variadic
+  tests(1368).expr = "len()": tests(1368).expected = "0" ' [len] empty call
+  tests(1369).expr = "len(())": tests(1369).expected = "0" ' [len] empty array
+  tests(1370).expr = "len(1, (2, 3))": tests(1370).expected = "3" ' [len] flatten mixed args
+  tests(1371).expr = "len(42)": tests(1371).expected = "1" ' [len] numeric scalar
+  tests(1372).expr = "len(nan)": tests(1372).expected = "1" ' [len] non-finite scalar
+  tests(1373).expr = "length((1,2))": tests(1373).expected = "2" ' [len] alias
+  tests(1374).expr = "len": tests(1374).expectedErrContains = "function: len(x)" ' [len] hint
+  tests(1375).expr = "length": tests(1375).expectedErrContains = "function: len(x)" ' [len] alias hint
+
+  ' === Array slicing (Python-compatible start:stop:step; empty -> ()) ===
+  tests(1376).expr = "a=(1,2,3,4,5,6,7,8,9); a[2:7]": tests(1376).expected = "(3, 4, 5, 6, 7)" ' [slice]
+  tests(1377).expr = "a=(1,2,3,4,5,6,7,8,9); a[3:-3]": tests(1377).expected = "(4, 5, 6)" ' [slice]
+  tests(1378).expr = "a=(1,2,3,4,5,6,7,8,9); a[0:1]": tests(1378).expected = "(1)" ' [slice]
+  tests(1379).expr = "a=(1,2,3,4,5,6,7,8,9); a[-3:-2]": tests(1379).expected = "(7)" ' [slice]
+  tests(1380).expr = "a=(1,2,3,4,5,6,7,8,9); a[-2:-3]": tests(1380).expected = "()" ' [slice] empty
+  tests(1381).expr = "a=(1,2,3,4,5,6,7,8,9); a[3:1]": tests(1381).expected = "()" ' [slice] empty
+  tests(1382).expr = "a=(1,2,3,4,5,6,7,8,9); a[1:1]": tests(1382).expected = "()" ' [slice] empty
+  tests(1383).expr = "a=(1,2,3,4,5,6,7,8,9); a[11:11]": tests(1383).expected = "()" ' [slice] empty clamp
+  tests(1384).expr = "a=(1,2,3,4,5,6,7,8,9); a[:3]": tests(1384).expected = "(1, 2, 3)" ' [slice] omit start
+  tests(1385).expr = "a=(1,2,3,4,5,6,7,8,9); a[3:]": tests(1385).expected = "(4, 5, 6, 7, 8, 9)" ' [slice] omit stop
+  tests(1386).expr = "a=(1,2,3,4,5,6,7,8,9); a[:]": tests(1386).expected = "(1, 2, 3, 4, 5, 6, 7, 8, 9)" ' [slice] copy
+  tests(1387).expr = "a=(1,2,3,4,5,6,7,8,9); a[::2]": tests(1387).expected = "(1, 3, 5, 7, 9)" ' [slice] step
+  tests(1388).expr = "a=(1,2,3,4,5,6,7,8,9); a[1:8:2]": tests(1388).expected = "(2, 4, 6, 8)" ' [slice] step
+  tests(1389).expr = "a=(1,2,3,4,5,6,7,8,9); a[::-1]": tests(1389).expected = "(9, 8, 7, 6, 5, 4, 3, 2, 1)" ' [slice] reverse
+  tests(1390).expr = "a=(1,2,3,4,5,6,7,8,9); a[8:1:-2]": tests(1390).expected = "(9, 7, 5, 3)" ' [slice] neg step
+  tests(1391).expr = "a=(1,2,3,4,5,6,7,8,9); a[1:30]": tests(1391).expected = "(2, 3, 4, 5, 6, 7, 8, 9)" ' [slice] not time lit
+  tests(1392).expr = "a=(1,2,3,4,5,6,7,8,9); a[::0]": tests(1392).expectedErrContains = "slice step must not be zero" ' [slice]
+  tests(1393).expr = "a=(1,2,3,4,5,6,7,8,9); a[1.5:3]": tests(1393).expectedErrContains = "array index must be an integer" ' [slice]
+  tests(1394).expr = "(10,20,30)[1:2]": tests(1394).expected = "(20)" ' [slice] literal base
+  tests(1395).expr = "a=(1,2,3,4,5); a[1:4][0]": tests(1395).expected = "2" ' [slice] chain to index
+  tests(1396).expr = "a=(1,2,3,4,5,6,7,8,9); a[-100:100]": tests(1396).expected = "(1, 2, 3, 4, 5, 6, 7, 8, 9)" ' [slice] clamp
+  tests(1397).expr = "a=(1,2,3,4,5,6,7,8,9); a[100:-100:-1]": tests(1397).expected = "(9, 8, 7, 6, 5, 4, 3, 2, 1)" ' [slice] clamp neg
+  tests(1398).expr = "_=(1,2,3,4,5,6); ff(a)=a[1:4]; ff(_)": tests(1398).expected = "(2, 3, 4)" ' [udf] formal slice
+  tests(1399).expr = "a=(1,2,3,4,5,6,7,8,9); i=2; j=7; a[i:j]": tests(1399).expected = "(3, 4, 5, 6, 7)" ' [slice] expr bounds
+  tests(1400).expr = "5[0:1]": tests(1400).expectedErrContains = "indexing requires an array value" ' [slice]
+  tests(1401).expr = "a=range(1,101); a[1m3s]": tests(1401).expectedErrContains = "array index must be an integer" ' [slice] time index
+  tests(1402).expr = "a=range(1,101); a[1m:1m3s]": tests(1402).expectedErrContains = "array index must be an integer" ' [slice] time slice bounds
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer
