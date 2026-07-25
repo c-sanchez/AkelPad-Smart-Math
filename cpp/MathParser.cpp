@@ -76,6 +76,7 @@ const MathParser::BuiltinMetaRow MathParser::kBuiltinMeta[] = {
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Reverse
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Unique
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Unpack
+    { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Flat
     { BF::NonCalculating, 2, 2, BHK::XN, BC::Repeat },  // Repeat
     { BF::NonCalculating, 0, MathParser::kBuiltinArityUnbounded, BHK::X, BC::ArrayTransform },  // Len
     { BF::Unary | BF::IntegerOnly, 1, 1, BHK::N, BC::Factorial },  // Fact
@@ -114,7 +115,7 @@ const MathParser::BuiltinMetaRow MathParser::kBuiltinMeta[] = {
 constexpr std::size_t builtinMetaRowCountForAssert() {
   return sizeof(MathParser::kBuiltinMeta) / sizeof(MathParser::kBuiltinMeta[0]);
 }
-static_assert(builtinMetaRowCountForAssert() == 76, "kBuiltinMeta size mismatch");
+static_assert(builtinMetaRowCountForAssert() == 77, "kBuiltinMeta size mismatch");
 
 
 namespace {
@@ -740,6 +741,7 @@ constexpr const char* STR_REVERSE = "reverse";
 constexpr const char* STR_REVERSED = "reversed";
 constexpr const char* STR_UNIQUE = "unique";
 constexpr const char* STR_UNPACK = "unpack";
+constexpr const char* STR_FLAT = "flat";
 constexpr const char* STR_REPEAT = "repeat";
 constexpr const char* STR_LEN = "len";
 constexpr const char* STR_LENGTH = "length";
@@ -2227,7 +2229,7 @@ const std::vector<std::string>& MathParser::functionNames() {
       STR_ASIN,   STR_ACOS, STR_ATAN, STR_SINH, STR_COSH,     STR_TANH, STR_ACOSH, STR_ASINH, STR_ATANH, STR_EXP,
       STR_LOG,    STR_LN,     STR_LOG10, STR_SQRT,   STR_SQR,      STR_INT,  STR_FRAC,    STR_ABS,  STR_FLOOR,
       STR_CEIL,   STR_TRUNC,  STR_ROUND, STR_SIGN,   STR_DEG,      STR_RAD,  STR_SUM,   STR_MEDIAN,   STR_VARIANCE, STR_STDDEV,
-      STR_SORT,   STR_SORTBY, STR_RATIO, STR_RANGE, STR_REVERSE, STR_UNIQUE, STR_UNPACK, STR_REPEAT, STR_LEN, STR_FACT, STR_FACTORINT, STR_AVG, STR_MEAN,
+      STR_SORT,   STR_SORTBY, STR_RATIO, STR_RANGE, STR_REVERSE, STR_UNIQUE, STR_UNPACK, STR_FLAT, STR_REPEAT, STR_LEN, STR_FACT, STR_FACTORINT, STR_AVG, STR_MEAN,
       STR_MOD,    STR_CLAMP,  STR_HYPOT, STR_GCD,    STR_LCM,      STR_NCR, STR_NPR, STR_PRODUCT, STR_MIN, STR_MAX,
       STR_UHEX,   STR_UOCT,   STR_UBIN, STR_MILLISECONDS, STR_SECONDS, STR_MINUTES, STR_HOURS, STR_DAYS,
       STR_REAL,   STR_IMAG,   STR_PHASE, STR_POLAR, STR_CART, STR_CONJ};
@@ -11395,6 +11397,9 @@ MathParser::EvalValue MathParser::builtinSortFamily(
       dedupUniqueInPlace(out);
       return makeArrayFromScalars(out);
     }
+    if (id == BuiltinFunctionId::Flat) {
+      return makeArrayFromScalars(out);
+    }
   }
 
   std::vector<EvalValue> flat;
@@ -11406,7 +11411,7 @@ MathParser::EvalValue MathParser::builtinSortFamily(
     sortScalarsInPlace(flat);
   } else if (id == BuiltinFunctionId::Reverse) {
     std::reverse(flat.begin(), flat.end());
-  } else {
+  } else if (id == BuiltinFunctionId::Unique) {
     dedupUniqueInPlace(flat);
   }
   return makeArrayFromScalars(flat);

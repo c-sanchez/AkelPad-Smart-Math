@@ -3523,6 +3523,7 @@ std::vector<TestCase> buildRatioInExpressionCases() {
                  if (!expectEval(p, "reverse(ratio(1/2),ratio(1))", "(1, 1/2)", why)) return false;
                  if (!expectEval(p, "unpack(ratio(1),ratio(1/2))", "(1, 1/2)", why)) return false;
                  if (!expectEval(p, "unique(ratio(1),ratio(0.5),ratio(1))", "(1, 1/2)", why)) return false;
+                 if (!expectEval(p, "flat(ratio(1),ratio(1/2))", "(1, 1/2)", why)) return false;
                  if (!expectEval(p, "sort((ratio(3),ratio(1),ratio(1/2)))", "(1/2, 1, 3)", why)) return false;
 #if SMARTMATH_LAMBDA_FUNCTIONS
                  if (!expectEval(p, "sortby((ratio(3),ratio(1/2)),x:x)", "(1/2, 3)", why)) return false;
@@ -4151,6 +4152,18 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "reverse()", "expects at least 1 argument"} ,
     {ParityBasicCase::Kind::Expected, "reverse((2,5,1),4,3)", "(3,4,1,5,2)"} ,
     {ParityBasicCase::Kind::ErrorContains, "reverse(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2); b=(4,5); flat(a,3,b,6)", "(1,2,3,4,5,6)"} ,
+    {ParityBasicCase::Kind::Expected, "flat(5)", "(5)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((1,2,3))", "(1,2,3)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat()", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat", "function: flat(...)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x*y; f(flat((2,3)))", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"} ,
+    {ParityBasicCase::Kind::Expected, "a=flat((18446744073709551615,2)); uhex(a[0])", "0xFFFFFFFFFFFFFFFF"} ,
+    {ParityBasicCase::Kind::Expected, "flat(1,2,1,2,3)", "(1,2,1,2,3)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((9,8,7))", "(9,8,7)"} ,
     {ParityBasicCase::Kind::Expected, "(10,20,30)[0]", "10"} ,
     {ParityBasicCase::Kind::Expected, "(10,20,30)[2]", "30"} ,
     {ParityBasicCase::Kind::Expected, "(10,20,30)[-1]", "30"} ,
@@ -4447,6 +4460,7 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "reversed(1,Inf,2)", "(2,inf,1)"},
     {ParityBasicCase::Kind::Expected, "unique(1,Inf,2,Inf)", "(1,inf,2)"},
     {ParityBasicCase::Kind::Expected, "unpack(1,Inf,2)", "(1,inf,2)"},
+    {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"},
     {ParityBasicCase::Kind::Expected, "sum(unpack(1,Inf,2))", "inf"},
     {ParityBasicCase::Kind::Expected, "sortby((1,Inf,2),abs)", "(1,2,inf)"}
 };
@@ -4718,7 +4732,8 @@ std::vector<TestCase> buildTimeValuesSupportOptionCases() {
                      {"unpack(0:30, Inf)", "(00:30,inf)"},
                      {"unique(0:30, Inf, 0:30)", "(00:30,inf)"},
                      {"ratio((hours(1:00), 15m/1h))", "(1/60,1/4)"},
-                     {"repeat((1:00, 2:00), 2)", "(01:00,02:00,01:00,02:00)"}
+                     {"repeat((1:00, 2:00), 2)", "(01:00,02:00,01:00,02:00)"},
+                     {"flat(0:30, Inf, 1:00)", "(00:30,inf,01:00)"}
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5612,6 +5627,9 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"unique(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
                      {"unpack(2+Inf*i, 3)", "(2+inf*i,3)"},
                      {"repeat((1, Inf, i), 2)", "(1,inf,i,1,inf,i)"},
+                     {"flat((1+2i, 3), 4)", "(1+2i,3,4)"},
+                     {"flat(1, Inf+2i, 3)", "(1,inf+2i,3)"},
+                     {"flat(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);

@@ -1242,8 +1242,8 @@ private sub RunComplexNumberSupportOptionTests()
   next xi
 
   ' Aggregation/array utilities with complex operands (allowed vs rejected builtins).
-  dim cxAggOk(1 to 33) as String
-  dim cxAggExpect(1 to 33) as String
+  dim cxAggOk(1 to 36) as String
+  dim cxAggExpect(1 to 36) as String
   cxAggOk(1) = "sum(1+2i, 3)": cxAggExpect(1) = "4+2i"
   cxAggOk(2) = "sum((1+2i, 3+4i))": cxAggExpect(2) = "4+6i"
   cxAggOk(3) = "prod(1+i, 2)": cxAggExpect(3) = "2+2i"
@@ -1277,9 +1277,12 @@ private sub RunComplexNumberSupportOptionTests()
   cxAggOk(31) = "prod(5, Inf+2i, 3)": cxAggExpect(31) = "inf+30i"
   cxAggOk(32) = "prod(5, 2+Inf*i, 3)": cxAggExpect(32) = "30+inf*i"
   cxAggOk(33) = "repeat((1, Inf, i), 2)": cxAggExpect(33) = "(1, inf, i, 1, inf, i)"
+  cxAggOk(34) = "flat((1+2i, 3), 4)": cxAggExpect(34) = "(1+2i, 3, 4)"
+  cxAggOk(35) = "flat(1, Inf+2i, 3)": cxAggExpect(35) = "(1, inf+2i, 3)"
+  cxAggOk(36) = "flat(1, 2+Inf*i, 3)": cxAggExpect(36) = "(1, 2+inf*i, 3)"
 
   dim agi as Integer
-  for agi = 1 to 33
+  for agi = 1 to 36
     if Parser_TryEvaluateEx(cxAggOk(agi), r, rt, ia) = FALSE orelse rt <> cxAggExpect(agi) then
       print "[complex-opt] FAIL: """ & cxAggOk(agi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -2150,8 +2153,8 @@ private sub RunRatioInExpressionTests()
   dim rt as String
   dim ia as Boolean
 
-  dim okExprs(1 to 29) as String
-  dim okNeed(1 to 29) as String
+  dim okExprs(1 to 30) as String
+  dim okNeed(1 to 30) as String
   okExprs(1) = "ratio(1.3456)+1": okNeed(1) = "2.3456"
   okExprs(2) = "ratio(1.3456)*10": okNeed(2) = "13.456"
   okExprs(3) = "ratio(1.3456)-1": okNeed(3) = "0.3456"
@@ -2181,8 +2184,9 @@ private sub RunRatioInExpressionTests()
   okExprs(27) = "round(ratio(1.3456))": okNeed(27) = "1"
   okExprs(28) = "min(ratio(1.3456), 2)": okNeed(28) = "841/625"
   okExprs(29) = "max(ratio(1.3456), 2)": okNeed(29) = "2"
+  okExprs(30) = "flat(ratio(1),ratio(1/2))": okNeed(30) = "(1, 1/2)"
   dim ri as Integer
-  for ri = 1 to 29
+  for ri = 1 to 30
     if Parser_TryEvaluateEx(okExprs(ri), r, rt, ia) = FALSE then
       print "[ratio-expr] FAIL: """ & okExprs(ri) & """ -> " & Parser_GetLastError()
       subFail += 1
@@ -2676,8 +2680,8 @@ private sub RunTimeValuesSupportOptionTests()
     end if
   end if
 
-  dim timeAggOk(1 to 11) as String
-  dim timeAggExpect(1 to 11) as String
+  dim timeAggOk(1 to 12) as String
+  dim timeAggExpect(1 to 12) as String
   timeAggOk(1) = "sum(0:30, 1:00)": timeAggExpect(1) = "01:30"
   timeAggOk(2) = "avg(0:30, 1:30)": timeAggExpect(2) = "01:00"
   timeAggOk(3) = "mean(0:20, 1:00)": timeAggExpect(3) = "00:40"
@@ -2689,8 +2693,9 @@ private sub RunTimeValuesSupportOptionTests()
   timeAggOk(9) = "unique(0:30, Inf, 0:30)": timeAggExpect(9) = "(00:30, inf)"
   timeAggOk(10) = "ratio((hours(1:00), 15m/1h))": timeAggExpect(10) = "(1/60, 1/4)"
   timeAggOk(11) = "repeat((1:00, 2:00), 2)": timeAggExpect(11) = "(01:00, 02:00, 01:00, 02:00)"
+  timeAggOk(12) = "flat(0:30, Inf, 1:00)": timeAggExpect(12) = "(00:30, inf, 01:00)"
   dim tai as Integer
-  for tai = 1 to 11
+  for tai = 1 to 12
     if Parser_TryEvaluateEx(timeAggOk(tai), r, rt, ia) = FALSE orelse rt <> timeAggExpect(tai) then
       print "[time-opt] FAIL: """ & timeAggOk(tai) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -2827,7 +2832,7 @@ private sub RunLambdaFunctionsSupportOptionTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1402) as SmokeCase
+  dim tests(1 to 1414) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4286,6 +4291,20 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1400).expr = "5[0:1]": tests(1400).expectedErrContains = "indexing requires an array value" ' [slice]
   tests(1401).expr = "a=range(1,101); a[1m3s]": tests(1401).expectedErrContains = "array index must be an integer" ' [slice] time index
   tests(1402).expr = "a=range(1,101); a[1m:1m3s]": tests(1402).expectedErrContains = "array index must be an integer" ' [slice] time slice bounds
+
+  ' === flat(...) - concatenate to one array (no unpack expand-args) ===
+  tests(1403).expr = "a=(1,2); b=(4,5); flat(a,3,b,6)": tests(1403).expected = "(1,2,3,4,5,6)" ' [flat] mixed arrays/scalars
+  tests(1404).expr = "flat(5)": tests(1404).expected = "(5)" ' [flat] single scalar -> array
+  tests(1405).expr = "flat((1,2,3))": tests(1405).expected = "(1,2,3)" ' [flat] single array passthrough
+  tests(1406).expr = "flat((1,2),3,(4,5))": tests(1406).expected = "(1,2,3,4,5)" ' [flat] multi-arg
+  tests(1407).expr = "flat()": tests(1407).expectedErrContains = "expects at least 1 argument" ' [flat] arity
+  tests(1408).expr = "flat(())": tests(1408).expectedErrContains = "expects at least 1 argument" ' [flat] empty array
+  tests(1409).expr = "flat": tests(1409).expectedErrContains = "function: flat(...)" ' [flat] hint
+  tests(1410).expr = "f(x,y)=x*y; f(flat((2,3)))": tests(1410).expectedErrContains = "expects 2 argument(s)" ' [flat] no call spreading
+  tests(1411).expr = "flat(1,Inf,2)": tests(1411).expected = "(1,inf,2)" ' [flat] keep non-finite
+  tests(1412).expr = "a=flat((18446744073709551615,2)); uhex(a[0])": tests(1412).expected = "0xFFFFFFFFFFFFFFFF" ' [flat] int64 metadata
+  tests(1413).expr = "flat(1,2,1,2,3)": tests(1413).expected = "(1,2,1,2,3)" ' [flat] keep duplicates
+  tests(1414).expr = "flat((9,8,7))": tests(1414).expected = "(9,8,7)" ' [flat] single-arg array edge
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

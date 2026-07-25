@@ -81,6 +81,7 @@ const FB_STR_REVERSE as string = "reverse"
 const FB_STR_REVERSED as string = "reversed"
 const FB_STR_UNIQUE as string = "unique"
 const FB_STR_UNPACK as string = "unpack"
+const FB_STR_FLAT as string = "flat"
 const FB_STR_REPEAT as string = "repeat"
 const FB_STR_LEN as string = "len"
 const FB_STR_LENGTH as string = "length"
@@ -432,6 +433,7 @@ enum BuiltinFunctionId
   FUNC_REVERSE
   FUNC_UNIQUE
   FUNC_UNPACK
+  FUNC_FLAT
   FUNC_REPEAT
   FUNC_LEN
   FUNC_FACT
@@ -1277,6 +1279,7 @@ dim shared as BuiltinMetaRow K_BUILTIN_META_ROWS(0 to FUNC__COUNT - 1) = { _
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Reverse
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Unique
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Unpack
+  (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Flat
   (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_X_N, USK_NONE, BC_REPEAT), _ ' Repeat
   (BUILTIN_FLAG_NON_CALCULATING, 0, BUILTIN_META_ARITY_UNBOUNDED, BHK_X, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Len
   (BUILTIN_FLAG_UNARY or BUILTIN_FLAG_INTEGER_ONLY, 1, 1, BHK_N, USK_NONE, BC_FACTORIAL), _ ' Fact
@@ -1416,6 +1419,7 @@ private sub EnsureFunctionNames()
   FunctionNames(FUNC_REVERSE) = FB_STR_REVERSE
   FunctionNames(FUNC_UNIQUE) = FB_STR_UNIQUE
   FunctionNames(FUNC_UNPACK) = FB_STR_UNPACK
+  FunctionNames(FUNC_FLAT) = FB_STR_FLAT
   FunctionNames(FUNC_REPEAT) = FB_STR_REPEAT
   FunctionNames(FUNC_LEN) = FB_STR_LEN
   FunctionNames(FUNC_FACT) = FB_STR_FACT
@@ -9973,7 +9977,7 @@ private function TryBuiltinDispatchWithComplex(byval fnId as Integer, byref fnNa
     case FUNC_MIN, FUNC_MAX, FUNC_SORT, FUNC_MEDIAN, FUNC_VARIANCE, FUNC_STDDEV
       SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
       return TRUE
-    case FUNC_REVERSE, FUNC_UNIQUE, FUNC_UNPACK, FUNC_REPEAT, FUNC_RANGE, FUNC_LEN
+    case FUNC_REVERSE, FUNC_UNIQUE, FUNC_UNPACK, FUNC_FLAT, FUNC_REPEAT, FUNC_RANGE, FUNC_LEN
       return FALSE
     case else
       return FALSE
@@ -10025,7 +10029,7 @@ private function TryBuiltinDispatchWithTime(byval fnId as Integer, byref fnName 
         end if
       wend
       return FALSE
-    case FUNC_REVERSE, FUNC_UNPACK, FUNC_UNIQUE, FUNC_REPEAT, FUNC_RANGE, FUNC_LEN
+    case FUNC_REVERSE, FUNC_UNPACK, FUNC_UNIQUE, FUNC_FLAT, FUNC_REPEAT, FUNC_RANGE, FUNC_LEN
       return FALSE
     case FUNC_VARIANCE, FUNC_STDDEV
       SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
@@ -10120,6 +10124,11 @@ private function TryHandleBuiltinArrayTransform(byval fnId as Integer, byref fnN
       prep = TrySingleArgPassthroughOrCollect(args(), fnName, FALSE, outV, vals(), c)
       if prep = -1 orelse prep = 1 then return TRUE
       ReverseScalarValueArrayInPlace(vals(), c)
+      ValueSetArrayFromScalarValues(outV, vals())
+      return TRUE
+    case FUNC_FLAT
+      prep = TrySingleArgPassthroughOrCollect(args(), fnName, FALSE, outV, vals(), c)
+      if prep = -1 orelse prep = 1 then return TRUE
       ValueSetArrayFromScalarValues(outV, vals())
       return TRUE
     case FUNC_UNPACK

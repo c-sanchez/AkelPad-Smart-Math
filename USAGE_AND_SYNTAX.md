@@ -435,6 +435,7 @@ Quick index (alphabetical):
 | `exp(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `fact/factorial(n)` | [Numeric Utilities](#numeric-utilities) |
 | `factorint(n)` | [Numeric Utilities](#numeric-utilities) |
+| `flat(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `floor(value)` | [Numeric Utilities](#numeric-utilities) |
 | `frac/fract(value)` | [Numeric Utilities](#numeric-utilities) |
 | `gcd(a, b)` | [Numeric Utilities](#numeric-utilities) |
@@ -650,6 +651,7 @@ Purpose: aggregate and transform values/lists.
 - `sortby(array, func)` - stable sort of `array` by `func(value)` per element
 - `reverse(...)`, `reversed(...)` - reversed flattened values
 - `unique(...)` - first-occurrence unique values
+- `flat(...)` - concatenate scalars and arrays into one flat array
 - `unpack(...)` - expand arrays into positional arguments
 - `len(x)`, `length(x)` - flattened array length
 - `range(start, stop [, step])` - integer sequence from `start` up to but not including `stop`; optional `step` defaults to `1` (Python-style); result length is capped at 1000
@@ -668,6 +670,7 @@ Purpose: aggregate and transform values/lists.
   - `sortby((1,2), (x):(1/x))` -> `(2, 1)` (parenthesized lambda body; keys `0.5`, `1`; ascending order)
   - `sortby((5,1), ():1)` -> error (`sortby expects a function that takes 1 parameter`; zero-parameter lambdas are not allowed as the sort key)
   - `unique(3,1,3,2,1,2)` -> `(3, 1, 2)`
+  - `a=(1,2); b=(4,5); flat(a,3,b,6)` -> `(1, 2, 3, 4, 5, 6)`
   - `a=(5,2); pow(unpack(a))` -> `25`
   - `len(1,2,3)` -> `3`
   - `len(range(0,10))` -> `10`
@@ -682,7 +685,7 @@ Notes:
 - Aggregation functions flatten array inputs.
 - `variance` and `stddev` use population formulas (`N`, not `N-1`).
 - With complex support enabled (see **Complex Numbers**):
-  - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `unpack`, and `len`/`length` accept complex scalars and arrays;
+  - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `flat`, `unpack`, and `len`/`length` accept complex scalars and arrays;
   - `min`, `max`, `sort`, `median`, `variance`, and `stddev` do not;
   - `sortby` accepts complex arrays when the key function supports complex scalars (for example `abs`).
 
