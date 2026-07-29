@@ -690,6 +690,125 @@ sub UpdateInternalState(byval hWnd as HWND, byref bVisible as BOOL)
   end if
 end sub
 
+' Client-area strip for one edit line (full width). Returns FALSE if unknown.
+private function GetEditCharHeight(byval hWnd as HWND) as Integer
+  dim nCharHeight as Integer = 0
+  if not g_bOldRichEdit then
+    nCharHeight = SendMessage(hWnd, AEM_GETCHARSIZE, 0, 0)
+  end if
+  if nCharHeight <= 0 then
+    dim hDC as HDC = GetDC(hWnd)
+    if hDC <> 0 then
+      dim tm as TEXTMETRIC
+      GetTextMetrics(hDC, @tm)
+      nCharHeight = tm.tmHeight
+      ReleaseDC(hWnd, hDC)
+    end if
+  end if
+  if nCharHeight <= 0 then nCharHeight = 16
+  return nCharHeight
+end function
+
+private function GetEditLineClientRect(byval hWnd as HWND, byval lineIdx as Integer, byref rcOut as RECT) as BOOL
+  if lineIdx < 0 then return FALSE
+
+  dim rcClient as RECT
+  GetClientRect(hWnd, @rcClient)
+
+  dim nLineIndex as Integer = SendMessage(hWnd, EM_LINEINDEX, lineIdx, 0)
+  if nLineIndex < 0 then return FALSE
+
+  dim ptY as Integer = -10001
+  if g_bOldRichEdit then
+    dim res as LRESULT = SendMessage(hWnd, EM_POSFROMCHAR, nLineIndex, 0)
+    ptY = cast(short, HiWord(res))
+  else
+    dim pt as POINT
+    SendMessage(hWnd, EM_POSFROMCHAR, cast(WPARAM, @pt), nLineIndex)
+    ptY = pt.y
+  end if
+  if ptY < -10000 then return FALSE
+
+  dim nCharHeight as Integer = GetEditCharHeight(hWnd)
+
+  rcOut.left = rcClient.left
+  rcOut.right = rcClient.right
+  rcOut.top = ptY
+  rcOut.bottom = ptY + nCharHeight
+  return TRUE
+end function
+
+private sub InvalidateEditLine(byval hWnd as HWND, byval lineIdx as Integer)
+  dim rcLine as RECT
+  if GetEditLineClientRect(hWnd, lineIdx, rcLine) then
+    InvalidateRect(hWnd, @rcLine, TRUE)
+  end if
+end sub
+
+' Newly exposed client strip after a vertical scroll of (nNewFirst - nOldFirst) lines.
+private function BuildScrollExposedRect(byval hWnd as HWND, byval nOldFirst as Integer, byval nNewFirst as Integer, byref rcOut as RECT) as BOOL
+  if nOldFirst = nNewFirst then return FALSE
+
+  dim rcClient as RECT
+  GetClientRect(hWnd, @rcClient)
+  dim nCharHeight as Integer = GetEditCharHeight(hWnd)
+  dim delta as Integer = nNewFirst - nOldFirst
+  dim nLines as Integer = abs(delta)
+  dim nStrip as Integer = nLines * nCharHeight
+  if nStrip > (rcClient.bottom - rcClient.top) then nStrip = rcClient.bottom - rcClient.top
+  if nStrip <= 0 then return FALSE
+
+  rcOut.left = rcClient.left
+  rcOut.right = rcClient.right
+  if delta > 0 then
+    ' Content moved up: new lines appear at the bottom.
+    rcOut.bottom = rcClient.bottom
+    rcOut.top = rcClient.bottom - nStrip
+  else
+    ' Content moved down: new lines appear at the top.
+    rcOut.top = rcClient.top
+    rcOut.bottom = rcClient.top + nStrip
+  end if
+  return TRUE
+end function
+
+declare sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0)
+
+' Union line strips and/or the scroll-exposed edge, then draw overlays immediately
+' (key-repeat starves WM_PAINT, so InvalidateRect alone leaves blank result areas).
+private sub DrawMathResultsForScroll(byval hWnd as HWND, byval nOldFirst as Integer, byval nNewFirst as Integer, byval nOldCaret as Integer, byval nNewCaret as Integer)
+  dim rcClip as RECT
+  dim bHaveClip as BOOL = FALSE
+  dim rcPart as RECT
+
+  if BuildScrollExposedRect(hWnd, nOldFirst, nNewFirst, rcPart) then
+    rcClip = rcPart
+    bHaveClip = TRUE
+  end if
+  if (nOldCaret >= 0) andalso GetEditLineClientRect(hWnd, nOldCaret, rcPart) then
+    if bHaveClip then
+      UnionRect(@rcClip, @rcClip, @rcPart)
+    else
+      rcClip = rcPart
+      bHaveClip = TRUE
+    end if
+  end if
+  if (nNewCaret >= 0) andalso GetEditLineClientRect(hWnd, nNewCaret, rcPart) then
+    if bHaveClip then
+      UnionRect(@rcClip, @rcClip, @rcPart)
+    else
+      rcClip = rcPart
+      bHaveClip = TRUE
+    end if
+  end if
+
+  if bHaveClip then
+    DrawDynamicMathResults(hWnd, @rcClip)
+  else
+    DrawDynamicMathResults(hWnd, 0)
+  end if
+end sub
+
 ' prcClip: when non-null, only paint result glyphs that intersect this rect
 ' (typically the WM_PAINT update region). Avoids transparent overdraw on
 ' lines the edit control did not erase.
@@ -1167,32 +1286,57 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
           dim nFirstVisible as Integer = SendMessage(hWnd, EM_GETFIRSTVISIBLELINE, 0, 0)
           dim nCaretLine as Integer = SendMessage(hWnd, EM_EXLINEFROMCHAR, 0, -1)
 
-          dim bForceKeyRedraw as BOOL = ((uMsg = WM_KEYDOWN) orelse (uMsg = WM_KEYUP))
+          ' Arrow/nav keys must not force a full-client erase (that flickers every
+          ' visible result). Same-line moves need no SmartMath invalidate; caret
+          ' line changes only refresh the old and new line strips.
+          dim bIsNavKey as BOOL = FALSE
+          dim bForceKeyRedraw as BOOL = FALSE
           if (uMsg = WM_KEYDOWN) orelse (uMsg = WM_SYSKEYDOWN) then
             if (wParam = VK_UP) orelse (wParam = VK_DOWN) orelse (wParam = VK_LEFT) orelse (wParam = VK_RIGHT) orelse _
                (wParam = VK_HOME) orelse (wParam = VK_END) orelse (wParam = VK_PRIOR) orelse (wParam = VK_NEXT) then
+              bIsNavKey = TRUE
               dim selStart as Integer = 0, selEnd as Integer = 0
               SendMessage(hWnd, EM_GETSEL, cast(WPARAM, @selStart), cast(LPARAM, @selEnd))
-              if (selStart = nLastNavSelStart) andalso (selEnd = nLastNavSelEnd) then
-                bForceKeyRedraw = FALSE ' selection not changed -> no need to redraw
-              else
-                nLastNavSelStart = selStart
-                nLastNavSelEnd = selEnd
-              end if
+              nLastNavSelStart = selStart
+              nLastNavSelEnd = selEnd
             else
+              ' Backspace/Delete/etc.: content may change without WM_CHAR.
+              bForceKeyRedraw = TRUE
               nLastNavSelStart = -1
               nLastNavSelEnd = -1
             end if
           end if
 
           if bVisible then
-            if (rcNewMargin.left <> rcOldMargin.left) or (rcNewMargin.right <> rcOldMargin.right) or _
-               (nFirstVisible <> nOldFirstLine) or (nCaretLine <> nOldCaretLine) or _
-               (uMsg = WM_CHAR) orelse bForceKeyRedraw then
+            dim bSizeChanged as BOOL = (rcNewMargin.left <> rcOldMargin.left) orelse _
+                                       (rcNewMargin.right <> rcOldMargin.right)
+            dim bScrollChanged as BOOL = (nFirstVisible <> nOldFirstLine)
+            dim bCaretLineChanged as BOOL = (nCaretLine <> nOldCaretLine)
 
+            if bSizeChanged orelse (uMsg = WM_CHAR) orelse bForceKeyRedraw then
               if rcOldMargin.right > 0 then InvalidateRect(hWnd, @rcOldMargin, TRUE)
               InvalidateRect(hWnd, @rcNewMargin, TRUE)
 
+              rcOldMargin = rcNewMargin
+              nOldFirstLine = nFirstVisible
+              nOldCaretLine = nCaretLine
+            elseif bScrollChanged then
+              ' Do not full-erase invalidate: key-repeat starves WM_PAINT and leaves
+              ' blank result strips on newly exposed lines. Draw the edge (and caret
+              ' lines) synchronously after the edit control has scrolled.
+              DrawMathResultsForScroll(hWnd, nOldFirstLine, nFirstVisible, nOldCaretLine, nCaretLine)
+              rcOldMargin = rcNewMargin
+              nOldFirstLine = nFirstVisible
+              nOldCaretLine = nCaretLine
+            elseif bCaretLineChanged then
+              ' Active-line background moved: refresh only those two lines.
+              if nOldCaretLine >= 0 then InvalidateEditLine(hWnd, nOldCaretLine)
+              InvalidateEditLine(hWnd, nCaretLine)
+              rcOldMargin = rcNewMargin
+              nOldFirstLine = nFirstVisible
+              nOldCaretLine = nCaretLine
+            elseif bIsNavKey then
+              ' Left/Right/Home/End on the same line: leave overlays alone.
               rcOldMargin = rcNewMargin
               nOldFirstLine = nFirstVisible
               nOldCaretLine = nCaretLine
