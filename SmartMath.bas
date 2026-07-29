@@ -690,9 +690,16 @@ sub UpdateInternalState(byval hWnd as HWND, byref bVisible as BOOL)
   end if
 end sub
 
-sub DrawDynamicMathResults(byval hWnd as HWND)
+' prcClip: when non-null, only paint result glyphs that intersect this rect
+' (typically the WM_PAINT update region). Avoids transparent overdraw on
+' lines the edit control did not erase.
+' Before text, fill drawClip with the line background: word-select / dblclick
+' paints often report a tall update region while only erasing the clicked line,
+' which would otherwise stack transparent glyphs on lines below.
+sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0)
   if g_bShuttingDown then exit sub
   if g_bSmartMathDocActive = FALSE then exit sub
+  if (prcClip <> 0) andalso (IsRectEmpty(prcClip) <> 0) then exit sub
 
   dim hDC as HDC = GetDC(hWnd)
   if hDC = 0 then exit sub
@@ -713,18 +720,22 @@ sub DrawDynamicMathResults(byval hWnd as HWND)
     nCharHeight = SendMessage(hWnd, AEM_GETCHARSIZE, 0, 0)
   end if
 
+  dim crBk as COLORREF = GetSysColor(COLOR_WINDOW)
+  dim crActiveBk as COLORREF = crBk
+  dim bUseActiveLineBk as BOOL = FALSE
+  dim hBrushBk as HBRUSH = 0
   dim hBrushActive as HBRUSH = 0
-  dim bFillActive as BOOL = FALSE
   if not g_bOldRichEdit then
+    dim aec as AECOLORS
+    aec.dwFlags = AECLR_BASICBK or AECLR_ACTIVELINEBK
+    SendMessage(hWnd, AEM_GETCOLORS, 0, cast(LPARAM, @aec))
+    crBk = aec.crBasicBk
+    crActiveBk = aec.crActiveLineBk
     dim dwOptions as DWORD = SendMessage(hWnd, AEM_GETOPTIONS, 0, 0)
-    if (dwOptions and AECO_ACTIVELINE) then
-      dim aec as AECOLORS
-      aec.dwFlags = AECLR_ACTIVELINEBK
-      SendMessage(hWnd, AEM_GETCOLORS, 0, cast(LPARAM, @aec))
-      hBrushActive = CreateSolidBrush(aec.crActiveLineBk)
-      bFillActive = TRUE
-    end if
+    if (dwOptions and AECO_ACTIVELINE) then bUseActiveLineBk = TRUE
   end if
+  hBrushBk = CreateSolidBrush(crBk)
+  if bUseActiveLineBk then hBrushActive = CreateSolidBrush(crActiveBk)
 
   SetBkMode(hDC, TRANSPARENT)
 
@@ -752,6 +763,14 @@ sub DrawDynamicMathResults(byval hWnd as HWND)
       end if
 
       if ptClient_y > rcClient.bottom then exit for
+      if prcClip <> 0 then
+        ' Below the clip: no further visible lines.
+        if ptClient_y >= prcClip->bottom then exit for
+        ' Above the clip: skip until line height is known and line intersects.
+        if (nCharHeight > 0) andalso (ptClient_y + nCharHeight <= prcClip->top) then
+          continue for
+        end if
+      end if
     end if
 
     dim sRes as String = ""
@@ -787,7 +806,16 @@ sub DrawDynamicMathResults(byval hWnd as HWND)
           clipRect.right = rcClient.right
           clipRect.bottom = lineRect.bottom
           if clipRect.left < clipRect.right then
-            ExtTextOut(hDC, drawX, drawY, ETO_CLIPPED, @clipRect, strptr(sRes), Len(sRes), 0)
+            dim drawClip as RECT = clipRect
+            if prcClip <> 0 then
+              if IntersectRect(@drawClip, @clipRect, prcClip) = 0 then continue for
+            end if
+            dim hFill as HBRUSH = hBrushBk
+            if bUseActiveLineBk andalso (i = nCaretLine) andalso (hBrushActive <> 0) then
+              hFill = hBrushActive
+            end if
+            if hFill <> 0 then FillRect(hDC, @drawClip, hFill)
+            ExtTextOut(hDC, drawX, drawY, ETO_CLIPPED, @drawClip, strptr(sRes), Len(sRes), 0)
           end if
         end if
       end if
@@ -795,6 +823,7 @@ sub DrawDynamicMathResults(byval hWnd as HWND)
   next i
 
   if hBrushActive then DeleteObject(hBrushActive)
+  if hBrushBk then DeleteObject(hBrushBk)
   if hFont then SelectObject(hDC, hOldFont)
   ReleaseDC(hWnd, hDC)
 end sub
@@ -1026,10 +1055,11 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
   select case uMsg
     case WM_PAINT
       if g_bSmartMathDocActive then
-        GetUpdateRect(hWnd, @rcUpdate, FALSE)
-        dim rcIntersect as RECT
-        if (rcOldMargin.right = 0) orelse IntersectRect(@rcIntersect, @rcUpdate, @rcOldMargin) then
-          bNeedRedraw = TRUE
+        if GetUpdateRect(hWnd, @rcUpdate, FALSE) then
+          dim rcIntersect as RECT
+          if (rcOldMargin.right = 0) orelse IntersectRect(@rcIntersect, @rcUpdate, @rcOldMargin) then
+            bNeedRedraw = TRUE
+          end if
         end if
       end if
 
@@ -1112,7 +1142,9 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
 
   if uMsg = WM_PAINT then
     if bNeedRedraw then
-      DrawDynamicMathResults(hWnd)
+      ' Clip overlays to the pre-NextProc update region so partial paints
+      ' (e.g. same-line click) do not transparently overdraw other lines.
+      DrawDynamicMathResults(hWnd, @rcUpdate)
     end if
   else
     select case uMsg
