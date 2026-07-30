@@ -34,6 +34,9 @@ dim shared g_bShuttingDown as BOOL = FALSE
 dim shared g_bActiveFramesSaved as BOOL = FALSE
 dim shared g_cacheLineCount as Integer = -1
 dim shared g_cacheReady as BOOL = FALSE
+dim shared g_cacheDocGeneration as UInteger = 0
+dim shared g_cacheSyncedGeneration as UInteger = 0
+dim shared g_cacheDirtyFromLine as Integer = -1
 redim shared g_cachedLineText(0 to 0) as String
 redim shared g_cachedRenderText(0 to 0) as String
 
@@ -95,7 +98,26 @@ sub LogInfo(byref sMsg as String)
   OutputDebugString(strptr(sOut))
 end sub
 
+private sub MarkRenderCacheDocumentDirty(byval dirtyFromLine as Integer = -1)
+  g_cacheDocGeneration += 1u
+  if dirtyFromLine >= 0 then
+    if g_cacheDirtyFromLine < 0 orelse dirtyFromLine < g_cacheDirtyFromLine then
+      g_cacheDirtyFromLine = dirtyFromLine
+    end if
+  else
+    g_cacheDirtyFromLine = 0
+  end if
+end sub
+
+private function IsRenderCacheSyncedWithDocument(byval hWnd as HWND) as BOOL
+  if g_cacheReady = FALSE then return FALSE
+  if g_cacheSyncedGeneration <> g_cacheDocGeneration then return FALSE
+  if SendMessage(hWnd, EM_GETLINECOUNT, 0, 0) <> g_cacheLineCount then return FALSE
+  return TRUE
+end function
+
 private sub InvalidateRenderCache()
+  MarkRenderCacheDocumentDirty(0)
   g_cacheReady = FALSE
   g_cacheLineCount = -1
 end sub
@@ -435,7 +457,20 @@ private sub CheckEditNotifications(byval hWnd as HWND, byval uMsg as UINT, byval
     if nChangedLine >= 0 then
       nOldCaretLine = nChangedLine
     end if
-    ' LogInfo("AEN_TEXTCHANGED: ciCaret.nLine=" & nChangedLine)
+    dim nDirtyFromLine as Integer = nChangedLine
+    if pChange->crSel.ciMin.nLine >= 0 then
+      if nDirtyFromLine < 0 orelse pChange->crSel.ciMin.nLine < nDirtyFromLine then
+        nDirtyFromLine = pChange->crSel.ciMin.nLine
+      end if
+    end if
+    MarkRenderCacheDocumentDirty(nDirtyFromLine)
+    ' Dependent lines can change results (e.g. rand / UDF) without AkelEdit
+    ' invalidating them. Erase+repaint the full client so overlays do not stack.
+    dim hWndEdit as HWND = pHdr->hwndFrom
+    if (hWndEdit = 0) orelse (IsWindow(hWndEdit) = FALSE) then hWndEdit = g_hWndEdit
+    if (hWndEdit <> 0) andalso (IsWindow(hWndEdit) <> 0) andalso g_bSmartMathDocActive then
+      InvalidateRect(hWndEdit, 0, TRUE)
+    end if
     exit sub
   end if
 
@@ -560,12 +595,48 @@ private sub EnsureRenderCache(byval hWnd as HWND)
     erase g_cachedLineText
     erase g_cachedRenderText
     g_cacheReady = TRUE
+    g_cacheSyncedGeneration = g_cacheDocGeneration
+    g_cacheDirtyFromLine = -1
     exit sub
   end if
 
-  dim hasChanges as BOOL = IIf(g_cacheReady = FALSE orelse nLineCount <> g_cacheLineCount, TRUE, FALSE)
+  if IsRenderCacheSyncedWithDocument(hWnd) then exit sub
+
+  dim needsFullRebuild as BOOL = (g_cacheReady = FALSE) orelse (nLineCount <> g_cacheLineCount)
   dim firstChanged as Integer = -1
   dim minCount as Integer = IIf(nLineCount < g_cacheLineCount, nLineCount, g_cacheLineCount)
+
+  if needsFullRebuild = FALSE then
+    dim scanFrom as Integer = 0
+    if g_cacheDirtyFromLine >= 0 and g_cacheDirtyFromLine < nLineCount then
+      scanFrom = g_cacheDirtyFromLine
+    end if
+
+    dim iScan as Integer
+    for iScan = scanFrom to nLineCount - 1
+      dim nLineIndexScan as Integer = SendMessage(hWnd, EM_LINEINDEX, iScan, 0)
+      dim nLineLenScan as Integer = SendMessage(hWnd, EM_LINELENGTH, nLineIndexScan, 0)
+      dim sLineScan as String = GetLineText(hWnd, iScan, nLineLenScan)
+      if sLineScan <> g_cachedLineText(iScan) then
+        firstChanged = iScan
+        exit for
+      end if
+    next iScan
+
+    if firstChanged < 0 then
+      g_cacheSyncedGeneration = g_cacheDocGeneration
+      g_cacheDirtyFromLine = -1
+      exit sub
+    end if
+  end if
+
+  if firstChanged < 0 then
+    if g_cacheReady = FALSE then
+      firstChanged = 0
+    else
+      firstChanged = minCount
+    end if
+  end if
 
   redim currentLineText(0 to nLineCount - 1) as String
   dim i as Integer
@@ -574,25 +645,6 @@ private sub EnsureRenderCache(byval hWnd as HWND)
     dim nLineLen as Integer = SendMessage(hWnd, EM_LINELENGTH, nLineIndex, 0)
     currentLineText(i) = GetLineText(hWnd, i, nLineLen)
   next i
-
-  if g_cacheReady andalso (nLineCount = g_cacheLineCount) then
-    for i = 0 to nLineCount - 1
-      if currentLineText(i) <> g_cachedLineText(i) then
-        hasChanges = TRUE
-        firstChanged = i
-        exit for
-      end if
-    next i
-  end if
-
-  if hasChanges = FALSE then exit sub
-  if firstChanged < 0 then
-    if g_cacheReady = FALSE then
-      firstChanged = 0
-    else
-      firstChanged = minCount
-    end if
-  end if
 
   redim oldLineText(0 to 0) as String
   redim oldRenderText(0 to 0) as String
@@ -633,6 +685,8 @@ private sub EnsureRenderCache(byval hWnd as HWND)
   next i
 
   g_cacheReady = TRUE
+  g_cacheSyncedGeneration = g_cacheDocGeneration
+  g_cacheDirtyFromLine = -1
 end sub
 
 function BuildLineRenderText(byval hWnd as HWND, byval lineIdx as Integer) as String
@@ -683,7 +737,9 @@ sub UpdateInternalState(byval hWnd as HWND, byref bVisible as BOOL)
 
   bVisible = FALSE
 
-  EnsureRenderCache(hWnd)
+  if IsRenderCacheSyncedWithDocument(hWnd) = FALSE then
+    EnsureRenderCache(hWnd)
+  end if
 
   if g_cacheLineCount > 0 then
     bVisible = TRUE
@@ -772,7 +828,7 @@ private function BuildScrollExposedRect(byval hWnd as HWND, byval nOldFirst as I
   return TRUE
 end function
 
-declare sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0)
+declare sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, byval bContentUnchanged as BOOL = FALSE)
 
 ' Union line strips and/or the scroll-exposed edge, then draw overlays immediately
 ' (key-repeat starves WM_PAINT, so InvalidateRect alone leaves blank result areas).
@@ -803,9 +859,9 @@ private sub DrawMathResultsForScroll(byval hWnd as HWND, byval nOldFirst as Inte
   end if
 
   if bHaveClip then
-    DrawDynamicMathResults(hWnd, @rcClip)
+    DrawDynamicMathResults(hWnd, @rcClip, TRUE)
   else
-    DrawDynamicMathResults(hWnd, 0)
+    DrawDynamicMathResults(hWnd, 0, TRUE)
   end if
 end sub
 
@@ -815,10 +871,14 @@ end sub
 ' Before text, fill drawClip with the line background: word-select / dblclick
 ' paints often report a tall update region while only erasing the clicked line,
 ' which would otherwise stack transparent glyphs on lines below.
-sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0)
+sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, byval bContentUnchanged as BOOL = FALSE)
   if g_bShuttingDown then exit sub
   if g_bSmartMathDocActive = FALSE then exit sub
   if (prcClip <> 0) andalso (IsRectEmpty(prcClip) <> 0) then exit sub
+
+  if bContentUnchanged = FALSE orelse IsRenderCacheSyncedWithDocument(hWnd) = FALSE then
+    EnsureRenderCache(hWnd)
+  end if
 
   dim hDC as HDC = GetDC(hWnd)
   if hDC = 0 then exit sub
@@ -857,8 +917,6 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0)
   if bUseActiveLineBk then hBrushActive = CreateSolidBrush(crActiveBk)
 
   SetBkMode(hDC, TRANSPARENT)
-
-  EnsureRenderCache(hWnd)
 
   dim i as Integer
   for i = 0 to nLineCount - 1
@@ -919,24 +977,61 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0)
         dim minDrawX as Integer = ptClient_x + 6
         if minDrawX < rcClient.left then minDrawX = rcClient.left
         if minDrawX < rcClient.right then
+          ' Clear the full result gutter (after source text to client right), not
+          ' only the new string width. Otherwise a shorter/recalculated result is
+          ' drawn over leftover glyphs from the previous overlay (e.g. after paste
+          ' that reshuffles rand/UDF-dependent lines).
+          dim clearRect as RECT
+          clearRect.left = minDrawX
+          clearRect.top = lineRect.top
+          clearRect.right = rcClient.right
+          clearRect.bottom = lineRect.bottom
+          dim drawClip as RECT = clearRect
+          if prcClip <> 0 then
+            if IntersectRect(@drawClip, @clearRect, prcClip) = 0 then continue for
+          end if
+          dim hFill as HBRUSH = hBrushBk
+          if bUseActiveLineBk andalso (i = nCaretLine) andalso (hBrushActive <> 0) then
+            hFill = hBrushActive
+          end if
+          if hFill <> 0 then FillRect(hDC, @drawClip, hFill)
           dim clipRect as RECT
           clipRect.left = IIf(drawX > minDrawX, drawX, minDrawX)
           clipRect.top = lineRect.top
           clipRect.right = rcClient.right
           clipRect.bottom = lineRect.bottom
-          if clipRect.left < clipRect.right then
-            dim drawClip as RECT = clipRect
-            if prcClip <> 0 then
-              if IntersectRect(@drawClip, @clipRect, prcClip) = 0 then continue for
-            end if
-            dim hFill as HBRUSH = hBrushBk
-            if bUseActiveLineBk andalso (i = nCaretLine) andalso (hBrushActive <> 0) then
-              hFill = hBrushActive
-            end if
-            if hFill <> 0 then FillRect(hDC, @drawClip, hFill)
-            ExtTextOut(hDC, drawX, drawY, ETO_CLIPPED, @drawClip, strptr(sRes), Len(sRes), 0)
+          dim textClip as RECT = clipRect
+          if prcClip <> 0 then
+            if IntersectRect(@textClip, @clipRect, prcClip) = 0 then continue for
           end if
+          ExtTextOut(hDC, drawX, drawY, ETO_CLIPPED, @textClip, strptr(sRes), Len(sRes), 0)
         end if
+      end if
+    elseif i >= nFirstVisible andalso ptClient_y > -10000 andalso (bContentUnchanged = FALSE) then
+      ' Content changed but this line has no result now: still erase any old overlay.
+      if nCharHeight <= 0 then nCharHeight = GetEditCharHeight(hWnd)
+      dim emptyLineRect as RECT
+      emptyLineRect.left = rcClient.left
+      emptyLineRect.right = rcClient.right
+      emptyLineRect.top = ptClient_y
+      emptyLineRect.bottom = ptClient_y + nCharHeight
+      dim minClearX as Integer = ptClient_x + 6
+      if minClearX < rcClient.left then minClearX = rcClient.left
+      if minClearX < rcClient.right andalso ptClient_x > -10000 then
+        dim clearEmpty as RECT
+        clearEmpty.left = minClearX
+        clearEmpty.top = emptyLineRect.top
+        clearEmpty.right = rcClient.right
+        clearEmpty.bottom = emptyLineRect.bottom
+        dim eraseClip as RECT = clearEmpty
+        if prcClip <> 0 then
+          if IntersectRect(@eraseClip, @clearEmpty, prcClip) = 0 then continue for
+        end if
+        dim hFillEmpty as HBRUSH = hBrushBk
+        if bUseActiveLineBk andalso (i = nCaretLine) andalso (hBrushActive <> 0) then
+          hFillEmpty = hBrushActive
+        end if
+        if hFillEmpty <> 0 then FillRect(hDC, @eraseClip, hFillEmpty)
       end if
     end if
   next i
