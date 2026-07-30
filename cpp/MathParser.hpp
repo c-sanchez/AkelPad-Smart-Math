@@ -649,6 +649,7 @@ private:
   static bool scalarHasExactIntegerPayload(const EvalValue::ScalarValue& s);
   static bool tryMulExactInt64Square(long long i, long long& outSq);
   static bool tryGetExactSignedInt64NoUIntWrapScalarStrict(const EvalValue::ScalarValue& s, long long& outI);
+  static bool tryGetArrayIndexIntFromScalarValue(const EvalValue::ScalarValue& sIn, long long& outI);
   static void applySqrtScalarValue(const EvalValue::ScalarValue& sv, EvalValue& outV);
   static bool tryApplySqrExactScalar(const EvalValue::ScalarValue& sv, EvalValue& outV);
   static bool tryApplyHypotExactScalars(

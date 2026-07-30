@@ -1643,14 +1643,7 @@ void assignLowerIdentFromRange(std::string& out, const char* begin, const char* 
 }
 
 bool checkedAddLL(long long a, long long b, long long& out) {
-  out = a + b;
-  if (b > 0 && out < a) {
-    return false;
-  }
-  if (b < 0 && out > a) {
-    return false;
-  }
-  return true;
+  return tryAddInt64Checked(a, b, out);
 }
 
 bool checkedSubLL(long long a, long long b, long long& out) {
@@ -1665,25 +1658,7 @@ bool checkedSubLL(long long a, long long b, long long& out) {
 }
 
 bool checkedMulLL(long long a, long long b, long long& out) {
-  if (a == 0 || b == 0) {
-    out = 0;
-    return true;
-  }
-  if (a > 0) {
-    if (b > 0) {
-      if (a > (std::numeric_limits<long long>::max)() / b) return false;
-    } else {
-      if (b < (std::numeric_limits<long long>::min)() / a) return false;
-    }
-  } else {
-    if (b > 0) {
-      if (a < (std::numeric_limits<long long>::min)() / b) return false;
-    } else {
-      if (a != 0 && b < (std::numeric_limits<long long>::max)() / a) return false;
-    }
-  }
-  out = a * b;
-  return true;
+  return tryMulInt64Checked(a, b, out);
 }
 
 long long bitwiseShiftLeftDefined(long long value, unsigned int shiftCount) {
@@ -3154,14 +3129,6 @@ std::uint64_t estimateRangeItemCount(long long startV, long long stopV, long lon
   return (uHi - uLo - 1ull) / uStep + 1ull;
 }
 
-bool checkedMulU64(std::uint64_t a, std::uint64_t b, std::uint64_t& out) {
-  if (b != 0ull && a > (std::numeric_limits<std::uint64_t>::max)() / b) {
-    return false;
-  }
-  out = a * b;
-  return true;
-}
-
 }  // namespace
 
 bool MathParser::acceptProducedItemCount(EvalContext& ctx, const std::string& fnName, std::uint64_t count) const {
@@ -3716,6 +3683,26 @@ bool MathParser::tryMulExactInt64Square(long long i, long long& outSq) {
 bool MathParser::tryGetExactSignedInt64NoUIntWrapScalarStrict(const EvalValue::ScalarValue& s, long long& outI) {
   return tryGetExactSignedInt64FromScalarPolicy(
       s, outI, ExactSignedInt64Policy::NoUIntWrapWithRepairAndStorageKind);
+}
+
+bool MathParser::tryGetArrayIndexIntFromScalarValue(const EvalValue::ScalarValue& sIn, long long& outI) {
+  if (scalarHasNonzeroImaginaryPart(sIn)) {
+    return false;
+  }
+  EvalValue::ScalarValue s = sIn;
+  scalarRepairExactMetadata(s);
+  if (s.scalarKind == ScalarKind::Int64) {
+    outI = s.exactInt64;
+    return true;
+  }
+  if (s.scalarKind == ScalarKind::UInt64) {
+    if (s.exactUInt64 > static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
+      return false;
+    }
+    outI = static_cast<long long>(s.exactUInt64);
+    return true;
+  }
+  return false;
 }
 
 void MathParser::applySqrtScalarValue(const EvalValue::ScalarValue& sv, EvalValue& outV) {
@@ -9319,26 +9306,6 @@ MathParser::EvalValue MathParser::evalExpr(
     const Expr& e,
     EvalContext& ctx,
     const std::unordered_map<std::string, EvalValue>* scopedVars) {
-  const auto tryGetArrayIndexIntFromScalarValue = [](const EvalValue::ScalarValue& sIn, long long& outI) -> bool {
-    if (scalarHasNonzeroImaginaryPart(sIn)) {
-      return false;
-    }
-    EvalValue::ScalarValue s = sIn;
-    scalarRepairExactMetadata(s);
-    if (s.scalarKind == ScalarKind::Int64) {
-      outI = s.exactInt64;
-      return true;
-    }
-    if (s.scalarKind == ScalarKind::UInt64) {
-      if (s.exactUInt64 > static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
-        return false;
-      }
-      outI = static_cast<long long>(s.exactUInt64);
-      return true;
-    }
-    return false;
-  };
-
   switch (e.tag) {
     case Expr::Tag::Literal:
       return e.literalValue;
@@ -10018,7 +9985,7 @@ MathParser::EvalValue MathParser::builtinRepeat(
 
   const std::size_t blockSize = vals.size();
   std::uint64_t estimated = 0;
-  if (!checkedMulU64(static_cast<std::uint64_t>(blockSize), static_cast<std::uint64_t>(n), estimated)) {
+  if (!tryMulUInt64Checked(static_cast<std::uint64_t>(blockSize), static_cast<std::uint64_t>(n), estimated)) {
     setTooManyValuesError(ctx, fnName);
     return makeScalar(0);
   }

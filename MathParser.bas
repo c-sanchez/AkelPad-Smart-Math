@@ -7342,6 +7342,26 @@ declare function MapBinaryBroadcastScalarsImpl( _
   byval fnId as Integer, _
   byref outV as EvalValue) as Boolean
 
+private function RejectInt64BinaryOperands(byref leftV as EvalValue, byref rightV as EvalValue, byval isModulo as Boolean) as Boolean
+  if Parser_SupportTimeValues then
+    if EvalValueInvolvesTime(leftV) orelse EvalValueInvolvesTime(rightV) then
+      if isModulo then
+        SetParseErrorById(PARSE_ERR_MODULO_INTEGER_OPERANDS)
+      else
+        SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
+      end if
+      return TRUE
+    end if
+  end if
+  if Parser_SupportComplexNumbers then
+    if EvalValueHasNonzeroImaginary(leftV) orelse EvalValueHasNonzeroImaginary(rightV) then
+      SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
+      return TRUE
+    end if
+  end if
+  return FALSE
+end function
+
 private function ApplyBinaryEvalPolicy(byval kind as Integer, byref leftV as EvalValue, byref rightV as EvalValue, byval op as UByte, byval intOp as OperatorBitNameId, byval fnId as Integer, byref outV as EvalValue, byval tryTimeFirst as Boolean) as Boolean
   if tryTimeFirst then
     if ValueApplyBinaryTimeAware(leftV, rightV, op, outV) then
@@ -7349,11 +7369,8 @@ private function ApplyBinaryEvalPolicy(byval kind as Integer, byref leftV as Eva
     end if
   end if
   if kind = BSD_INT64 then
-    if Parser_SupportComplexNumbers then
-      if EvalValueHasNonzeroImaginary(leftV) orelse EvalValueHasNonzeroImaginary(rightV) then
-        SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
-        return FALSE
-      end if
+    if RejectInt64BinaryOperands(leftV, rightV, intOp = OP_BIT_MOD) then
+      return FALSE
     end if
   end if
   dim mode as Integer = MAP_BINARY_OP_NUMERIC
@@ -7916,14 +7933,6 @@ private sub ValueSetBoolResult(byval b as Boolean, byref outV as EvalValue)
 end sub
 
 private function ApplyInt64ParserOp(byref leftV as EvalValue, byref rightV as EvalValue, byval op as OperatorBitNameId, byref outV as EvalValue) as Boolean
-  if EvalValueInvolvesTime(leftV) orelse EvalValueInvolvesTime(rightV) then
-    if op = OP_BIT_MOD then
-      SetParseErrorById(PARSE_ERR_MODULO_INTEGER_OPERANDS)
-    else
-      SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
-    end if
-    return FALSE
-  end if
   if ValueApplyBinaryInt64(leftV, rightV, op, outV) = FALSE then
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return FALSE
@@ -10171,10 +10180,6 @@ private function TryHandleBuiltinScalarBinary(byval fnId as Integer, byref fnNam
       end if
       return TRUE
     case FUNC_MOD
-      if Parser_SupportComplexNumbers andalso (EvalValueHasNonzeroImaginary(args(0)) orelse EvalValueHasNonzeroImaginary(args(1))) then
-        SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
-        return TRUE
-      end if
       if ValueApplyBinaryInt64(args(0), args(1), OP_BIT_MOD, outV) = FALSE andalso parseError = 0 then
         SetBinaryBuiltinBroadcastFailure(fnName, args(0), args(1), 2)
       end if
