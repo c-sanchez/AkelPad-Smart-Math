@@ -1325,6 +1325,21 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
   return 0
 end function
 
+' Modifier and lock keys never change text, caret line or scroll position, but
+' auto-repeat keeps sending WM_KEYDOWN while one is held. Repainting overlays on
+' every repeat makes all visible results blink.
+private function IsModifierOrLockVirtualKey(byval vk as WPARAM) as BOOL
+  select case vk
+    case VK_SHIFT, VK_CONTROL, VK_MENU, _
+         VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, _
+         VK_LWIN, VK_RWIN, _
+         VK_CAPITAL, VK_NUMLOCK, VK_SCROLL
+      return TRUE
+    case else
+      return FALSE
+  end select
+end function
+
 ' -----------------------------------------------------------------------------
 '  Global Edit Window Subclass
 ' -----------------------------------------------------------------------------
@@ -1445,6 +1460,11 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
         if g_bSmartMathDocActive = FALSE then
           return lRes
         end if
+
+        select case uMsg
+          case WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
+            if IsModifierOrLockVirtualKey(wParam) then return lRes
+        end select
 
         if (uMsg <> WM_MOUSEMOVE) orelse (wParam and MK_LBUTTON) then
           dim bVisible as BOOL
