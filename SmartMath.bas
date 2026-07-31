@@ -12,6 +12,7 @@ dim shared g_bOldRichEdit as BOOL = FALSE
 dim shared rcOldMargin as RECT
 dim shared nOldFirstLine as Integer = -1
 dim shared nOldCaretLine as Integer = -1
+dim shared nOldHScrollPos as Integer = -1
 dim shared nLastNavSelStart as Integer = -1
 dim shared nLastNavSelEnd as Integer = -1
 
@@ -293,16 +294,36 @@ end sub
 
 declare function GetLineText(byval hWnd as HWND, byval lineIdx as Integer, byval lineLen as Integer) as String
 
+' View-relative paint trackers: they describe the last editor we painted into
+' (first visible line, caret line, H-scroll, client margin). Reset whenever the
+' active frame/edit changes or SmartMath turns off for a document, otherwise
+' comparisons against a previous document can skip redraws or mis-validate the
+' result gutter.
+private sub ResetEditOverlayTrackers()
+  rcOldMargin.left = 0 : rcOldMargin.right = 0
+  rcOldMargin.top = 0  : rcOldMargin.bottom = 0
+  nOldFirstLine = -1
+  nOldCaretLine = -1
+  nOldHScrollPos = -1
+  nLastNavSelStart = -1
+  nLastNavSelEnd = -1
+end sub
+
 private sub SetSmartMathDocActiveState(byval hWndEdit as HWND, byval bActive as BOOL, byval bApplyTheme as BOOL = TRUE)
   if (hWndEdit = 0) orelse (IsWindow(hWndEdit) = FALSE) then
     g_hWndEdit = 0
     g_bSmartMathDocActive = FALSE
+    ResetEditOverlayTrackers()
     exit sub
   end if
 
   g_hWndEdit = hWndEdit
   g_bSmartMathDocActive = bActive
   InvalidateRenderCache()
+  ' Always drop previous-view trackers: activate and deactivate both change which
+  ' document (or none) the next key/scroll event belongs to. PMDI can keep the
+  ' same EditHwnd across frames, so HWND alone is not enough to keep them.
+  ResetEditOverlayTrackers()
 
   if bActive then
     EnsureActiveLineOptionApplied(FindCurrentFrameItem())
@@ -314,12 +335,6 @@ private sub SetSmartMathDocActiveState(byval hWndEdit as HWND, byval bActive as 
     InvalidateRect(hWndEdit, 0, TRUE)
   else
     RestoreAkelOptionsOfOwnerFrame()
-    rcOldMargin.left = 0 : rcOldMargin.right = 0
-    rcOldMargin.top = 0  : rcOldMargin.bottom = 0
-    nOldFirstLine = -1
-    nOldCaretLine = -1
-    nLastNavSelStart = -1
-    nLastNavSelEnd = -1
     InvalidateRect(hWndEdit, 0, TRUE)
   end if
 end sub
@@ -357,11 +372,13 @@ private sub RefreshSmartMathDocMode(byval hWndEdit as HWND)
   if hWndEditCurrent = 0 then
     g_bSmartMathDocActive = FALSE
     g_hWndEdit = 0
+    ResetEditOverlayTrackers()
     exit sub
   end if
   if IsWindow(hWndEditCurrent) = FALSE then
     g_bSmartMathDocActive = FALSE
     g_hWndEdit = 0
+    ResetEditOverlayTrackers()
     exit sub
   end if
 
@@ -871,6 +888,55 @@ private sub InvalidateEditLine(byval hWnd as HWND, byval lineIdx as Integer)
   end if
 end sub
 
+' Client x where the result gutter of a line starts: just past the line's last
+' character. Everything from here to the client right edge belongs to the overlay.
+private function GetResultGutterLeft(byval hWnd as HWND, byval lineIdx as Integer) as Integer
+  dim nLineIndex as Integer = SendMessage(hWnd, EM_LINEINDEX, lineIdx, 0)
+  if nLineIndex < 0 then return -1
+  dim nLineLen as Integer = SendMessage(hWnd, EM_LINELENGTH, nLineIndex, 0)
+
+  dim rcClient as RECT
+  GetClientRect(hWnd, @rcClient)
+
+  dim nLineEndX as Integer
+  if g_bOldRichEdit then
+    dim res as LRESULT = SendMessage(hWnd, EM_POSFROMCHAR, nLineIndex + nLineLen, 0)
+    nLineEndX = cast(short, LoWord(res))
+  else
+    dim pt as POINT
+    SendMessage(hWnd, EM_POSFROMCHAR, cast(WPARAM, @pt), nLineIndex + nLineLen)
+    nLineEndX = pt.x
+  end if
+
+  dim nGutterLeft as Integer = nLineEndX + SMARTMATH_RESULT_GUTTER_GAP
+  if nGutterLeft < rcClient.left then nGutterLeft = rcClient.left
+  return nGutterLeft
+end function
+
+' A caret-only move makes AkelEdit invalidate the whole caret line so it can
+' repaint the caret and selection. That erases the result overlay, which we then
+' redraw from WM_PAINT - visible as blinking while an arrow key auto-repeats.
+' The gutter pixels are already correct here, so drop them from the pending
+' update region and let the control repaint the text part alone.
+private sub ValidateResultGutterForLine(byval hWnd as HWND, byval lineIdx as Integer)
+  if g_bOldRichEdit then exit sub
+  if IsRenderCacheSyncedWithDocument(hWnd) = FALSE then exit sub
+
+  ' The active column is a full-height line that follows the caret and can be
+  ' drawn across the gutter, so leave that repaint untouched.
+  dim dwOptions as DWORD = SendMessage(hWnd, AEM_GETOPTIONS, 0, 0)
+  if (dwOptions and AECO_ACTIVECOLUMN) then exit sub
+
+  dim rcLine as RECT
+  if GetEditLineClientRect(hWnd, lineIdx, rcLine) = FALSE then exit sub
+
+  dim nGutterLeft as Integer = GetResultGutterLeft(hWnd, lineIdx)
+  if nGutterLeft < 0 orelse nGutterLeft >= rcLine.right then exit sub
+
+  rcLine.left = nGutterLeft
+  ValidateRect(hWnd, @rcLine)
+end sub
+
 ' Newly exposed client strip after a vertical scroll of (nNewFirst - nOldFirst) lines.
 private function BuildScrollExposedRect(byval hWnd as HWND, byval nOldFirst as Integer, byval nNewFirst as Integer, byref rcOut as RECT) as BOOL
   if nOldFirst = nNewFirst then return FALSE
@@ -1090,9 +1156,9 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, by
         else
           SetTextColor(hDC, g_crResultColor)
         end if
-        dim drawX as Integer = rcClient.right - sz.cx - 10
+        dim drawX as Integer = rcClient.right - sz.cx - SMARTMATH_RESULT_RIGHT_MARGIN
         dim drawY as Integer = lineRect.top + ((lineRect.bottom - lineRect.top) - sz.cy) \ 2
-        dim minDrawX as Integer = ptClient_x + 6
+        dim minDrawX as Integer = ptClient_x + SMARTMATH_RESULT_GUTTER_GAP
         if minDrawX < rcClient.left then minDrawX = rcClient.left
         if minDrawX < rcClient.right then
           ' Clear the full result gutter (after source text to client right), not
@@ -1134,7 +1200,7 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, by
       emptyLineRect.right = rcClient.right
       emptyLineRect.top = ptClient_y
       emptyLineRect.bottom = ptClient_y + nCharHeight
-      dim minClearX as Integer = ptClient_x + 6
+      dim minClearX as Integer = ptClient_x + SMARTMATH_RESULT_GUTTER_GAP
       if minClearX < rcClient.left then minClearX = rcClient.left
       if minClearX < rcClient.right andalso ptClient_x > -10000 then
         dim clearEmpty as RECT
@@ -1338,7 +1404,11 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
     end if
     ' The Sessions plugin has loaded all the files at this point
 
-    ActivateSmartMathFiles()
+    if hSmartMathMenu = 0 then
+      InitSmartMathMenu()
+      ActivateSmartMathFiles()
+    end if
+
     return result
 
   elseif uMsg = WM_CLOSE orelse uMsg = WM_QUERYENDSESSION orelse (uMsg = WM_SYSCOMMAND andalso wParam = SC_CLOSE) then
@@ -1474,8 +1544,8 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
             if hFont then SelectObject(hDC, hOldFont)
             ReleaseDC(hWnd, hDC)
 
-            dim drawX as Integer = rcClient.right - sz.cx - 10
-            dim minDrawX as Integer = ptLineEndX + 6
+            dim drawX as Integer = rcClient.right - sz.cx - SMARTMATH_RESULT_RIGHT_MARGIN
+            dim minDrawX as Integer = ptLineEndX + SMARTMATH_RESULT_GUTTER_GAP
             if minDrawX < rcClient.left then minDrawX = rcClient.left
             dim clipLeft as Integer = IIf(drawX > minDrawX, drawX, minDrawX)
             if xPos >= clipLeft andalso xPos <= rcClient.right then hitResultArea = TRUE
@@ -1529,6 +1599,13 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
           dim nFirstVisible as Integer = SendMessage(hWnd, EM_GETFIRSTVISIBLELINE, 0, 0)
           dim nCaretLine as Integer = SendMessage(hWnd, EM_EXLINEFROMCHAR, 0, -1)
 
+          dim nHScrollPos as Integer = 0
+          if not g_bOldRichEdit then
+            dim ptScrollPos as POINT64
+            SendMessage(hWnd, AEM_GETSCROLLPOS, 0, cast(LPARAM, @ptScrollPos))
+            nHScrollPos = cast(Integer, ptScrollPos.x)
+          end if
+
           ' Arrow/nav keys must not force a full-client erase (that flickers every
           ' visible result). Same-line moves need no SmartMath invalidate; caret
           ' line changes only refresh the old and new line strips.
@@ -1555,45 +1632,35 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
                                        (rcNewMargin.right <> rcOldMargin.right)
             dim bScrollChanged as BOOL = (nFirstVisible <> nOldFirstLine)
             dim bCaretLineChanged as BOOL = (nCaretLine <> nOldCaretLine)
+            dim bHScrollChanged as BOOL = (nHScrollPos <> nOldHScrollPos)
 
             if bSizeChanged orelse (uMsg = WM_CHAR) orelse bForceKeyRedraw then
               if rcOldMargin.right > 0 then InvalidateRect(hWnd, @rcOldMargin, TRUE)
               InvalidateRect(hWnd, @rcNewMargin, TRUE)
-
-              rcOldMargin = rcNewMargin
-              nOldFirstLine = nFirstVisible
-              nOldCaretLine = nCaretLine
             elseif bScrollChanged then
               ' Do not full-erase invalidate: key-repeat starves WM_PAINT and leaves
               ' blank result strips on newly exposed lines. Draw the edge (and caret
               ' lines) synchronously after the edit control has scrolled.
               DrawMathResultsForScroll(hWnd, nOldFirstLine, nFirstVisible, nOldCaretLine, nCaretLine)
-              rcOldMargin = rcNewMargin
-              nOldFirstLine = nFirstVisible
-              nOldCaretLine = nCaretLine
             elseif bCaretLineChanged then
               ' Active-line background moved: refresh only those two lines.
               if nOldCaretLine >= 0 then InvalidateEditLine(hWnd, nOldCaretLine)
               InvalidateEditLine(hWnd, nCaretLine)
-              rcOldMargin = rcNewMargin
-              nOldFirstLine = nFirstVisible
-              nOldCaretLine = nCaretLine
-            elseif bIsNavKey then
-              ' Left/Right/Home/End on the same line: leave overlays alone.
-              rcOldMargin = rcNewMargin
-              nOldFirstLine = nFirstVisible
-              nOldCaretLine = nCaretLine
+            elseif bIsNavKey andalso (bHScrollChanged = FALSE) then
+              ' Left/Right/Home/End on the same line: the overlay is already correct
+              ' on screen, so keep the control's caret/selection repaint out of it.
+              ValidateResultGutterForLine(hWnd, nCaretLine)
             end if
+
+            rcOldMargin = rcNewMargin
+            nOldFirstLine = nFirstVisible
+            nOldCaretLine = nCaretLine
+            nOldHScrollPos = nHScrollPos
           else
             if rcOldMargin.right > 0 then
               InvalidateRect(hWnd, @rcOldMargin, TRUE)
-              rcOldMargin.left = 0 : rcOldMargin.right = 0
-              rcOldMargin.top = 0  : rcOldMargin.bottom = 0
-              nOldFirstLine = -1
-              nOldCaretLine = -1
-              nLastNavSelStart = -1
-              nLastNavSelEnd = -1
             end if
+            ResetEditOverlayTrackers()
           end if
         end if
     end select
@@ -1650,7 +1717,11 @@ sub ToggleSmartMath alias "ToggleSmartMath" (byval pd as PLUGINDATA ptr) export
     g_framesWithSmartMathEnabled.Clear()
     g_bActiveFramesSaved = FALSE
     g_bSmartMathActive = FALSE
+    g_bSmartMathDocActive = FALSE
+    g_lastDocModeFrame = 0
+    g_lastDocModeEdit = 0
     InvalidateRenderCache()
+    ResetEditOverlayTrackers()
 
     if pd->hWndEdit then
       InvalidateRect(pd->hWndEdit, 0, TRUE)
@@ -1670,23 +1741,21 @@ sub ToggleSmartMath alias "ToggleSmartMath" (byval pd as PLUGINDATA ptr) export
     pd->nUnload = UD_NONUNLOAD_ACTIVE
 
     LoadSettings()
-    ActivateSmartMathFiles()
 
     g_bShuttingDown = FALSE
     InvalidateRenderCache()
-
-    rcOldMargin.left = 0 : rcOldMargin.right = 0
-    rcOldMargin.top = 0  : rcOldMargin.bottom = 0
-    nOldFirstLine = -1
-    nOldCaretLine = -1
-    nLastNavSelStart = -1
-    nLastNavSelEnd = -1
+    ResetEditOverlayTrackers()
 
     SetSmartMathProcData(pd)
 
     g_bSmartMathActive = TRUE
 
-    InitSmartMathMenu()
+    ' if the plugin function is called on start,
+    ' postpone the menu initialization until AKDN_MAIN_ONSTART_SHOW
+    if pd->bOnStart = FALSE then
+      InitSmartMathMenu()
+      ActivateSmartMathFiles()
+    end if
 
     dim hEditAct as HWND = pd->hWndEdit
     if hEditAct = 0 then hEditAct = GetWndEdit(pd->hMainWnd)

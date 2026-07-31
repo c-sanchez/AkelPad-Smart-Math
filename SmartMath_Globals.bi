@@ -57,6 +57,11 @@ const SMARTMATH_ARRAY_OUTPUT_SEPARATOR_DEFAULT = ","
 const SMARTMATH_RESULT_PREFIX       = " = "
 const SMARTMATH_ERROR_PREFIX        = " ! "
 
+' Pixel gap between the end of a line's source text and the result gutter, and
+' between the result and the client right edge.
+const SMARTMATH_RESULT_GUTTER_GAP   = 6
+const SMARTMATH_RESULT_RIGHT_MARGIN = 10
+
 ' -----------------------------------------------------------------------------
 '  Global Variables (Extern)
 ' -----------------------------------------------------------------------------

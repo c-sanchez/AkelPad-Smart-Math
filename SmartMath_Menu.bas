@@ -115,7 +115,8 @@ sub InitSmartMathMenu()
   AppendMenuW(hSmartMathMenu, MF_SEPARATOR, 0, NULL)
   AppendMenuW(hSmartMathMenu, MF_STRING, IDM_ABOUT, wstr("About..."))
 
-  InsertMenuW(g_hMainMenu, MENU_ABOUT_POSITION + 1, MF_BYPOSITION or MF_POPUP, cast(UINT_PTR, hSmartMathMenu), wstr("SmartMath"))
+  dim nPos as Integer = GetMenuItemCount(g_hMainMenu)
+  InsertMenuW(g_hMainMenu, nPos, MF_BYPOSITION or MF_POPUP, cast(UINT_PTR, hSmartMathMenu), wstr("SmartMath"))
   DrawMenuBar(g_hMainWnd)
   UpdateMenuChecks()
 end sub
