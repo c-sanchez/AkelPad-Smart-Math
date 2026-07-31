@@ -68,7 +68,6 @@ extern rcOldMargin as RECT
 extern nOldFirstLine as Integer
 extern nOldCaretLine as Integer
 extern nOldMargin as Integer
-extern dwOldAkelOptions as DWORD
 
 extern g_nDecimals as Integer
 extern g_crResultColor as COLORREF

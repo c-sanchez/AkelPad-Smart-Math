@@ -14,7 +14,6 @@ dim shared nOldFirstLine as Integer = -1
 dim shared nOldCaretLine as Integer = -1
 dim shared nLastNavSelStart as Integer = -1
 dim shared nLastNavSelEnd as Integer = -1
-dim shared dwOldAkelOptions as DWORD = 0
 
 dim shared g_nDecimals as Integer = -1
 dim shared g_crResultColor as COLORREF = &H008000
@@ -50,12 +49,16 @@ type FrameItem
   pFrame as FRAMEDATA ptr
   wszFile as WString ptr
   isWorking as BOOL
+  dwOldAkelOptions as DWORD
+  bHasSavedAkelOptions as BOOL
 end type
 
 constructor FrameItem(byval pFrameInit as FRAMEDATA ptr)
   pFrame = pFrameInit
   wszFile = 0
   isWorking = FALSE
+  dwOldAkelOptions = 0
+  bHasSavedAkelOptions = FALSE
 
   if pFrameInit <> 0 andalso pFrameInit->ei.wszFile <> 0 then
     dim pSrc as WString ptr = pFrameInit->ei.wszFile
@@ -73,6 +76,7 @@ destructor FrameItem()
     wszFile = 0
   end if
   pFrame = 0
+  bHasSavedAkelOptions = FALSE
 end destructor
 
 private sub FrameItemDeleter(byval p as Any Ptr)
@@ -89,6 +93,74 @@ private function FrameItemMatchesFrame(byval p as Any Ptr, byval key as Any Ptr)
 end function
 
 dim shared g_framesWithSmartMathEnabled as PtrArray = PtrArray(@FrameItemDeleter, @FrameItemMatchesFrame)
+
+' Frame that currently owns the AECO_ACTIVELINE change. In PMDI several frames
+' share one edit HWND, so at most one frame may hold the options snapshot.
+dim shared g_pFrameItemAkelOptionsOwner as FrameItem ptr = 0
+
+' SmartMath state always follows the active frame, so resolve items by the
+' current FRAMEDATA pointer: in PMDI the edit HWND is shared by all frames.
+private function FindCurrentFrameItem() as FrameItem ptr
+  if g_hMainWnd = 0 then return 0
+  dim pFrameCurrent as FRAMEDATA ptr = cast(FRAMEDATA ptr, SendMessage(g_hMainWnd, AKD_FRAMEFIND, FWF_CURRENT, 0))
+  if pFrameCurrent = 0 then return 0
+  dim idx as Integer = g_framesWithSmartMathEnabled.Find(pFrameCurrent)
+  if idx < 0 then return 0
+  return cast(FrameItem ptr, g_framesWithSmartMathEnabled[idx])
+end function
+
+private function FrameItemEditHwnd(byval pFrameItem as FrameItem ptr) as HWND
+  if pFrameItem = 0 orelse pFrameItem->pFrame = 0 then return 0
+  return pFrameItem->pFrame->ei.hWndEdit
+end function
+
+declare sub RestoreAkelOptionsIfSaved(byval pFrameItem as FrameItem ptr)
+
+' Snapshot options once per FrameItem, then ensure AECO_ACTIVELINE is on.
+private sub EnsureActiveLineOptionApplied(byval pFrameItem as FrameItem ptr)
+  if g_bOldRichEdit orelse pFrameItem = 0 then exit sub
+  dim hWndEdit as HWND = FrameItemEditHwnd(pFrameItem)
+  if (hWndEdit = 0) orelse (IsWindow(hWndEdit) = FALSE) then exit sub
+
+  if (g_pFrameItemAkelOptionsOwner <> 0) andalso (g_pFrameItemAkelOptionsOwner <> pFrameItem) then
+    RestoreAkelOptionsIfSaved(g_pFrameItemAkelOptionsOwner)
+  end if
+
+  if pFrameItem->bHasSavedAkelOptions = FALSE then
+    pFrameItem->dwOldAkelOptions = cast(DWORD, SendMessage(hWndEdit, AEM_GETOPTIONS, 0, 0))
+    pFrameItem->bHasSavedAkelOptions = TRUE
+  end if
+  SendMessage(hWndEdit, AEM_SETOPTIONS, AECOOP_OR, AECO_ACTIVELINE)
+  g_pFrameItemAkelOptionsOwner = pFrameItem
+end sub
+
+' Undo only AECO_ACTIVELINE if it was off in the saved snapshot.
+sub RestoreAkelOptionsIfSaved(byval pFrameItem as FrameItem ptr)
+  if pFrameItem = 0 then exit sub
+  if g_pFrameItemAkelOptionsOwner = pFrameItem then g_pFrameItemAkelOptionsOwner = 0
+  if g_bOldRichEdit orelse (pFrameItem->bHasSavedAkelOptions = FALSE) then exit sub
+
+  dim hWndEdit as HWND = FrameItemEditHwnd(pFrameItem)
+  if (hWndEdit <> 0) andalso (IsWindow(hWndEdit) <> 0) then
+    if (pFrameItem->dwOldAkelOptions and AECO_ACTIVELINE) = 0 then
+      dim dwClearActiveLine as DWORD = not cast(DWORD, AECO_ACTIVELINE)
+      SendMessage(hWndEdit, AEM_SETOPTIONS, AECOOP_AND, cast(LPARAM, dwClearActiveLine))
+    end if
+  end if
+  pFrameItem->bHasSavedAkelOptions = FALSE
+end sub
+
+' Drop the AECO_ACTIVELINE change made for a frame that is no longer rendered.
+private sub RestoreAkelOptionsOfOwnerFrame()
+  RestoreAkelOptionsIfSaved(g_pFrameItemAkelOptionsOwner)
+end sub
+
+private sub RestoreAllFrameAkelOptions()
+  for i as Integer = 0 to g_framesWithSmartMathEnabled.Count() - 1
+    RestoreAkelOptionsIfSaved(cast(FrameItem ptr, g_framesWithSmartMathEnabled[i]))
+  next i
+  g_pFrameItemAkelOptionsOwner = 0
+end sub
 
 ' -----------------------------------------------------------------------------
 '  Debug logging
@@ -233,6 +305,7 @@ private sub SetSmartMathDocActiveState(byval hWndEdit as HWND, byval bActive as 
   InvalidateRenderCache()
 
   if bActive then
+    EnsureActiveLineOptionApplied(FindCurrentFrameItem())
     if bApplyTheme then
       TryApplySmartMathCoderTheme()
     end if
@@ -240,6 +313,7 @@ private sub SetSmartMathDocActiveState(byval hWndEdit as HWND, byval bActive as 
     UpdateInternalState(hWndEdit, bVisible)
     InvalidateRect(hWndEdit, 0, TRUE)
   else
+    RestoreAkelOptionsOfOwnerFrame()
     rcOldMargin.left = 0 : rcOldMargin.right = 0
     rcOldMargin.top = 0  : rcOldMargin.bottom = 0
     nOldFirstLine = -1
@@ -487,10 +561,6 @@ private sub SyncSmartMathActiveEditorState(byval hWndEdit as HWND)
   if (hWndEdit = 0) orelse (IsWindow(hWndEdit) = FALSE) then exit sub
   g_hWndEdit = hWndEdit
   RefreshSmartMathDocMode(hWndEdit)
-  if not g_bOldRichEdit then
-    dwOldAkelOptions = SendMessage(hWndEdit, AEM_GETOPTIONS, 0, 0)
-    SendMessage(hWndEdit, AEM_SETOPTIONS, AECOOP_OR, AECO_ACTIVELINE)
-  end if
   dim bInitialVis as BOOL
   UpdateInternalState(hWndEdit, bInitialVis)
   InvalidateRect(hWndEdit, 0, TRUE)
@@ -1080,8 +1150,10 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
       dim pFrameCurrent as FRAMEDATA ptr = cast(FRAMEDATA ptr, SendMessage(g_hMainWnd, AKD_FRAMEFIND, FWF_CURRENT, 0))
       dim idx as Integer = g_framesWithSmartMathEnabled.Find(pFrameCurrent)
       if idx >= 0 then
-        g_framesWithSmartMathEnabled.RemoveAt(idx)
+        ' Restore AEM options while the FrameItem is still alive in the list.
         SetSmartMathDocActiveState(pFrameCurrent->ei.hWndEdit, FALSE, FALSE)
+        RestoreAkelOptionsIfSaved(cast(FrameItem ptr, g_framesWithSmartMathEnabled[idx]))
+        g_framesWithSmartMathEnabled.RemoveAt(idx)
         UpdateMenuActiveOnCurrTab(FALSE)
       else
         dim pFrameItem as FrameItem ptr = New FrameItem(pFrameCurrent)
@@ -1183,7 +1255,11 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
   elseif uMsg = AKDN_FRAME_DESTROY then
     dim pFrame as FRAMEDATA ptr = cast(FRAMEDATA ptr, lParam)
     if pFrame <> 0 then
-      g_framesWithSmartMathEnabled.RemoveAt(g_framesWithSmartMathEnabled.Find(pFrame))
+      dim idxDestroy as Integer = g_framesWithSmartMathEnabled.Find(pFrame)
+      if idxDestroy >= 0 then
+        RestoreAkelOptionsIfSaved(cast(FrameItem ptr, g_framesWithSmartMathEnabled[idxDestroy]))
+        g_framesWithSmartMathEnabled.RemoveAt(idxDestroy)
+      end if
     end if
 
   elseif uMsg = AKDN_MAIN_ONSTART_FINISH then
@@ -1232,6 +1308,7 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
     end if
 
     if bWasSmartMathActive then
+      RestoreAllFrameAkelOptions()
       SetOriginalProcData()
     end if
 
@@ -1278,8 +1355,8 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
       end if
 
     case WM_SETFOCUS
-      if not g_bOldRichEdit then
-        SendMessage(hWnd, AEM_SETOPTIONS, AECOOP_OR, AECO_ACTIVELINE)
+      if (not g_bOldRichEdit) andalso g_bSmartMathDocActive then
+        EnsureActiveLineOptionApplied(FindCurrentFrameItem())
       end if
 
     case WM_SIZE, WM_MOUSEWHEEL, WM_VSCROLL, WM_HSCROLL
@@ -1498,15 +1575,13 @@ sub ToggleSmartMath alias "ToggleSmartMath" (byval pd as PLUGINDATA ptr) export
     UninitSmartMathMenu(FALSE)
 
     SaveActiveSmartMathFrames()
+    RestoreAllFrameAkelOptions()
     g_framesWithSmartMathEnabled.Clear()
     g_bActiveFramesSaved = FALSE
     g_bSmartMathActive = FALSE
     InvalidateRenderCache()
 
     if pd->hWndEdit then
-      if not g_bOldRichEdit then
-        SendMessage(pd->hWndEdit, AEM_SETOPTIONS, AECOOP_SET, dwOldAkelOptions)
-      end if
       InvalidateRect(pd->hWndEdit, 0, TRUE)
     end if
 
