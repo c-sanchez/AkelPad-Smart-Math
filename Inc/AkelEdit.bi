@@ -5,11 +5,22 @@
 ' AkelEdit Messages
 const AEN_TEXTINSERTEND = (WM_USER + 1057)
 const AEN_TEXTCHANGED   = (WM_USER + 1060)
+const AEM_GETRECT       = (WM_USER + 2153)
+const AEM_GETSCROLLPOS  = (WM_USER + 2155)
 const AEM_GETCHARSIZE   = (WM_USER + 2164)
 const AEM_GETOPTIONS    = (WM_USER + 2203)
 const AEM_SETOPTIONS    = (WM_USER + 2204)
 const AEM_GETCOLORS     = (WM_USER + 2207)
 const AEM_SETCOLORS     = (WM_USER + 2208)
+const AEM_GETMARKER     = (WM_USER + 2233)
+
+' AEM_GETCHARSIZE Flags
+const AECS_HEIGHT   = 0
+const AECS_AVEWIDTH = 1
+
+' AEM_GETMARKER / AEM_SETMARKER Types
+const AEMT_PIXEL  = 0
+const AEMT_SYMBOL = 1
 
 ' AEM_SETOPTIONS Flags
 const AECOOP_SET = 1
@@ -25,6 +36,7 @@ const AECO_ACTIVELINEBORDER = &h00001000
 const AECLR_BASICBK          = &h00000008
 const AECLR_ACTIVELINETEXT   = &h00000040
 const AECLR_ACTIVELINEBK     = &h00000080
+const AECLR_COLUMNMARKER     = &h00000400
 const AECLR_ACTIVELINEBORDER = &h00002000
 
 ' AkelEdit Colors Structure
@@ -46,6 +58,12 @@ type AECOLORS
   crAltLineText as COLORREF
   crAltLineBk as COLORREF
   crAltLineBorder as COLORREF
+end type
+
+' x64-aware point in the virtual text space of a document
+type POINT64
+  x as INT_PTR
+  y as INT_PTR
 end type
 
 type AENMHDR

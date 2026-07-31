@@ -941,6 +941,46 @@ end sub
 ' Before text, fill drawClip with the line background: word-select / dblclick
 ' paints often report a tall update region while only erasing the clicked line,
 ' which would otherwise stack transparent glyphs on lines below.
+' Client x of AkelEdit's column marker (the character-limit vertical line), or -1
+' when there is no marker or it is scrolled out of the edit area. Mirrors
+' AE_ColumnMarkerDraw so the overlay puts the line back exactly where AkelEdit
+' painted it.
+private function GetColumnMarkerClientX(byval hWnd as HWND) as Integer
+  if g_bOldRichEdit then return -1
+
+  dim dwMarkerType as DWORD = 0
+  dim nMarkerPos as INT_PTR = SendMessage(hWnd, AEM_GETMARKER, cast(WPARAM, @dwMarkerType), 0)
+  if nMarkerPos <= 0 then return -1
+
+  if dwMarkerType = AEMT_SYMBOL then
+    dim nAveCharWidth as INT_PTR = SendMessage(hWnd, AEM_GETCHARSIZE, AECS_AVEWIDTH, 0)
+    if nAveCharWidth <= 0 then return -1
+    nMarkerPos *= nAveCharWidth
+  end if
+
+  dim rcDraw as RECT
+  SendMessage(hWnd, AEM_GETRECT, 0, cast(LPARAM, @rcDraw))
+
+  dim ptScrollPos as POINT64
+  SendMessage(hWnd, AEM_GETSCROLLPOS, 0, cast(LPARAM, @ptScrollPos))
+
+  if nMarkerPos <= ptScrollPos.x then return -1
+  if nMarkerPos >= ptScrollPos.x + (rcDraw.right - rcDraw.left) then return -1
+
+  return rcDraw.left + cast(Integer, nMarkerPos - ptScrollPos.x)
+end function
+
+' Re-stroke the column marker over a rectangle the overlay has just erased.
+private sub RepaintColumnMarkerInRect(byval hDC as HDC, byval hPen as HPEN, byval nMarkerX as Integer, byref rc as RECT)
+  if hPen = 0 then exit sub
+  if nMarkerX < rc.left orelse nMarkerX >= rc.right then exit sub
+
+  dim hOldPen as HPEN = cast(HPEN, SelectObject(hDC, hPen))
+  MoveToEx(hDC, nMarkerX, rc.top, 0)
+  LineTo(hDC, nMarkerX, rc.bottom)
+  SelectObject(hDC, hOldPen)
+end sub
+
 sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, byval bContentUnchanged as BOOL = FALSE)
   if g_bShuttingDown then exit sub
   if g_bSmartMathDocActive = FALSE then exit sub
@@ -971,20 +1011,28 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, by
 
   dim crBk as COLORREF = GetSysColor(COLOR_WINDOW)
   dim crActiveBk as COLORREF = crBk
+  dim crColumnMarker as COLORREF = crBk
   dim bUseActiveLineBk as BOOL = FALSE
   dim hBrushBk as HBRUSH = 0
   dim hBrushActive as HBRUSH = 0
   if not g_bOldRichEdit then
     dim aec as AECOLORS
-    aec.dwFlags = AECLR_BASICBK or AECLR_ACTIVELINEBK
+    aec.dwFlags = AECLR_BASICBK or AECLR_ACTIVELINEBK or AECLR_COLUMNMARKER
     SendMessage(hWnd, AEM_GETCOLORS, 0, cast(LPARAM, @aec))
     crBk = aec.crBasicBk
     crActiveBk = aec.crActiveLineBk
+    crColumnMarker = aec.crColumnMarker
     dim dwOptions as DWORD = SendMessage(hWnd, AEM_GETOPTIONS, 0, 0)
     if (dwOptions and AECO_ACTIVELINE) then bUseActiveLineBk = TRUE
   end if
   hBrushBk = CreateSolidBrush(crBk)
   if bUseActiveLineBk then hBrushActive = CreateSolidBrush(crActiveBk)
+
+  ' The control paints its column marker before the overlay runs, so every
+  ' gutter rectangle we erase below has to get the marker segment back.
+  dim nMarkerX as Integer = GetColumnMarkerClientX(hWnd)
+  dim hMarkerPen as HPEN = 0
+  if nMarkerX >= 0 then hMarkerPen = CreatePen(PS_SOLID, 1, crColumnMarker)
 
   SetBkMode(hDC, TRANSPARENT)
 
@@ -1065,6 +1113,7 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, by
             hFill = hBrushActive
           end if
           if hFill <> 0 then FillRect(hDC, @drawClip, hFill)
+          RepaintColumnMarkerInRect(hDC, hMarkerPen, nMarkerX, drawClip)
           dim clipRect as RECT
           clipRect.left = IIf(drawX > minDrawX, drawX, minDrawX)
           clipRect.top = lineRect.top
@@ -1102,10 +1151,12 @@ sub DrawDynamicMathResults(byval hWnd as HWND, byval prcClip as RECT ptr = 0, by
           hFillEmpty = hBrushActive
         end if
         if hFillEmpty <> 0 then FillRect(hDC, @eraseClip, hFillEmpty)
+        RepaintColumnMarkerInRect(hDC, hMarkerPen, nMarkerX, eraseClip)
       end if
     end if
   next i
 
+  if hMarkerPen then DeleteObject(hMarkerPen)
   if hBrushActive then DeleteObject(hBrushActive)
   if hBrushBk then DeleteObject(hBrushBk)
   if hFont then SelectObject(hDC, hOldFont)
