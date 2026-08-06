@@ -37,6 +37,10 @@ dim shared g_cacheReady as BOOL = FALSE
 dim shared g_cacheDocGeneration as UInteger = 0
 dim shared g_cacheSyncedGeneration as UInteger = 0
 dim shared g_cacheDirtyFromLine as Integer = -1
+' While a content key is held, EnsureRenderCache only re-evals through the
+' edited line and leaves g_cacheDirtyFromLine set so dependents stay dirty
+' until key-up (results below are untrustworthy even when their text matches).
+dim shared g_bContentKeyDown as BOOL = FALSE
 redim shared g_cachedLineText(0 to 0) as String
 redim shared g_cachedRenderText(0 to 0) as String
 
@@ -182,18 +186,39 @@ private sub MarkRenderCacheDocumentDirty(byval dirtyFromLine as Integer = -1)
   end if
 end sub
 
-private function IsRenderCacheSyncedWithDocument(byval hWnd as HWND) as BOOL
+declare sub EnsureRenderCache(byval hWnd as HWND)
+declare sub InvalidateEditLine(byval hWnd as HWND, byval lineIdx as Integer)
+declare sub InvalidateEditFromLineDown(byval hWnd as HWND, byval lineIdx as Integer)
+declare sub InvalidateAfterContentEdit(byval hWnd as HWND, byval lineIdx as Integer, byval bSyncPaint as BOOL)
+
+private function IsRenderCacheDocumentCurrent(byval hWnd as HWND) as BOOL
   if g_cacheReady = FALSE then return FALSE
   if g_cacheSyncedGeneration <> g_cacheDocGeneration then return FALSE
   if SendMessage(hWnd, EM_GETLINECOUNT, 0, 0) <> g_cacheLineCount then return FALSE
   return TRUE
 end function
 
+' Fully synced: document current and no deferred dirty dependents.
+private function IsRenderCacheSyncedWithDocument(byval hWnd as HWND) as BOOL
+  if g_cacheDirtyFromLine >= 0 then return FALSE
+  return IsRenderCacheDocumentCurrent(hWnd)
+end function
+
 private sub InvalidateRenderCache()
   MarkRenderCacheDocumentDirty(0)
   g_cacheReady = FALSE
   g_cacheLineCount = -1
+  g_bContentKeyDown = FALSE
 end sub
+
+private function IsNavigationVirtualKey(byval vk as WPARAM) as BOOL
+  select case vk
+    case VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_HOME, VK_END, VK_PRIOR, VK_NEXT
+      return TRUE
+    case else
+      return FALSE
+  end select
+end function
 
 private function IsVolatilePureExpressionLine(byref sLine as String) as BOOL
   dim t as String = lcase(trim(sLine))
@@ -555,12 +580,11 @@ private sub CheckEditNotifications(byval hWnd as HWND, byval uMsg as UINT, byval
       end if
     end if
     MarkRenderCacheDocumentDirty(nDirtyFromLine)
-    ' Dependent lines can change results (e.g. rand / UDF) without AkelEdit
-    ' invalidating them. Erase+repaint the full client so overlays do not stack.
+    ' Dependent lines below can change results; lines above stay valid.
     dim hWndEdit as HWND = pHdr->hwndFrom
     if (hWndEdit = 0) orelse (IsWindow(hWndEdit) = FALSE) then hWndEdit = g_hWndEdit
     if (hWndEdit <> 0) andalso (IsWindow(hWndEdit) <> 0) andalso g_bSmartMathDocActive then
-      InvalidateRect(hWndEdit, 0, TRUE)
+      InvalidateAfterContentEdit(hWndEdit, nDirtyFromLine, FALSE)
     end if
     exit sub
   end if
@@ -688,6 +712,12 @@ private sub EnsureRenderCache(byval hWnd as HWND)
   end if
 
   if IsRenderCacheSyncedWithDocument(hWnd) then exit sub
+  ' Held-key capped rebuild already applied for this document generation: keep
+  ' deferred dirty-from-line and wait for key-up (or a new dirty mark).
+  if g_bContentKeyDown andalso (g_cacheDirtyFromLine >= 0) _
+     andalso IsRenderCacheDocumentCurrent(hWnd) then
+    exit sub
+  end if
 
   dim needsFullRebuild as BOOL = (g_cacheReady = FALSE) orelse (nLineCount <> g_cacheLineCount)
   dim firstChanged as Integer = -1
@@ -710,7 +740,16 @@ private sub EnsureRenderCache(byval hWnd as HWND)
       end if
     next iScan
 
-    if firstChanged < 0 then
+    ' dirty-from-line: results from this line down are untrustworthy even when
+    ' line text is unchanged (e.g. after a held-key capped rebuild).
+    if g_cacheDirtyFromLine >= 0 then
+      dim nDirty as Integer = g_cacheDirtyFromLine
+      if nDirty >= nLineCount then nDirty = nLineCount - 1
+      if nDirty < 0 then nDirty = 0
+      if firstChanged < 0 orelse nDirty < firstChanged then
+        firstChanged = nDirty
+      end if
+    elseif firstChanged < 0 then
       g_cacheSyncedGeneration = g_cacheDocGeneration
       g_cacheDirtyFromLine = -1
       exit sub
@@ -723,6 +762,19 @@ private sub EnsureRenderCache(byval hWnd as HWND)
     else
       firstChanged = minCount
     end if
+  end if
+
+  ' While a content key is held, only re-eval through the edited/caret line so
+  ' key-repeat stays responsive. Leave dirty-from-line set for dependents.
+  dim nEvalLast as Integer = nLineCount - 1
+  dim bCappedEval as BOOL = FALSE
+  if g_bContentKeyDown andalso (needsFullRebuild = FALSE) then
+    dim nCaretEval as Integer = SendMessage(hWnd, EM_EXLINEFROMCHAR, 0, -1)
+    nEvalLast = firstChanged
+    if nCaretEval > nEvalLast then nEvalLast = nCaretEval
+    if nEvalLast < 0 then nEvalLast = 0
+    if nEvalLast >= nLineCount then nEvalLast = nLineCount - 1
+    bCappedEval = (nEvalLast < nLineCount - 1)
   end if
 
   redim currentLineText(0 to nLineCount - 1) as String
@@ -756,24 +808,37 @@ private sub EnsureRenderCache(byval hWnd as HWND)
   Parser_ClearVariables()
   Parser_SetSupportComplexNumbers(g_bSupportComplexNumbers)
   for i = 0 to nLineCount - 1
-    dim sRes as String = ""
-    dim bIsError as Boolean = FALSE
-    BuildRenderedResultText(g_cachedLineText(i), sRes, bIsError, i)
-
-    if (i < firstChanged) andalso g_cacheReady andalso (i < oldCount) andalso (g_cachedLineText(i) = oldLineText(i)) then
-      g_cachedRenderText(i) = oldRenderText(i)
-      if IsVolatilePureExpressionLine(g_cachedLineText(i)) then
-        ' Keep ans chain consistent with frozen rendered output for volatile pure expressions.
-        RestoreAnsFromCachedRender(g_cachedRenderText(i))
+    if i > nEvalLast then
+      if i < oldCount then
+        g_cachedRenderText(i) = oldRenderText(i)
+      else
+        g_cachedRenderText(i) = ""
       end if
     else
-      g_cachedRenderText(i) = sRes
+      dim sRes as String = ""
+      dim bIsError as Boolean = FALSE
+      BuildRenderedResultText(g_cachedLineText(i), sRes, bIsError, i)
+
+      if (i < firstChanged) andalso g_cacheReady andalso (i < oldCount) andalso (g_cachedLineText(i) = oldLineText(i)) then
+        g_cachedRenderText(i) = oldRenderText(i)
+        if IsVolatilePureExpressionLine(g_cachedLineText(i)) then
+          ' Keep ans chain consistent with frozen rendered output for volatile pure expressions.
+          RestoreAnsFromCachedRender(g_cachedRenderText(i))
+        end if
+      else
+        g_cachedRenderText(i) = sRes
+      end if
     end if
   next i
 
   g_cacheReady = TRUE
   g_cacheSyncedGeneration = g_cacheDocGeneration
-  g_cacheDirtyFromLine = -1
+  if bCappedEval then
+    ' Texts/results through nEvalLast are current; dependents below are not.
+    g_cacheDirtyFromLine = firstChanged
+  else
+    g_cacheDirtyFromLine = -1
+  end if
 end sub
 
 function BuildLineRenderText(byval hWnd as HWND, byval lineIdx as Integer) as String
@@ -885,6 +950,39 @@ private sub InvalidateEditLine(byval hWnd as HWND, byval lineIdx as Integer)
   dim rcLine as RECT
   if GetEditLineClientRect(hWnd, lineIdx, rcLine) then
     InvalidateRect(hWnd, @rcLine, TRUE)
+  end if
+end sub
+
+' Content edits only affect the changed line and dependents below it. Invalidate
+' from that line's top through the bottom of the client (leave lines above alone).
+private sub InvalidateEditFromLineDown(byval hWnd as HWND, byval lineIdx as Integer)
+  dim rcClient as RECT
+  GetClientRect(hWnd, @rcClient)
+  if lineIdx < 0 then
+    InvalidateRect(hWnd, @rcClient, TRUE)
+    exit sub
+  end if
+
+  dim rcLine as RECT
+  if GetEditLineClientRect(hWnd, lineIdx, rcLine) = FALSE then
+    InvalidateRect(hWnd, @rcClient, TRUE)
+    exit sub
+  end if
+
+  dim rcInv as RECT = rcClient
+  rcInv.top = rcLine.top
+  if rcInv.top < rcClient.top then rcInv.top = rcClient.top
+  if rcInv.top >= rcClient.bottom then exit sub
+  InvalidateRect(hWnd, @rcInv, TRUE)
+end sub
+
+' While a content key is held, only the edited line; otherwise from-line-down.
+private sub InvalidateAfterContentEdit(byval hWnd as HWND, byval lineIdx as Integer, byval bSyncPaint as BOOL)
+  if g_bContentKeyDown then
+    InvalidateEditLine(hWnd, lineIdx)
+    if bSyncPaint then UpdateWindow(hWnd)
+  else
+    InvalidateEditFromLineDown(hWnd, lineIdx)
   end if
 end sub
 
@@ -1475,6 +1573,14 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
 
   g_hWndEdit = hWnd
 
+  ' Mark content-key hold before NextProc so AEN_TEXTCHANGED (during insert/delete)
+  ' only invalidates the current line while the key is held.
+  if ((uMsg = WM_KEYDOWN) orelse (uMsg = WM_SYSKEYDOWN)) andalso _
+     (IsModifierOrLockVirtualKey(wParam) = FALSE) andalso _
+     (IsNavigationVirtualKey(wParam) = FALSE) then
+    g_bContentKeyDown = TRUE
+  end if
+
   dim lRes as LRESULT
   dim rcUpdate as RECT
   dim bNeedRedraw as BOOL = FALSE
@@ -1588,8 +1694,41 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
         end select
 
         if (uMsg <> WM_MOUSEMOVE) orelse (wParam and MK_LBUTTON) then
+          ' Track content-key hold before cache work so EnsureRenderCache can
+          ' cap re-eval to the current line while the key is held.
+          dim bIsNavKey as BOOL = FALSE
+          dim bForceKeyRedraw as BOOL = FALSE
+          dim nFlushFromLine as Integer = -1
+          if (uMsg = WM_KEYDOWN) orelse (uMsg = WM_SYSKEYDOWN) orelse _
+             (uMsg = WM_KEYUP) orelse (uMsg = WM_SYSKEYUP) then
+            if IsNavigationVirtualKey(wParam) then
+              bIsNavKey = TRUE
+              if (uMsg = WM_KEYDOWN) orelse (uMsg = WM_SYSKEYDOWN) then
+                dim selStart as Integer = 0, selEnd as Integer = 0
+                SendMessage(hWnd, EM_GETSEL, cast(WPARAM, @selStart), cast(LPARAM, @selEnd))
+                nLastNavSelStart = selStart
+                nLastNavSelEnd = selEnd
+              end if
+            else
+              if (uMsg = WM_KEYDOWN) orelse (uMsg = WM_SYSKEYDOWN) then
+                ' Backspace/Delete/etc.: content may change without WM_CHAR.
+                bForceKeyRedraw = TRUE
+                nLastNavSelStart = -1
+                nLastNavSelEnd = -1
+              elseif g_bContentKeyDown then
+                g_bContentKeyDown = FALSE
+                nFlushFromLine = g_cacheDirtyFromLine
+              end if
+            end if
+          end if
+
           dim bVisible as BOOL
           UpdateInternalState(hWnd, bVisible)
+          ' Key-up: EnsureRenderCache (via UpdateInternalState) finished dependents
+          ' because content-key cap is off; repaint from the dirty line down.
+          if nFlushFromLine >= 0 then
+            InvalidateEditFromLineDown(hWnd, nFlushFromLine)
+          end if
 
           dim rcClient as RECT
           GetClientRect(hWnd, @rcClient)
@@ -1609,24 +1748,6 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
           ' Arrow/nav keys must not force a full-client erase (that flickers every
           ' visible result). Same-line moves need no SmartMath invalidate; caret
           ' line changes only refresh the old and new line strips.
-          dim bIsNavKey as BOOL = FALSE
-          dim bForceKeyRedraw as BOOL = FALSE
-          if (uMsg = WM_KEYDOWN) orelse (uMsg = WM_SYSKEYDOWN) then
-            if (wParam = VK_UP) orelse (wParam = VK_DOWN) orelse (wParam = VK_LEFT) orelse (wParam = VK_RIGHT) orelse _
-               (wParam = VK_HOME) orelse (wParam = VK_END) orelse (wParam = VK_PRIOR) orelse (wParam = VK_NEXT) then
-              bIsNavKey = TRUE
-              dim selStart as Integer = 0, selEnd as Integer = 0
-              SendMessage(hWnd, EM_GETSEL, cast(WPARAM, @selStart), cast(LPARAM, @selEnd))
-              nLastNavSelStart = selStart
-              nLastNavSelEnd = selEnd
-            else
-              ' Backspace/Delete/etc.: content may change without WM_CHAR.
-              bForceKeyRedraw = TRUE
-              nLastNavSelStart = -1
-              nLastNavSelEnd = -1
-            end if
-          end if
-
           if bVisible then
             dim bSizeChanged as BOOL = (rcNewMargin.left <> rcOldMargin.left) orelse _
                                        (rcNewMargin.right <> rcOldMargin.right)
@@ -1634,9 +1755,17 @@ function EditGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
             dim bCaretLineChanged as BOOL = (nCaretLine <> nOldCaretLine)
             dim bHScrollChanged as BOOL = (nHScrollPos <> nOldHScrollPos)
 
-            if bSizeChanged orelse (uMsg = WM_CHAR) orelse bForceKeyRedraw then
+            if bSizeChanged then
               if rcOldMargin.right > 0 then InvalidateRect(hWnd, @rcOldMargin, TRUE)
               InvalidateRect(hWnd, @rcNewMargin, TRUE)
+            elseif (uMsg = WM_CHAR) orelse bForceKeyRedraw then
+              ' Typing / Backspace / Delete: while key held, only the current line
+              ' (characters stay visible); dirty-from-line + key-up refresh below.
+              dim nFromLine as Integer = nCaretLine
+              if nOldCaretLine >= 0 andalso (nFromLine < 0 orelse nOldCaretLine < nFromLine) then
+                nFromLine = nOldCaretLine
+              end if
+              InvalidateAfterContentEdit(hWnd, nFromLine, TRUE)
             elseif bScrollChanged then
               ' Do not full-erase invalidate: key-repeat starves WM_PAINT and leaves
               ' blank result strips on newly exposed lines. Draw the edge (and caret
