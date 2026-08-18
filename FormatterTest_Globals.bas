@@ -9,7 +9,6 @@ dim shared rcOldMargin as RECT
 dim shared nOldFirstLine as Integer = 0
 dim shared nOldCaretLine as Integer = 0
 dim shared nOldMargin as Integer = 0
-dim shared dwOldAkelOptions as DWORD = 0
 
 dim shared g_nDecimals as Integer = -1
 dim shared g_crResultColor as COLORREF = 0

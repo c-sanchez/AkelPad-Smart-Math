@@ -3523,6 +3523,7 @@ std::vector<TestCase> buildRatioInExpressionCases() {
                  if (!expectEval(p, "reverse(ratio(1/2),ratio(1))", "(1, 1/2)", why)) return false;
                  if (!expectEval(p, "unpack(ratio(1),ratio(1/2))", "(1, 1/2)", why)) return false;
                  if (!expectEval(p, "unique(ratio(1),ratio(0.5),ratio(1))", "(1, 1/2)", why)) return false;
+                 if (!expectEval(p, "flat(ratio(1),ratio(1/2))", "(1, 1/2)", why)) return false;
                  if (!expectEval(p, "sort((ratio(3),ratio(1),ratio(1/2)))", "(1/2, 1, 3)", why)) return false;
 #if SMARTMATH_LAMBDA_FUNCTIONS
                  if (!expectEval(p, "sortby((ratio(3),ratio(1/2)),x:x)", "(1/2, 3)", why)) return false;
@@ -4151,6 +4152,18 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "reverse()", "expects at least 1 argument"} ,
     {ParityBasicCase::Kind::Expected, "reverse((2,5,1),4,3)", "(3,4,1,5,2)"} ,
     {ParityBasicCase::Kind::ErrorContains, "reverse(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2); b=(4,5); flat(a,3,b,6)", "(1,2,3,4,5,6)"} ,
+    {ParityBasicCase::Kind::Expected, "flat(5)", "(5)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((1,2,3))", "(1,2,3)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat()", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat", "function: flat(...)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x*y; f(flat((2,3)))", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"} ,
+    {ParityBasicCase::Kind::Expected, "a=flat((18446744073709551615,2)); uhex(a[0])", "0xFFFFFFFFFFFFFFFF"} ,
+    {ParityBasicCase::Kind::Expected, "flat(1,2,1,2,3)", "(1,2,1,2,3)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((9,8,7))", "(9,8,7)"} ,
     {ParityBasicCase::Kind::Expected, "(10,20,30)[0]", "10"} ,
     {ParityBasicCase::Kind::Expected, "(10,20,30)[2]", "30"} ,
     {ParityBasicCase::Kind::Expected, "(10,20,30)[-1]", "30"} ,
@@ -4189,6 +4202,95 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "f(x,y,z)=x+y+z; f(unpack(1,2,3))", "6"} ,
     {ParityBasicCase::Kind::Expected, "f(a,b,c,d,t)=a+b+c+d+t; f(unpack((1,2),3,(4,5)))", "15"} ,
     {ParityBasicCase::Kind::Expected, "unpack((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
+    {ParityBasicCase::Kind::Expected, "repeat(0, 3)", "(0,0,0)"} ,
+    {ParityBasicCase::Kind::Expected, "repeat((10), 5)", "(10,10,10,10,10)"} ,
+    {ParityBasicCase::Kind::Expected, "repeat((1,2), 1)", "(1,2)"} ,
+    {ParityBasicCase::Kind::Expected, "repeat(5, 2)", "(5,5)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat(1, 0)", "expects a positive integer"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat(10, -3)", "expects a positive integer"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat((1,2), -1)", "expects a positive integer"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat((1,2), 1.23)", "expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat", "function: repeat(x, n)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat()", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat(1)", "expects 2 argument(s)"} ,
+#if SMARTMATH_TIME_VALUES
+    {ParityBasicCase::Kind::ErrorContains, "repeat((1,2), 1:00)", "expects integer values"} ,
+#endif
+    {ParityBasicCase::Kind::Expected, "a=repeat((18446744073709551615,2), 2); uhex(a[2])", "0xFFFFFFFFFFFFFFFF"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 4)", "(1,2,3)"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 10, 3)", "(1,4,7)"} ,
+    {ParityBasicCase::Kind::Expected, "range(10, 0, -2)", "(10,8,6,4,2)"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 2)", "(1)"} ,
+    {ParityBasicCase::Kind::Expected, "range(-1, 2)", "(-1,0,1)"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 10, 2)", "(1,3,5,7,9)"} ,
+    {ParityBasicCase::Kind::Expected, "sum(range(1,4))", "6"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 10, 0)", "step must not be zero"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 10, -1)", "produces no values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(10, 0, 2)", "produces no values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(0, 0, 2)", "produces no values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 1)", "produces no values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(5, 1)", "produces no values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 2, 1.5)", "expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range((1,2), 5)", "expects integer values"} ,
+#if SMARTMATH_TIME_VALUES
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 1:00)", "expects integer values"} ,
+#endif
+    {ParityBasicCase::Kind::ErrorContains, "range", "function: range(start, stop [, step])"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range()", "expects at least 2 arguments"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1)", "expects at least 2 arguments"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1,2,3,4)", "expects 3 argument(s)"} ,
+    {ParityBasicCase::Kind::Expected, "hex(range(1,4)[0])", "0x1"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 1001)[999]", "1000"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 1002)", "produces too many values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "range(1, 2**53)", "produces too many values"} ,
+    {ParityBasicCase::Kind::Expected, "repeat(0, 1000)[999]", "0"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat(0, 1001)", "produces too many values"} ,
+    {ParityBasicCase::Kind::Expected, "repeat((1,2), 500)[999]", "2"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat((1,2), 501)", "produces too many values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "repeat(1, 2**53)", "produces too many values"} ,
+    {ParityBasicCase::Kind::Expected, "len((10,20,30))", "3"} ,
+#if SMARTMATH_TIME_VALUES
+    {ParityBasicCase::Kind::Expected, "len(1:30)", "1"} ,
+#endif
+    {ParityBasicCase::Kind::Expected, "len(range(0,10))", "10"} ,
+    {ParityBasicCase::Kind::Expected, "len(1,2,3)", "3"} ,
+    {ParityBasicCase::Kind::Expected, "len()", "0"} ,
+    {ParityBasicCase::Kind::Expected, "len(())", "0"} ,
+    {ParityBasicCase::Kind::Expected, "len(1, (2, 3))", "3"} ,
+    {ParityBasicCase::Kind::Expected, "len(42)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "len(nan)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "length((1,2))", "2"} ,
+    {ParityBasicCase::Kind::ErrorContains, "len", "function: len(x)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "length", "function: len(x)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[2:7]", "(3, 4, 5, 6, 7)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[3:-3]", "(4, 5, 6)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[0:1]", "(1)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[-3:-2]", "(7)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[-2:-3]", "()"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[3:1]", "()"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[1:1]", "()"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[11:11]", "()"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[:3]", "(1, 2, 3)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[3:]", "(4, 5, 6, 7, 8, 9)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[:]", "(1, 2, 3, 4, 5, 6, 7, 8, 9)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[::2]", "(1, 3, 5, 7, 9)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[1:8:2]", "(2, 4, 6, 8)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[::-1]", "(9, 8, 7, 6, 5, 4, 3, 2, 1)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[8:1:-2]", "(9, 7, 5, 3)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[1:30]", "(2, 3, 4, 5, 6, 7, 8, 9)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "a=(1,2,3,4,5,6,7,8,9); a[::0]", "slice step must not be zero"} ,
+    {ParityBasicCase::Kind::ErrorContains, "a=(1,2,3,4,5,6,7,8,9); a[1.5:3]", "array index must be an integer"} ,
+    {ParityBasicCase::Kind::Expected, "(10,20,30)[1:2]", "(20)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5); a[1:4][0]", "2"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[-100:100]", "(1, 2, 3, 4, 5, 6, 7, 8, 9)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); a[100:-100:-1]", "(9, 8, 7, 6, 5, 4, 3, 2, 1)"} ,
+    {ParityBasicCase::Kind::Expected, "_=(1,2,3,4,5,6); ff(a)=a[1:4]; ff(_)", "(2, 3, 4)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5,6,7,8,9); i=2; j=7; a[i:j]", "(3, 4, 5, 6, 7)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "5[0:1]", "indexing requires an array value"} ,
+#if SMARTMATH_TIME_VALUES
+    {ParityBasicCase::Kind::ErrorContains, "a=range(1,101); a[1m3s]", "array index must be an integer"} ,
+    {ParityBasicCase::Kind::ErrorContains, "a=range(1,101); a[1m:1m3s]", "array index must be an integer"} ,
+#endif
     {ParityBasicCase::Kind::Expected, "a=5; a==5", "1"} ,
     {ParityBasicCase::Kind::Expected, "b=3; b==4", "0"} ,
     {ParityBasicCase::Kind::Expected, "7==7", "1"} ,
@@ -4358,6 +4460,7 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "reversed(1,Inf,2)", "(2,inf,1)"},
     {ParityBasicCase::Kind::Expected, "unique(1,Inf,2,Inf)", "(1,inf,2)"},
     {ParityBasicCase::Kind::Expected, "unpack(1,Inf,2)", "(1,inf,2)"},
+    {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"},
     {ParityBasicCase::Kind::Expected, "sum(unpack(1,Inf,2))", "inf"},
     {ParityBasicCase::Kind::Expected, "sortby((1,Inf,2),abs)", "(1,2,inf)"}
 };
@@ -4628,7 +4731,9 @@ std::vector<TestCase> buildTimeValuesSupportOptionCases() {
                      {"reverse(0:30, Inf, 1:00)", "(01:00,inf,00:30)"},
                      {"unpack(0:30, Inf)", "(00:30,inf)"},
                      {"unique(0:30, Inf, 0:30)", "(00:30,inf)"},
-                     {"ratio((hours(1:00), 15m/1h))", "(1/60,1/4)"}
+                     {"ratio((hours(1:00), 15m/1h))", "(1/60,1/4)"},
+                     {"repeat((1:00, 2:00), 2)", "(01:00,02:00,01:00,02:00)"},
+                     {"flat(0:30, Inf, 1:00)", "(00:30,inf,01:00)"}
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5027,6 +5132,12 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    return false;
                  }
                  return expectEval(p, "hex(abs(0x7FFFFFFFFFFFFFFF+20))", "0x8000000000000013", why);
+               }});
+  t.push_back({"complex-opt: array index rejects complex bound",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 return expectEvalErrorContains(p, "a=range(1,101); a[7+3i]", "array index must be an integer", why);
                }});
   t.push_back({"complex-opt: real/imag/cart/conj preserve exact integers",
                [](std::string& why) {
@@ -5515,6 +5626,10 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"reverse(1, 2+Inf*i, 3)", "(3,2+inf*i,1)"},
                      {"unique(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
                      {"unpack(2+Inf*i, 3)", "(2+inf*i,3)"},
+                     {"repeat((1, Inf, i), 2)", "(1,inf,i,1,inf,i)"},
+                     {"flat((1+2i, 3), 4)", "(1+2i,3,4)"},
+                     {"flat(1, Inf+2i, 3)", "(1,inf+2i,3)"},
+                     {"flat(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5526,6 +5641,24 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
                      return false;
                    }
+                 }
+                 p.parseAndEvaluate("repeat((1,2), i)");
+                 if (p.getError().empty()) {
+                   why = "repeat((1,2), i): expected error";
+                   return false;
+                 }
+                 if (p.getError().find("repeat() expects integer values") == std::string::npos) {
+                   why = std::string("repeat((1,2), i): ") + p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("range(1, 5, i)");
+                 if (p.getError().empty()) {
+                   why = "range(1, 5, i): expected error";
+                   return false;
+                 }
+                 if (p.getError().find("range() expects integer values") == std::string::npos) {
+                   why = std::string("range(1, 5, i): ") + p.getError();
+                   return false;
                  }
                  return true;
                }});

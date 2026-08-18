@@ -169,9 +169,13 @@ private:
     Sort,
     Sortby,
     Ratio,
+    Range,
     Reverse,
     Unique,
     Unpack,
+    Flat,
+    Repeat,
+    Len,
     Fact,
     Factorint,
     Avg,
@@ -214,6 +218,8 @@ private:
     DegRad,
     Aggregate,
     ArrayTransform,
+    Repeat,
+    Range,
     Sortby,
     Ratio,
     Factorial,
@@ -250,26 +256,29 @@ private:
   };
 
   static constexpr UnaryScalarKind kUnaryScalarKind[static_cast<std::size_t>(BuiltinFunctionId::Count)] = {
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::PrimaryTrig,
-    UnaryScalarKind::PrimaryTrig, UnaryScalarKind::PrimaryTrig, UnaryScalarKind::InverseTrig,
-    UnaryScalarKind::InverseTrig, UnaryScalarKind::InverseTrig, UnaryScalarKind::HyperbolicTrig,
-    UnaryScalarKind::HyperbolicTrig, UnaryScalarKind::HyperbolicTrig, UnaryScalarKind::InverseHyperbolicTrig,
-    UnaryScalarKind::InverseHyperbolicTrig, UnaryScalarKind::InverseHyperbolicTrig, UnaryScalarKind::Exp,
-    UnaryScalarKind::None, UnaryScalarKind::Ln, UnaryScalarKind::Log10, UnaryScalarKind::Sqrt,
-    UnaryScalarKind::Sqr, UnaryScalarKind::Rounding, UnaryScalarKind::Frac, UnaryScalarKind::Abs,
-    UnaryScalarKind::Rounding, UnaryScalarKind::Rounding, UnaryScalarKind::Rounding,
-    UnaryScalarKind::Rounding, UnaryScalarKind::Sign, UnaryScalarKind::Deg, UnaryScalarKind::Rad,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
-    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    /* Rand..Atan2 */ UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    /* Sin..Tan */ UnaryScalarKind::PrimaryTrig, UnaryScalarKind::PrimaryTrig, UnaryScalarKind::PrimaryTrig,
+    /* Asin..Atan */ UnaryScalarKind::InverseTrig, UnaryScalarKind::InverseTrig, UnaryScalarKind::InverseTrig,
+    /* Sinh..Tanh */ UnaryScalarKind::HyperbolicTrig, UnaryScalarKind::HyperbolicTrig, UnaryScalarKind::HyperbolicTrig,
+    /* Acosh..Atanh */ UnaryScalarKind::InverseHyperbolicTrig, UnaryScalarKind::InverseHyperbolicTrig, UnaryScalarKind::InverseHyperbolicTrig,
+    /* Exp */ UnaryScalarKind::Exp,
+    /* Log */ UnaryScalarKind::None,
+    /* Ln Log10 Sqrt Sqr */ UnaryScalarKind::Ln, UnaryScalarKind::Log10, UnaryScalarKind::Sqrt, UnaryScalarKind::Sqr,
+    /* Int Frac Abs */ UnaryScalarKind::Rounding, UnaryScalarKind::Frac, UnaryScalarKind::Abs,
+    /* Floor Ceil Trunc Round */ UnaryScalarKind::Rounding, UnaryScalarKind::Rounding, UnaryScalarKind::Rounding, UnaryScalarKind::Rounding,
+    /* Sign Deg Rad */ UnaryScalarKind::Sign, UnaryScalarKind::Deg, UnaryScalarKind::Rad,
+    /* Sum..Len (14) */ UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
     UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
     UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
     UnaryScalarKind::None, UnaryScalarKind::None,
+    /* Fact..Conj (28) */ UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+    UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
   };
   static_assert(
       sizeof(kUnaryScalarKind) / sizeof(kUnaryScalarKind[0]) ==
@@ -298,6 +307,9 @@ private:
     ValueMinMax,
     XY,
     AB,
+    XN,
+    X,
+    StartStopStep,
     ArrayFunc
   };
 
@@ -412,6 +424,7 @@ private:
       Binary,
       Call,
       Index,
+      Slice,
       ArrayOrParens,
       PostfixPercent,
       FunctionRef
@@ -468,6 +481,8 @@ private:
     std::string errorText;
     bool wasPercentage = false;
     int evalDepth = 0;
+    /** Nesting depth of ``[...]`` while parsing; suppresses colon-time literals so ``a[1:30]`` is a slice. */
+    int arrayIndexBracketDepth = 0;
     /** Collected like FreeBASIC (non-fatal until end of eval). */
     std::string unknownVarsText;
     std::string unknownFuncsText;
@@ -634,6 +649,7 @@ private:
   static bool scalarHasExactIntegerPayload(const EvalValue::ScalarValue& s);
   static bool tryMulExactInt64Square(long long i, long long& outSq);
   static bool tryGetExactSignedInt64NoUIntWrapScalarStrict(const EvalValue::ScalarValue& s, long long& outI);
+  static bool tryGetArrayIndexIntFromScalarValue(const EvalValue::ScalarValue& sIn, long long& outI);
   static void applySqrtScalarValue(const EvalValue::ScalarValue& sv, EvalValue& outV);
   static bool tryApplySqrExactScalar(const EvalValue::ScalarValue& sv, EvalValue& outV);
   static bool tryApplyHypotExactScalars(
@@ -893,6 +909,7 @@ private:
       bool& handled);
   static bool hasExprParseFailure(const EvalContext& ctx, const std::unique_ptr<Expr>& node);
   void setNumericErrorInFunction(EvalContext& ctx, const std::string& fnName) const;
+  void setAtLeastNArgsError(EvalContext& ctx, const std::string& fnName, uint8_t minArgs) const;
   void setAtLeastOneArgError(EvalContext& ctx, const std::string& fnName) const;
   void setExactArgCountError(EvalContext& ctx, const std::string& fnName, size_t expectedCount) const;
 #if SMARTMATH_TIME_VALUES
@@ -935,6 +952,11 @@ private:
   void setIntegerValuesError(EvalContext& ctx, const std::string& fnName) const;
   void setScalarMinMaxError(EvalContext& ctx, const std::string& fnName) const;
   void setNonNegativeIntegerError(EvalContext& ctx, const std::string& fnName) const;
+  void setPositiveIntegerError(EvalContext& ctx, const std::string& fnName) const;
+  void setRangeStepZeroError(EvalContext& ctx, const std::string& fnName) const;
+  void setRangeEmptyError(EvalContext& ctx, const std::string& fnName) const;
+  void setTooManyValuesError(EvalContext& ctx, const std::string& fnName) const;
+  bool acceptProducedItemCount(EvalContext& ctx, const std::string& fnName, std::uint64_t count) const;
   bool evalValuesHaveMismatchedArrayLengths(const EvalValue& left, const EvalValue& right) const;
   void setBinaryBuiltinBroadcastFailure(
       EvalContext& ctx,
@@ -1019,6 +1041,9 @@ private:
       const std::unordered_map<std::string, EvalValue>* scopedVars);
 
   EvalValue builtinUnpack(EvalContext& ctx, const std::vector<EvalValue>& args) const;
+  EvalValue builtinLen(EvalContext& ctx, const std::vector<EvalValue>& args) const;
+  EvalValue builtinRepeat(EvalContext& ctx, const std::string& fnName, const std::vector<EvalValue>& args) const;
+  EvalValue builtinRange(EvalContext& ctx, const std::string& fnName, const std::vector<EvalValue>& args) const;
   EvalValue builtinAggregateFamily(
       EvalContext& ctx,
       const std::string& fnName,

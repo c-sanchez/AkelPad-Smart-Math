@@ -46,10 +46,13 @@ const EM_LINELENGTH       = &h00C1
 const ID_EDIT             = 10001
 
 ' AkelPad Notifications
-const AKDN_MAIN_ONSTART_FINISH  = (WM_USER + 4)
-const AKDN_MAIN_ONFINISH        = (WM_USER + 6)
-const AKDN_FRAME_ACTIVATE       = (WM_USER + 22)
-const AKDN_OPENDOCUMENT_FINISH  = (WM_USER + 54)
+const AKDN_MAIN_ONSTART_SHOW      = (WM_USER + 3)
+const AKDN_MAIN_ONSTART_FINISH    = (WM_USER + 4)
+const AKDN_MAIN_ONFINISH          = (WM_USER + 6)
+const AKDN_MAIN_ONCLOSE_PREFINISH = (WM_USER + 8) 
+const AKDN_FRAME_ACTIVATE         = (WM_USER + 22)
+const AKDN_FRAME_DESTROY          = (WM_USER + 24)
+const AKDN_OPENDOCUMENT_FINISH    = (WM_USER + 54)
 
 ' AkelPad Messages
 const AKD_SETMAINPROC           = (WM_USER + 102)
@@ -73,9 +76,13 @@ const DLLSF_ONEXIT = &h02
 const POB_READ     = &h01
 const POB_SAVE     = &h02
 const PO_DWORD     = 1
+const PO_BINARY    = 2
 const PO_STRING    = 3
-const FWF_CURRENT  = 1
-const FI_WNDEDIT   = 2
+const FWF_CURRENT    = 1
+const FWF_NEXT       = 2
+const FWF_PREV       = 3
+const FWF_BYFILENAME = 5
+const FI_WNDEDIT     = 2
 
 #ifndef MAX_PATH
   const MAX_PATH = 260

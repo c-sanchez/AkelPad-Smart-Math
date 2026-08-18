@@ -18,25 +18,10 @@ SmartMath evaluates math expressions inside AkelPad.
 
 ## Quick Start
 
-### SmartMath Marker
+### Active on Current Tab
 
-To enable calculations in your current document, SmartMath requires a specific marker on the very first line.
-
-**Supported Markers:**
-- `# SmartMath` or `#SmartMath`
-- `#smartmath` or `#SMARTMATH`
-
-**How it works:**
-- **Automatic:** When you trigger the SmartMath command from the plugins menu or hotkey, this marker is automatically inserted at the top of your file.
-- **Manual:** You can type any of the supported markers manually on the first line to instantly activate calculations.
-- If the marker is missing or misspelled (e.g., `#smartma`), no calculations are performed until the marker is corrected.
-
-**Example:**
-```
-# SmartMath
-a = 10                    = 10
-a * 5                     = 50
-```
+To enable calculations in your current document, click "Active on Current Tab" under the SmartMath menu.
+SmartMath remembers which documents (tabs) have "Active on Current Tab" checked.
 
 ### Copy/Paste Examples:
 
@@ -174,6 +159,16 @@ Notes:
 - Index arrays with `[index]`:
   - `(10,20,30)[0]` -> `10` (first element)
   - `(10,20,30)[-1]` -> `30` (last element)
+- Slice arrays with Python-style `[start:stop:step]` (half-open; empty slice returns `()`):
+  - `(1,2,3,4,5,6,7,8,9)[2:7]` -> `(3, 4, 5, 6, 7)`
+  - `(1,2,3,4,5,6,7,8,9)[3:-3]` -> `(4, 5, 6)`
+  - `(1,2,3,4,5,6,7,8,9)[:3]` -> `(1, 2, 3)` (omitted start)
+  - `(1,2,3,4,5,6,7,8,9)[3:]` -> `(4, 5, 6, 7, 8, 9)` (omitted stop)
+  - `(1,2,3,4,5,6,7,8,9)[::2]` -> `(1, 3, 5, 7, 9)`
+  - `(1,2,3,4,5,6,7,8,9)[::-1]` -> `(9, 8, 7, 6, 5, 4, 3, 2, 1)`
+  - `(1,2,3,4,5,6,7,8,9)[1:1]` -> `()` (empty)
+  - Bounds and step must be integers; step must not be `0`
+  - Inside `[...]`, `:` is slice syntax (not a time literal): `a[1:30]` slices from index 1 to 30
 - Pass array to functions:
   - `sqrt((9,25,36))` -> `(3, 5, 6)`
   - `pow((3,2), 4)` -> `(81, 16)`
@@ -440,6 +435,7 @@ Quick index (alphabetical):
 | `exp(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `fact/factorial(n)` | [Numeric Utilities](#numeric-utilities) |
 | `factorint(n)` | [Numeric Utilities](#numeric-utilities) |
+| `flat(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `floor(value)` | [Numeric Utilities](#numeric-utilities) |
 | `frac/fract(value)` | [Numeric Utilities](#numeric-utilities) |
 | `gcd(a, b)` | [Numeric Utilities](#numeric-utilities) |
@@ -449,6 +445,7 @@ Quick index (alphabetical):
 | `imag(value)` | [Complex Utilities](#complex-utilities) |
 | `int(value)` | [Numeric Utilities](#numeric-utilities) |
 | `lcm(a, b)` | [Numeric Utilities](#numeric-utilities) |
+| `len/length(x)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `ln(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `log(value, base)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `log10(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
@@ -468,8 +465,10 @@ Quick index (alphabetical):
 | `rad(...)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `rand()` | [Random](#random) |
 | `random(min, max)` | [Random](#random) |
+| `range(start, stop [, step])` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `ratio(value)` | [Rational Display](#rational-display) |
 | `real(value)` | [Complex Utilities](#complex-utilities) |
+| `repeat(x, n)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `reverse/reversed(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `round(value)` | [Numeric Utilities](#numeric-utilities) |
 | `seconds(t)` | [Time Conversion](#time-conversion) |
@@ -652,7 +651,11 @@ Purpose: aggregate and transform values/lists.
 - `sortby(array, func)` - stable sort of `array` by `func(value)` per element
 - `reverse(...)`, `reversed(...)` - reversed flattened values
 - `unique(...)` - first-occurrence unique values
+- `flat(...)` - concatenate scalars and arrays into one flat array
 - `unpack(...)` - expand arrays into positional arguments
+- `len(x)`, `length(x)` - flattened array length
+- `range(start, stop [, step])` - integer sequence from `start` up to but not including `stop`; optional `step` defaults to `1` (Python-style); result length is capped at 1000
+- `repeat(x, n)` - repeat scalar or array `x` exactly `n` times (concatenated); result length is capped at 1000
 - Examples:
   - `sum(1,2,3,10)` -> `16`
   - `product(18446744073709551615,1)` -> `18446744073709551615`
@@ -667,14 +670,22 @@ Purpose: aggregate and transform values/lists.
   - `sortby((1,2), (x):(1/x))` -> `(2, 1)` (parenthesized lambda body; keys `0.5`, `1`; ascending order)
   - `sortby((5,1), ():1)` -> error (`sortby expects a function that takes 1 parameter`; zero-parameter lambdas are not allowed as the sort key)
   - `unique(3,1,3,2,1,2)` -> `(3, 1, 2)`
+  - `a=(1,2); b=(4,5); flat(a,3,b,6)` -> `(1, 2, 3, 4, 5, 6)`
   - `a=(5,2); pow(unpack(a))` -> `25`
+  - `len(1,2,3)` -> `3`
+  - `len(range(0,10))` -> `10`
+  - `range(1, 4)` -> `(1, 2, 3)`
+  - `range(1, 10, 3)` -> `(1, 4, 7)`
+  - `range(10, 0, -2)` -> `(10, 8, 6, 4, 2)`
+  - `repeat(0, 3)` -> `(0, 0, 0)`
+  - `repeat((10, 20), 2)` -> `(10, 20, 10, 20)`
 
 Notes:
 
 - Aggregation functions flatten array inputs.
 - `variance` and `stddev` use population formulas (`N`, not `N-1`).
 - With complex support enabled (see **Complex Numbers**):
-  - `sum`, `product`, `avg`, `reverse`, `unique`, and `unpack` accept complex scalars and arrays;
+  - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `flat`, `unpack`, and `len`/`length` accept complex scalars and arrays;
   - `min`, `max`, `sort`, `median`, `variance`, and `stddev` do not;
   - `sortby` accepts complex arrays when the key function supports complex scalars (for example `abs`).
 
@@ -841,6 +852,10 @@ These behaviors may differ from other tools/languages.
 - `array index is out of range`
   - Example: `(10,20)[5]`
   - Fix: use a valid index (`0..len-1` or negative within bounds).
+
+- `slice step must not be zero`
+  - Example: `(1,2,3)[::0]`
+  - Fix: use a non-zero integer step.
 
 - `time literal: empty segment between colons` / `time literal: invalid segment`
   - Example: `1::0` (empty segment)

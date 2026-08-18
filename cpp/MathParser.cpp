@@ -72,9 +72,13 @@ const MathParser::BuiltinMetaRow MathParser::kBuiltinMeta[] = {
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Sort
     { BF::NonCalculating, 2, 2, BHK::ArrayFunc, BC::Sortby },  // Sortby
     { BF::Unary, 1, 1, BHK::Value, BC::Ratio },  // Ratio
+    { BF::NonCalculating, 2, 3, BHK::StartStopStep, BC::Range },  // Range
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Reverse
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Unique
     { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Unpack
+    { BF::NonCalculating, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::ArrayTransform },  // Flat
+    { BF::NonCalculating, 2, 2, BHK::XN, BC::Repeat },  // Repeat
+    { BF::NonCalculating, 0, MathParser::kBuiltinArityUnbounded, BHK::X, BC::ArrayTransform },  // Len
     { BF::Unary | BF::IntegerOnly, 1, 1, BHK::N, BC::Factorial },  // Fact
     { BF::Unary | BF::IntegerOnly, 1, 1, BHK::N, BC::Factorint },  // Factorint
     { BF::None, 1, MathParser::kBuiltinArityUnbounded, BHK::DotDotDot, BC::Aggregate },  // Avg
@@ -111,7 +115,7 @@ const MathParser::BuiltinMetaRow MathParser::kBuiltinMeta[] = {
 constexpr std::size_t builtinMetaRowCountForAssert() {
   return sizeof(MathParser::kBuiltinMeta) / sizeof(MathParser::kBuiltinMeta[0]);
 }
-static_assert(builtinMetaRowCountForAssert() == 73, "kBuiltinMeta size mismatch");
+static_assert(builtinMetaRowCountForAssert() == 77, "kBuiltinMeta size mismatch");
 
 
 namespace {
@@ -723,6 +727,7 @@ constexpr const char* STR_STDDEV = "stddev";
 constexpr const char* STR_SORT = "sort";
 constexpr const char* STR_SORTBY = "sortby";
 constexpr const char* STR_RATIO = "ratio";
+constexpr const char* STR_RANGE = "range";
 constexpr const char* STR_SORTED = "sorted";
 constexpr const char* STR_SORTBY_EXPECTS_ONE_FUNCTION = "sortby expects exactly one function";
 constexpr const char* STR_SORTBY_EXPECTS_UNARY_FUNCTION = "sortby expects a function that takes 1 parameter";
@@ -736,6 +741,10 @@ constexpr const char* STR_REVERSE = "reverse";
 constexpr const char* STR_REVERSED = "reversed";
 constexpr const char* STR_UNIQUE = "unique";
 constexpr const char* STR_UNPACK = "unpack";
+constexpr const char* STR_FLAT = "flat";
+constexpr const char* STR_REPEAT = "repeat";
+constexpr const char* STR_LEN = "len";
+constexpr const char* STR_LENGTH = "length";
 constexpr const char* STR_FACT = "fact";
 constexpr const char* STR_FACTORINT = "factorint";
 constexpr const char* STR_FACTORIAL = "factorial";
@@ -788,6 +797,13 @@ constexpr const char* STR_PAR_VALUE_COMMA_MIN_COMMA_MAX = "(value, min, max)";
 constexpr const char* STR_PAR_X_COMMA_Y = "(x, y)";
 constexpr const char* STR_PAR_A_COMMA_B = "(a, b)";
 constexpr const char* STR_PAR_N_COMMA_R = "(n, r)";
+constexpr const char* STR_PAR_X_COMMA_N = "(x, n)";
+constexpr const char* STR_PAR_X = "(x)";
+constexpr const char* STR_PAR_START_COMMA_STOP_COMMA_STEP = "(start, stop [, step])";
+constexpr const char* STR_PAR_STEP_MUST_NOT_BE_ZERO = "() step must not be zero";
+constexpr const char* STR_PAR_PRODUCES_NO_VALUES = "() produces no values";
+constexpr const char* STR_PAR_PRODUCES_TOO_MANY_VALUES = "() produces too many values";
+constexpr int BUILTIN_MAX_PRODUCED_ITEMS = 1000;
 constexpr const char* STR_PAR_DOTDOTDOT = "(...)";
 constexpr const char* STR_UNEXPECTED_TOKEN = "unexpected token";
 constexpr const char* STR_INCOMPATIBLE_OPERANDS = "incompatible operands";
@@ -843,7 +859,10 @@ constexpr const char* STR_INDEXING_REQUIRES_AN_ARRAY_VALUE = "indexing requires 
 constexpr const char* STR_ARRAY_INDEX_MUST_BE_A_SCALAR = "array index must be a scalar integer";
 constexpr const char* STR_ARRAY_INDEX_MUST_BE_AN_INTEGER = "array index must be an integer";
 constexpr const char* STR_ARRAY_INDEX_IS_OUT_OF_RANGE = "array index is out of range";
-constexpr const char* STR_PAR_EXPECTS_AT_LEAST_1 = "() expects at least 1 argument";
+constexpr const char* STR_SLICE_STEP_MUST_NOT_BE_ZERO = "slice step must not be zero";
+constexpr const char* STR_PAR_EXPECTS_AT_LEAST = "() expects at least ";
+constexpr const char* STR_ARGUMENT = " argument";
+constexpr const char* STR_ARGUMENTS = " arguments";
 constexpr const char* STR_INTERNAL_ERROR_IN_AGGREGATE_BUILTIN = "internal error in aggregate builtin";
 constexpr const char* STR_UNEXPECTED_DOUBLE_SIZE = "unexpected double size";
 constexpr const char* STR_PAR_EXPECTS_INTEGER_VALUES = "() expects integer values";
@@ -853,6 +872,7 @@ constexpr const char* STR_PAR_EXPECTS_SCALAR_MIN_SLASH = "() expects scalar min/
 constexpr const char* STR_PAR_EXPECTS_SCALAR_VALUES = "() expects scalar values";
 constexpr const char* STR_INTERNAL_ERROR_IN_SCALAR_BINARY_BUILTIN = "internal error in scalar binary builtin";
 constexpr const char* STR_PAR_EXPECTS_A_NON_DASH = "() expects a non-negative integer";
+constexpr const char* STR_PAR_EXPECTS_A_POSITIVE_INTEGER = "() expects a positive integer";
 constexpr const char* STR_INTERNAL_ERROR_IN_UNARY_MATH_BUILTIN = "internal error in unary math builtin";
 constexpr const char* STR_PAR_EXPECTS = "() expects ";
 constexpr const char* STR_ARGUMENT_PAR_S = " argument(s)";
@@ -1623,14 +1643,7 @@ void assignLowerIdentFromRange(std::string& out, const char* begin, const char* 
 }
 
 bool checkedAddLL(long long a, long long b, long long& out) {
-  out = a + b;
-  if (b > 0 && out < a) {
-    return false;
-  }
-  if (b < 0 && out > a) {
-    return false;
-  }
-  return true;
+  return tryAddInt64Checked(a, b, out);
 }
 
 bool checkedSubLL(long long a, long long b, long long& out) {
@@ -1645,25 +1658,7 @@ bool checkedSubLL(long long a, long long b, long long& out) {
 }
 
 bool checkedMulLL(long long a, long long b, long long& out) {
-  if (a == 0 || b == 0) {
-    out = 0;
-    return true;
-  }
-  if (a > 0) {
-    if (b > 0) {
-      if (a > (std::numeric_limits<long long>::max)() / b) return false;
-    } else {
-      if (b < (std::numeric_limits<long long>::min)() / a) return false;
-    }
-  } else {
-    if (b > 0) {
-      if (a < (std::numeric_limits<long long>::min)() / b) return false;
-    } else {
-      if (a != 0 && b < (std::numeric_limits<long long>::max)() / a) return false;
-    }
-  }
-  out = a * b;
-  return true;
+  return tryMulInt64Checked(a, b, out);
 }
 
 long long bitwiseShiftLeftDefined(long long value, unsigned int shiftCount) {
@@ -2209,7 +2204,7 @@ const std::vector<std::string>& MathParser::functionNames() {
       STR_ASIN,   STR_ACOS, STR_ATAN, STR_SINH, STR_COSH,     STR_TANH, STR_ACOSH, STR_ASINH, STR_ATANH, STR_EXP,
       STR_LOG,    STR_LN,     STR_LOG10, STR_SQRT,   STR_SQR,      STR_INT,  STR_FRAC,    STR_ABS,  STR_FLOOR,
       STR_CEIL,   STR_TRUNC,  STR_ROUND, STR_SIGN,   STR_DEG,      STR_RAD,  STR_SUM,   STR_MEDIAN,   STR_VARIANCE, STR_STDDEV,
-      STR_SORT,   STR_SORTBY, STR_RATIO, STR_REVERSE, STR_UNIQUE, STR_UNPACK, STR_FACT, STR_FACTORINT, STR_AVG, STR_MEAN,
+      STR_SORT,   STR_SORTBY, STR_RATIO, STR_RANGE, STR_REVERSE, STR_UNIQUE, STR_UNPACK, STR_FLAT, STR_REPEAT, STR_LEN, STR_FACT, STR_FACTORINT, STR_AVG, STR_MEAN,
       STR_MOD,    STR_CLAMP,  STR_HYPOT, STR_GCD,    STR_LCM,      STR_NCR, STR_NPR, STR_PRODUCT, STR_MIN, STR_MAX,
       STR_UHEX,   STR_UOCT,   STR_UBIN, STR_MILLISECONDS, STR_SECONDS, STR_MINUTES, STR_HOURS, STR_DAYS,
       STR_REAL,   STR_IMAG,   STR_PHASE, STR_POLAR, STR_CART, STR_CONJ};
@@ -2231,6 +2226,7 @@ const std::unordered_map<std::string, MathParser::BuiltinFunctionId>& MathParser
     m.emplace(STR_REVERSED, BuiltinFunctionId::Reverse);
     m.emplace(STR_FACTORIAL, BuiltinFunctionId::Fact);
     m.emplace(STR_PROD, BuiltinFunctionId::Product);
+    m.emplace(STR_LENGTH, BuiltinFunctionId::Len);
     return m;
   }();
   return kByName;
@@ -2283,6 +2279,9 @@ std::string MathParser::getBuiltinFunctionMissingCallHint(BuiltinFunctionId id) 
     case BuiltinHintKind::ValueDivisor: return fnName + STR_PAR_VALUE_COMMA_DIVISOR;
     case BuiltinHintKind::ValueMinMax: return fnName + STR_PAR_VALUE_COMMA_MIN_COMMA_MAX;
     case BuiltinHintKind::XY: return fnName + STR_PAR_X_COMMA_Y;
+    case BuiltinHintKind::XN: return fnName + STR_PAR_X_COMMA_N;
+    case BuiltinHintKind::X: return fnName + STR_PAR_X;
+    case BuiltinHintKind::StartStopStep: return fnName + STR_PAR_START_COMMA_STOP_COMMA_STEP;
     case BuiltinHintKind::AB:
       if (id == BuiltinFunctionId::Ncr || id == BuiltinFunctionId::Npr) return fnName + STR_PAR_N_COMMA_R;
       return fnName + STR_PAR_A_COMMA_B;
@@ -2970,8 +2969,18 @@ void MathParser::setNumericErrorInFunction(EvalContext& ctx, const std::string& 
   setError(ctx, STR_NUMERIC_ERROR_IN + fnName + STR_PAR);
 }
 
+void MathParser::setAtLeastNArgsError(
+    EvalContext& ctx,
+    const std::string& fnName,
+    uint8_t minArgs) const {
+  setError(
+      ctx,
+      fnName + STR_PAR_EXPECTS_AT_LEAST + std::to_string(minArgs) +
+          (minArgs == 1 ? STR_ARGUMENT : STR_ARGUMENTS));
+}
+
 void MathParser::setAtLeastOneArgError(EvalContext& ctx, const std::string& fnName) const {
-  setError(ctx, fnName + STR_PAR_EXPECTS_AT_LEAST_1);
+  setAtLeastNArgsError(ctx, fnName, 1);
 }
 
 void MathParser::setExactArgCountError(
@@ -3077,6 +3086,57 @@ void MathParser::setScalarMinMaxError(EvalContext& ctx, const std::string& fnNam
 
 void MathParser::setNonNegativeIntegerError(EvalContext& ctx, const std::string& fnName) const {
   setError(ctx, fnName + STR_PAR_EXPECTS_A_NON_DASH);
+}
+
+void MathParser::setPositiveIntegerError(EvalContext& ctx, const std::string& fnName) const {
+  setError(ctx, fnName + STR_PAR_EXPECTS_A_POSITIVE_INTEGER);
+}
+
+void MathParser::setRangeStepZeroError(EvalContext& ctx, const std::string& fnName) const {
+  setError(ctx, fnName + STR_PAR_STEP_MUST_NOT_BE_ZERO);
+}
+
+void MathParser::setRangeEmptyError(EvalContext& ctx, const std::string& fnName) const {
+  setError(ctx, fnName + STR_PAR_PRODUCES_NO_VALUES);
+}
+
+void MathParser::setTooManyValuesError(EvalContext& ctx, const std::string& fnName) const {
+  setError(ctx, fnName + STR_PAR_PRODUCES_TOO_MANY_VALUES);
+}
+
+namespace {
+
+// CPython-style length of range(start, stop, step) using unsigned wraparound arithmetic.
+std::uint64_t estimateRangeItemCount(long long startV, long long stopV, long long stepV) {
+  std::uint64_t uLo = 0;
+  std::uint64_t uHi = 0;
+  std::uint64_t uStep = 0;
+  if (stepV > 0) {
+    if (startV >= stopV) {
+      return 0;
+    }
+    uLo = static_cast<std::uint64_t>(startV);
+    uHi = static_cast<std::uint64_t>(stopV);
+    uStep = static_cast<std::uint64_t>(stepV);
+  } else {
+    if (startV <= stopV) {
+      return 0;
+    }
+    uLo = static_cast<std::uint64_t>(stopV);
+    uHi = static_cast<std::uint64_t>(startV);
+    uStep = 0ull - static_cast<std::uint64_t>(stepV);
+  }
+  return (uHi - uLo - 1ull) / uStep + 1ull;
+}
+
+}  // namespace
+
+bool MathParser::acceptProducedItemCount(EvalContext& ctx, const std::string& fnName, std::uint64_t count) const {
+  if (count > static_cast<std::uint64_t>(BUILTIN_MAX_PRODUCED_ITEMS)) {
+    setTooManyValuesError(ctx, fnName);
+    return false;
+  }
+  return true;
 }
 
 bool MathParser::evalValuesHaveMismatchedArrayLengths(const EvalValue& left, const EvalValue& right) const {
@@ -3623,6 +3683,26 @@ bool MathParser::tryMulExactInt64Square(long long i, long long& outSq) {
 bool MathParser::tryGetExactSignedInt64NoUIntWrapScalarStrict(const EvalValue::ScalarValue& s, long long& outI) {
   return tryGetExactSignedInt64FromScalarPolicy(
       s, outI, ExactSignedInt64Policy::NoUIntWrapWithRepairAndStorageKind);
+}
+
+bool MathParser::tryGetArrayIndexIntFromScalarValue(const EvalValue::ScalarValue& sIn, long long& outI) {
+  if (scalarHasNonzeroImaginaryPart(sIn)) {
+    return false;
+  }
+  EvalValue::ScalarValue s = sIn;
+  scalarRepairExactMetadata(s);
+  if (s.scalarKind == ScalarKind::Int64) {
+    outI = s.exactInt64;
+    return true;
+  }
+  if (s.scalarKind == ScalarKind::UInt64) {
+    if (s.exactUInt64 > static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
+      return false;
+    }
+    outI = static_cast<long long>(s.exactUInt64);
+    return true;
+  }
+  return false;
 }
 
 void MathParser::applySqrtScalarValue(const EvalValue::ScalarValue& sv, EvalValue& outV) {
@@ -7804,7 +7884,7 @@ const char* advancePastOptionalFraction(const char* q) {
   return q;
 }
 
-NumericLiteralRoute classifyNumericLiteralRoute(const char* p) {
+NumericLiteralRoute classifyNumericLiteralRoute(const char* p, int arrayIndexBracketDepth = 0) {
   if (*p < '0' || *p > '9') {
     return NumericLiteralRoute::Plain;
   }
@@ -7835,6 +7915,10 @@ NumericLiteralRoute classifyNumericLiteralRoute(const char* p) {
       return NumericLiteralRoute::CompactTime;
     }
 #endif
+    return NumericLiteralRoute::Plain;
+  }
+  // Inside ``[...]``, top-level ``:`` is slice syntax, not a time literal.
+  if (arrayIndexBracketDepth > 0) {
     return NumericLiteralRoute::Plain;
   }
 #if SMARTMATH_TIME_VALUES
@@ -7886,6 +7970,9 @@ const char* scanDecimalNumericLiteralEnd(const char* p) {
 #if SMARTMATH_TIME_VALUES
 bool MathParser::tryParseScalarTimeLiteral(EvalContext& ctx, EvalValue& out) const {
   if (!getSupportTimeValues()) {
+    return false;
+  }
+  if (ctx.arrayIndexBracketDepth > 0) {
     return false;
   }
   const char* p0 = ctx.p;
@@ -8062,7 +8149,7 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryNumericLiteral(EvalCon
   }
 #if SMARTMATH_TIME_VALUES
   if (getSupportTimeValues()) {
-    switch (classifyNumericLiteralRoute(ctx.p)) {
+    switch (classifyNumericLiteralRoute(ctx.p, ctx.arrayIndexBracketDepth)) {
       case NumericLiteralRoute::ColonTime: {
         EvalValue timeLit;
         if (tryParseScalarTimeLiteral(ctx, timeLit)) {
@@ -8264,23 +8351,126 @@ std::unique_ptr<MathParser::Expr> MathParser::parseUnary(EvalContext& ctx) {
     skipSpaces(ctx);
     if (*ctx.p == '[') {
       ++ctx.p;
+      ++ctx.arrayIndexBracketDepth;
       skipSpaces(ctx);
       if (*ctx.p == ']') {
+        --ctx.arrayIndexBracketDepth;
         setParseError(ctx, ParseErrorId::MissingIndex);
         return nullptr;
       }
-      auto idx = parseExpression(ctx);
-      if (ctx.parseError || !idx) return nullptr;
-      skipSpaces(ctx);
-      if (*ctx.p != ']') {
-        setParseError(ctx, ParseErrorId::MissingClosingBracket);
-        return nullptr;
+
+      bool hasStart = false;
+      bool hasStop = false;
+      bool hasStep = false;
+      std::unique_ptr<Expr> startExpr;
+      std::unique_ptr<Expr> stopExpr;
+      std::unique_ptr<Expr> stepExpr;
+
+      if (*ctx.p == ':') {
+        hasStart = false;
+        ++ctx.p;
+      } else {
+        startExpr = parseExpression(ctx);
+        if (ctx.parseError || !startExpr) {
+          --ctx.arrayIndexBracketDepth;
+          return nullptr;
+        }
+        hasStart = true;
+        skipSpaces(ctx);
+        if (*ctx.p == ':') {
+          ++ctx.p;
+        } else if (*ctx.p == ']') {
+          ++ctx.p;
+          --ctx.arrayIndexBracketDepth;
+          auto w = std::make_unique<Expr>();
+          w->tag = Expr::Tag::Index;
+          w->left = std::move(prim);
+          w->right = std::move(startExpr);
+          prim = std::move(w);
+          continue;
+        } else {
+          --ctx.arrayIndexBracketDepth;
+          setParseError(ctx, ParseErrorId::MissingClosingBracket);
+          return nullptr;
+        }
       }
+
+      // Slice form: [start:stop:step] with any bound omitted.
+      skipSpaces(ctx);
+      if (*ctx.p == ']') {
+        hasStop = false;
+        hasStep = false;
+      } else if (*ctx.p == ':') {
+        hasStop = false;
+        ++ctx.p;
+        skipSpaces(ctx);
+        if (*ctx.p == ']') {
+          hasStep = false;
+        } else {
+          stepExpr = parseExpression(ctx);
+          if (ctx.parseError || !stepExpr) {
+            --ctx.arrayIndexBracketDepth;
+            return nullptr;
+          }
+          hasStep = true;
+          skipSpaces(ctx);
+          if (*ctx.p != ']') {
+            --ctx.arrayIndexBracketDepth;
+            setParseError(ctx, ParseErrorId::MissingClosingBracket);
+            return nullptr;
+          }
+        }
+      } else {
+        stopExpr = parseExpression(ctx);
+        if (ctx.parseError || !stopExpr) {
+          --ctx.arrayIndexBracketDepth;
+          return nullptr;
+        }
+        hasStop = true;
+        skipSpaces(ctx);
+        if (*ctx.p == ':') {
+          ++ctx.p;
+          skipSpaces(ctx);
+          if (*ctx.p == ']') {
+            hasStep = false;
+          } else {
+            stepExpr = parseExpression(ctx);
+            if (ctx.parseError || !stepExpr) {
+              --ctx.arrayIndexBracketDepth;
+              return nullptr;
+            }
+            hasStep = true;
+            skipSpaces(ctx);
+            if (*ctx.p != ']') {
+              --ctx.arrayIndexBracketDepth;
+              setParseError(ctx, ParseErrorId::MissingClosingBracket);
+              return nullptr;
+            }
+          }
+        } else if (*ctx.p == ']') {
+          hasStep = false;
+        } else {
+          --ctx.arrayIndexBracketDepth;
+          setParseError(ctx, ParseErrorId::MissingClosingBracket);
+          return nullptr;
+        }
+      }
+
       ++ctx.p;
+      --ctx.arrayIndexBracketDepth;
       auto w = std::make_unique<Expr>();
-      w->tag = Expr::Tag::Index;
+      w->tag = Expr::Tag::Slice;
       w->left = std::move(prim);
-      w->right = std::move(idx);
+      w->elements.resize(3);
+      if (hasStart) {
+        w->elements[0] = std::move(startExpr);
+      }
+      if (hasStop) {
+        w->elements[1] = std::move(stopExpr);
+      }
+      if (hasStep) {
+        w->elements[2] = std::move(stepExpr);
+      }
       prim = std::move(w);
       continue;
     }
@@ -8566,6 +8756,7 @@ bool MathParser::exprIsScalarOnly(const Expr& e) const {
       return exprIsScalarOnly(*e.elements[0]);
     case Expr::Tag::Call:
     case Expr::Tag::Index:
+    case Expr::Tag::Slice:
     case Expr::Tag::FunctionRef:
       return false;
     default:
@@ -9228,7 +9419,7 @@ MathParser::EvalValue MathParser::evalExpr(
         return makeScalar(0);
       }
       long long idx = 0;
-      if (!nearlyInt(idxv.scalarValue.scalar, idx)) {
+      if (!tryGetArrayIndexIntFromScalarValue(idxv.scalarValue, idx)) {
         setParseError(ctx, ParseErrorId::ArrayIndexMustBeInteger);
         return makeScalar(0);
       }
@@ -9257,6 +9448,114 @@ MathParser::EvalValue MathParser::evalExpr(
         return makeScalar(0);
       }
       return scalarFromArrayAt(base, static_cast<std::size_t>(realIdx));
+    }
+    case Expr::Tag::Slice: {
+      EvalValue base = evalExpr(*e.left, ctx, scopedVars);
+      if (ctx.parseError) return base;
+
+      const auto evalOptionalBound = [&](std::size_t slot, bool& hasBound, long long& outBound) -> bool {
+        hasBound = (slot < e.elements.size() && e.elements[slot] != nullptr);
+        if (!hasBound) {
+          outBound = 0;
+          return true;
+        }
+        EvalValue bv = evalExpr(*e.elements[slot], ctx, scopedVars);
+        if (ctx.parseError) return false;
+        if (bv.kind != ValueKind::Scalar) {
+          setParseError(ctx, ParseErrorId::ArrayIndexMustBeScalar);
+          return false;
+        }
+        if (!tryGetArrayIndexIntFromScalarValue(bv.scalarValue, outBound)) {
+          setParseError(ctx, ParseErrorId::ArrayIndexMustBeInteger);
+          return false;
+        }
+        return true;
+      };
+
+      bool hasStart = false;
+      bool hasStop = false;
+      bool hasStep = false;
+      long long startIdx = 0;
+      long long stopIdx = 0;
+      long long stepIdx = 1;
+      if (!evalOptionalBound(0, hasStart, startIdx) || ctx.parseError) return makeScalar(0);
+      if (!evalOptionalBound(1, hasStop, stopIdx) || ctx.parseError) return makeScalar(0);
+      if (!evalOptionalBound(2, hasStep, stepIdx) || ctx.parseError) return makeScalar(0);
+      if (!hasStep) {
+        stepIdx = 1;
+      }
+      if (stepIdx == 0) {
+        setValidationError(ctx, STR_SLICE_STEP_MUST_NOT_BE_ZERO);
+        return makeScalar(0);
+      }
+
+      bool formalParamSliceBase = (base.kind == ValueKind::UdfFormalValidationDummy);
+      if (!formalParamSliceBase && scopedVars && e.left && e.left->tag == Expr::Tag::Variable) {
+        const auto sit = scopedVars->find(e.left->name);
+        formalParamSliceBase =
+            (sit != scopedVars->end() && sit->second.kind == ValueKind::UdfFormalValidationDummy);
+      }
+      if (formalParamSliceBase) {
+        // UDF body validation: 1-element probe array so chained indexing still parses.
+        auto pit = variables_.find(STR_FORMAL_VALIDATION_PROBE);
+        EvalValue probe = (pit != variables_.end() && pit->second.kind == ValueKind::Scalar)
+                              ? pit->second
+                              : makeScalarInt(1);
+        return makeArrayFromScalars(std::vector<EvalValue>{probe});
+      }
+      if (base.kind != ValueKind::Array) {
+        setParseError(ctx, ParseErrorId::IndexingRequiresArray);
+        return makeScalar(0);
+      }
+
+      const long long length = static_cast<long long>(base.arr.size());
+      const bool stepNeg = (stepIdx < 0);
+      long long normStart = 0;
+      long long normStop = 0;
+      if (!hasStart) {
+        normStart = stepNeg ? (length - 1) : 0;
+      } else {
+        normStart = startIdx;
+        if (normStart < 0) normStart += length;
+        if (normStart < 0) {
+          normStart = stepNeg ? -1 : 0;
+        } else if (normStart >= length) {
+          normStart = stepNeg ? (length - 1) : length;
+        }
+      }
+      if (!hasStop) {
+        normStop = stepNeg ? -1 : length;
+      } else {
+        normStop = stopIdx;
+        if (normStop < 0) normStop += length;
+        if (normStop < 0) {
+          normStop = stepNeg ? -1 : 0;
+        } else if (normStop >= length) {
+          normStop = stepNeg ? (length - 1) : length;
+        }
+      }
+
+      long long outCount = 0;
+      if (stepIdx > 0) {
+        if (normStart < normStop) {
+          outCount = (normStop - normStart + stepIdx - 1) / stepIdx;
+        }
+      } else {
+        if (normStart > normStop) {
+          outCount = (normStart - normStop - stepIdx - 1) / (-stepIdx);
+        }
+      }
+      if (outCount <= 0) {
+        return makeArrayFromScalars({});
+      }
+      std::vector<EvalValue> out;
+      out.reserve(static_cast<std::size_t>(outCount));
+      long long cur = normStart;
+      for (long long i = 0; i < outCount; ++i) {
+        out.push_back(scalarFromArrayAt(base, static_cast<std::size_t>(cur)));
+        cur += stepIdx;
+      }
+      return makeArrayFromScalars(out);
     }
     case Expr::Tag::Binary: {
       const auto returnIntegerOperandError = [&](const char* msg) -> EvalValue {
@@ -9515,7 +9814,7 @@ bool MathParser::validateCallArity(
     return true;
   }
   if (argc < minArgs) {
-    setAtLeastOneArgError(ctx, fnName);
+    setAtLeastNArgsError(ctx, fnName, minArgs);
     return false;
   }
   if (maxArgs != kBuiltinArityUnbounded && argc > maxArgs) {
@@ -9630,6 +9929,145 @@ MathParser::EvalValue MathParser::builtinUnpack(EvalContext& ctx, const std::vec
     return makeScalar(0);
   }
   return markExpanded(makeArrayFromScalars(elems));
+}
+
+MathParser::EvalValue MathParser::builtinLen(
+    EvalContext& /*ctx*/,
+    const std::vector<EvalValue>& args) const {
+  return makeScalarInt(static_cast<long long>(countAggregateArgScalarItems(args)));
+}
+
+MathParser::EvalValue MathParser::builtinRepeat(
+    EvalContext& ctx,
+    const std::string& fnName,
+    const std::vector<EvalValue>& args) const {
+  const auto copySingleArgToFlat = [](const EvalValue& a, std::vector<EvalValue>& out) {
+    out.clear();
+    if (a.kind == ValueKind::Scalar) {
+      out.emplace_back(a);
+      return;
+    }
+    out.reserve(a.arr.size());
+    for (const auto& item : a.arr) {
+      out.emplace_back(scalarFromScalarValue(item));
+    }
+  };
+
+  std::vector<EvalValue> vals;
+  copySingleArgToFlat(args[0], vals);
+  if (vals.empty()) {
+    setAtLeastOneArgError(ctx, fnName);
+    return makeScalar(0);
+  }
+
+  const EvalValue& countArg = args[1];
+  if (countArg.kind == ValueKind::Array
+#if SMARTMATH_TIME_VALUES
+      || evalValueInvolvesTime(countArg)
+#endif
+#if SMARTMATH_COMPLEX_NUMBERS
+      || (getSupportComplexNumbers() && evalValueHasNonzeroImaginary(countArg))
+#endif
+  ) {
+    setIntegerValuesError(ctx, fnName);
+    return makeScalar(0);
+  }
+
+  long long n = 0;
+  if (!tryGetSignedInt64FromScalar(countArg.scalarValue, n)) {
+    setIntegerValuesError(ctx, fnName);
+    return makeScalar(0);
+  }
+  if (n <= 0) {
+    setPositiveIntegerError(ctx, fnName);
+    return makeScalar(0);
+  }
+
+  const std::size_t blockSize = vals.size();
+  std::uint64_t estimated = 0;
+  if (!tryMulUInt64Checked(static_cast<std::uint64_t>(blockSize), static_cast<std::uint64_t>(n), estimated)) {
+    setTooManyValuesError(ctx, fnName);
+    return makeScalar(0);
+  }
+  if (!acceptProducedItemCount(ctx, fnName, estimated)) {
+    return makeScalar(0);
+  }
+
+  const std::size_t totalSize = static_cast<std::size_t>(estimated);
+  std::vector<EvalValue> out;
+  out.reserve(totalSize);
+  for (long long rep = 0; rep < n; ++rep) {
+    for (const auto& item : vals) {
+      out.push_back(item);
+    }
+  }
+  return makeArrayFromScalars(out);
+}
+
+MathParser::EvalValue MathParser::builtinRange(
+    EvalContext& ctx,
+    const std::string& fnName,
+    const std::vector<EvalValue>& args) const {
+  const auto tryGetRangeIntegerScalarArg = [this](const EvalValue& v, long long& outN) -> bool {
+    if (v.kind == ValueKind::Array) {
+      return false;
+    }
+#if SMARTMATH_TIME_VALUES
+    if (evalValueInvolvesTime(v)) {
+      return false;
+    }
+#endif
+#if SMARTMATH_COMPLEX_NUMBERS
+    if (getSupportComplexNumbers() && evalValueHasNonzeroImaginary(v)) {
+      return false;
+    }
+#endif
+    return tryGetSignedInt64FromScalar(v.scalarValue, outN);
+  };
+
+  long long startV = 0;
+  long long stopV = 0;
+  long long stepV = 1;
+  if (!tryGetRangeIntegerScalarArg(args[0], startV) || !tryGetRangeIntegerScalarArg(args[1], stopV)) {
+    setIntegerValuesError(ctx, fnName);
+    return makeScalar(0);
+  }
+  if (args.size() >= 3U) {
+    if (!tryGetRangeIntegerScalarArg(args[2], stepV)) {
+      setIntegerValuesError(ctx, fnName);
+      return makeScalar(0);
+    }
+  }
+
+  if (stepV == 0) {
+    setRangeStepZeroError(ctx, fnName);
+    return makeScalar(0);
+  }
+  if ((stepV > 0 && startV >= stopV) || (stepV < 0 && startV <= stopV)) {
+    setRangeEmptyError(ctx, fnName);
+    return makeScalar(0);
+  }
+
+  const std::uint64_t estimated = estimateRangeItemCount(startV, stopV, stepV);
+  if (estimated == 0ull) {
+    setRangeEmptyError(ctx, fnName);
+    return makeScalar(0);
+  }
+  if (!acceptProducedItemCount(ctx, fnName, estimated)) {
+    return makeScalar(0);
+  }
+
+  const std::size_t count = static_cast<std::size_t>(estimated);
+  std::vector<EvalValue> out;
+  out.reserve(count);
+  long long cur = startV;
+  for (std::size_t i = 0; i < count; ++i) {
+    out.push_back(makeScalarInt(cur));
+    if (i + 1U < count) {
+      cur += stepV;
+    }
+  }
+  return makeArrayFromScalars(out);
 }
 
 
@@ -10926,6 +11364,9 @@ MathParser::EvalValue MathParser::builtinSortFamily(
       dedupUniqueInPlace(out);
       return makeArrayFromScalars(out);
     }
+    if (id == BuiltinFunctionId::Flat) {
+      return makeArrayFromScalars(out);
+    }
   }
 
   std::vector<EvalValue> flat;
@@ -10937,7 +11378,7 @@ MathParser::EvalValue MathParser::builtinSortFamily(
     sortScalarsInPlace(flat);
   } else if (id == BuiltinFunctionId::Reverse) {
     std::reverse(flat.begin(), flat.end());
-  } else {
+  } else if (id == BuiltinFunctionId::Unique) {
     dedupUniqueInPlace(flat);
   }
   return makeArrayFromScalars(flat);
@@ -11943,7 +12384,14 @@ MathParser::EvalValue MathParser::evalFunctionCall(
       if (id == BuiltinFunctionId::Unpack) {
         return builtinUnpack(ctx, args);
       }
+      if (id == BuiltinFunctionId::Len) {
+        return builtinLen(ctx, args);
+      }
       return builtinSortFamily(ctx, fnName, id, args);
+    case BuiltinCategory::Repeat:
+      return builtinRepeat(ctx, fnName, args);
+    case BuiltinCategory::Range:
+      return builtinRange(ctx, fnName, args);
     case BuiltinCategory::Aggregate:
       return builtinAggregateFamily(ctx, fnName, id, args);
     case BuiltinCategory::BaseFormat:

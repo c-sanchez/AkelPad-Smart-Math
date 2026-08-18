@@ -46,6 +46,7 @@ const MAX_COLORS       = 6
 const IDM_ABOUT               = 12200
 const IDM_THOUSANDS_SEPARATOR = 12201
 const IDM_COMPLEX_NUMBERS     = 12202
+const IDM_ACTIVE_ON_CURR_TAB  = 12203
 
 ' -----------------------------------------------------------------------------
 '  Shared formatting/render defaults
@@ -55,6 +56,11 @@ const SMARTMATH_THOUSANDS_SEPARATOR_DEFAULT    = "'"
 const SMARTMATH_ARRAY_OUTPUT_SEPARATOR_DEFAULT = ","
 const SMARTMATH_RESULT_PREFIX       = " = "
 const SMARTMATH_ERROR_PREFIX        = " ! "
+
+' Pixel gap between the end of a line's source text and the result gutter, and
+' between the result and the client right edge.
+const SMARTMATH_RESULT_GUTTER_GAP   = 6
+const SMARTMATH_RESULT_RIGHT_MARGIN = 10
 
 ' -----------------------------------------------------------------------------
 '  Global Variables (Extern)
@@ -67,7 +73,6 @@ extern rcOldMargin as RECT
 extern nOldFirstLine as Integer
 extern nOldCaretLine as Integer
 extern nOldMargin as Integer
-extern dwOldAkelOptions as DWORD
 
 extern g_nDecimals as Integer
 extern g_crResultColor as COLORREF
@@ -90,6 +95,8 @@ extern g_bShuttingDown as BOOL
 ' -----------------------------------------------------------------------------
 declare sub LoadSettings()
 declare sub SaveSettings()
+declare function LoadSettings_ActiveFrames(wszActiveFrameFiles() as UShort) as Integer
+declare sub SaveSettings_ActiveFrames(wszActiveFrameFiles() as UShort, byval nLen as Integer)
 declare function FormatResult(byval d as Double) as String
 declare function FormatNonFiniteDisplayFromParserScalar(byref s as String) as String
 declare function FormatRawResultForDisplay(byref r as RawResult) as String
@@ -99,6 +106,7 @@ declare function NormalizeCopiedResult(byref sRes as String) as String
 declare sub ResetSmartMathFormatLocaleCache()
 declare sub InitSmartMathMenu()
 declare sub UpdateMenuChecks()
+declare sub UpdateMenuActiveOnCurrTab(byval bActive as BOOL)
 declare sub UninitSmartMathMenu(byval bAppClosing as BOOL = FALSE)
 declare sub ShowAboutDialog(byval hWnd as HWND)
 declare sub UpdateInternalState(byval hWnd as HWND, byref bVisible as BOOL)
