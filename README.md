@@ -59,3 +59,5 @@ The full expression language reference (functions, operators, precedence, arrays
 I would like to express my deepest gratitude to **Mysoft**, whose persistence and insights were instrumental in convincing me to embrace FreeBASIC for plugin development. While the Notepad++ version of this tool was originally a port from FreePascal, this AkelPad version was built from the ground up using **FreeBASIC**.
 
 I also want to give a special mention to **Jepalza**, who provided essential help in overcoming a critical technical roadblock at the very beginning of this project. Thanks to his expertise, I was able to move forward with the development of SmartMath.
+
+A huge thank you to **Vitaliy "DV" Dovgan**. Without him, SmartMath wouldn't truly be "Smart", but rather just a plugin with basic mathematical evaluations and little else. He has done an excellent job adding numerous advanced features, various improvements, and optimizations throughout the entire code.
