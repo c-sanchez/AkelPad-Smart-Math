@@ -121,6 +121,14 @@ sub InitSmartMathMenu()
   AppendMenuW(hSmartMathMenu, MF_STRING, IDM_DOCUMENTATION, wstr("Documentation..."))
   AppendMenuW(hSmartMathMenu, MF_STRING, IDM_ABOUT, wstr("About..."))
 
+  ' Note: the ContextMenu plugin may change the menu handle on "CLEAR"
+  dim hMainMenu as HMENU = GetMenu(g_hMainWnd)
+  if (hMainMenu <> 0) andalso IsMenu(hMainMenu) then
+    ' dim msg as String = "InitSmartMathMenu: hMainMenu=" & str(hMainMenu) & ", g_hMainMenu=" & str(g_hMainMenu)
+    ' MessageBoxA(g_hMainWnd, msg, "SmartMath", 0)
+    g_hMainMenu = hMainMenu
+  end if
+
   dim nPos as Integer = GetMenuItemCount(g_hMainMenu)
   InsertMenuW(g_hMainMenu, nPos, MF_BYPOSITION or MF_POPUP, cast(UINT_PTR, hSmartMathMenu), wstr("SmartMath"))
   DrawMenuBar(g_hMainWnd)
