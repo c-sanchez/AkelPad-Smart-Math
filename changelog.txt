@@ -2,6 +2,7 @@ SmartMath 1.4
 -------------
 * usability improvements
 + new menu item: "Show Errors" (toggles error messages in the results)
++ new menu item: "Syntax Highlighting" (applies the "smartmath.coder")
 + new menu item: "Documentation..." (opens the "SmartMath-Eng.md")
 - fixed: showing SmartMath menu upon main menu clearance by ContextMenu
 - fixed: "ActiveSmartMathFrames" was not applied to a _manually_ opened file
@@ -23,7 +24,7 @@ SmartMath 1.2
 + array values: `(10, 20, 30)`
 + time values: `1:30`, `1m 30s`
 + complex numbers: `1 + 2i`
-+ syntax highlight: "Coder\smartmath.coder"
++ syntax highlighting: "Coder\smartmath.coder"
 + documentation: "USAGE_AND_SYNTAX.md"
 + optimized 32-bit and 64-bit versions
 + tests: smoke, unit, regression

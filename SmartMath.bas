@@ -21,6 +21,7 @@ dim shared g_crResultColor as COLORREF = &H008000
 dim shared g_bUseThousandsSeparator as BOOL = FALSE
 dim shared g_bSupportComplexNumbers as BOOL = FALSE
 dim shared g_bShowErrors as BOOL = TRUE
+dim shared g_bSyntaxHighlight as BOOL = TRUE
 dim shared g_bLogParsedLines as BOOL = FALSE
 dim shared g_sDecimalSeparator as String
 dim shared g_sThousandsSeparator as String
@@ -355,7 +356,7 @@ private sub SetSmartMathDocActiveState(byval hWndEdit as HWND, byval bActive as 
 
   if bActive then
     EnsureActiveLineOptionApplied(FindCurrentFrameItem())
-    if bApplyTheme then
+    if bApplyTheme andalso (g_bSyntaxHighlight = TRUE) then
       TryApplySmartMathCoderTheme()
     end if
     dim bVisible as BOOL
@@ -1498,7 +1499,8 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
       end if
       return 0
 
-    elseif nCmd = IDM_THOUSANDS_SEPARATOR orelse nCmd = IDM_COMPLEX_NUMBERS orelse nCmd = IDM_SHOW_ERRORS then
+    elseif nCmd = IDM_THOUSANDS_SEPARATOR orelse nCmd = IDM_COMPLEX_NUMBERS orelse _
+           nCmd = IDM_SHOW_ERRORS orelse nCmd = IDM_SYNTAX_HIGHLIGHT then
       if nCmd = IDM_THOUSANDS_SEPARATOR then
         if g_bUseThousandsSeparator then
           g_bUseThousandsSeparator = FALSE
@@ -1517,6 +1519,12 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
         else
           g_bShowErrors = TRUE
         end if
+      elseif nCmd = IDM_SYNTAX_HIGHLIGHT then
+        if g_bSyntaxHighlight then
+          g_bSyntaxHighlight = FALSE
+        else
+          g_bSyntaxHighlight = TRUE
+        end if
       end if
 
       InvalidateRenderCache()
@@ -1524,6 +1532,9 @@ function MainGlobalProc stdcall(byval hWnd as HWND, byval uMsg as UINT, byval wP
       UpdateMenuChecks()
       if g_hWndEdit then
         dim bVis as BOOL
+        if nCmd = IDM_SYNTAX_HIGHLIGHT andalso g_bSyntaxHighlight = TRUE then
+          if g_bSmartMathDocActive then TryApplySmartMathCoderTheme()
+        end if
         UpdateInternalState(g_hWndEdit, bVis)
         InvalidateRect(g_hWndEdit, 0, TRUE)
       end if

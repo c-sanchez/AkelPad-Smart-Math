@@ -48,7 +48,8 @@ const IDM_THOUSANDS_SEPARATOR = 12201
 const IDM_COMPLEX_NUMBERS     = 12202
 const IDM_ACTIVE_ON_CURR_TAB  = 12203
 const IDM_SHOW_ERRORS         = 12204
-const IDM_DOCUMENTATION       = 12205
+const IDM_SYNTAX_HIGHLIGHT    = 12205
+const IDM_DOCUMENTATION       = 12206
 
 ' -----------------------------------------------------------------------------
 '  Shared formatting/render defaults
@@ -81,6 +82,7 @@ extern g_crResultColor as COLORREF
 extern g_bUseThousandsSeparator as BOOL
 extern g_bSupportComplexNumbers as BOOL
 extern g_bShowErrors as BOOL
+extern g_bSyntaxHighlight as BOOL
 extern g_bLogParsedLines as BOOL
 extern g_sDecimalSeparator as String
 extern g_sThousandsSeparator as String

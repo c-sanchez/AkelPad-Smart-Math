@@ -9,6 +9,7 @@
 #define SMARTMATH_OPT_THOUSANDS_SEPARATOR         WStr("ThousandsSeparator")
 #define SMARTMATH_OPT_COMPLEX_NUMBERS             WStr("ComplexNumbers")
 #define SMARTMATH_OPT_SHOW_ERRORS                 WStr("ShowErrors")
+#define SMARTMATH_OPT_SYNTAX_HIGHLIGHT            WStr("SyntaxHighlight")
 #define SMARTMATH_OPT_LOG_PARSED_LINES            WStr("LogParsedLines")
 #define SMARTMATH_OPT_DECIMAL_SEPARATOR_CHAR      WStr("DecimalSeparatorChar")
 #define SMARTMATH_OPT_THOUSANDS_SEPARATOR_CHAR    WStr("ThousandsSeparatorChar")
@@ -24,6 +25,7 @@ type SMARTMATH_SETTINGS_CACHE
   hasThousandsSeparator as BOOL
   hasComplexNumbers as BOOL
   hasShowErrors as BOOL
+  hasSyntaxHighlight as BOOL
   hasLogParsedLines as BOOL
   hasDecimalSeparator as BOOL
   hasThousandsSeparatorChar as BOOL
@@ -33,6 +35,7 @@ type SMARTMATH_SETTINGS_CACHE
   bUseThousandsSeparator as BOOL
   bSupportComplexNumbers as BOOL
   bShowErrors as BOOL
+  bSyntaxHighlight as BOOL
   bLogParsedLines as BOOL
   sDecimalSeparator as String
   sThousandsSeparator as String
@@ -50,6 +53,7 @@ private sub ResetSettingsCacheReadState()
   g_settingsCache.hasThousandsSeparator = FALSE
   g_settingsCache.hasComplexNumbers = FALSE
   g_settingsCache.hasShowErrors = FALSE
+  g_settingsCache.hasSyntaxHighlight = FALSE
   g_settingsCache.hasLogParsedLines = FALSE
   g_settingsCache.hasDecimalSeparator = FALSE
   g_settingsCache.hasThousandsSeparatorChar = FALSE
@@ -273,6 +277,7 @@ sub LoadSettings()
   g_bUseThousandsSeparator = FALSE
   g_bSupportComplexNumbers = FALSE
   g_bShowErrors = TRUE
+  g_bSyntaxHighlight = TRUE
   g_bLogParsedLines = FALSE
   g_sDecimalSeparator = SMARTMATH_DECIMAL_SEPARATOR_DEFAULT
   g_sThousandsSeparator = SMARTMATH_THOUSANDS_SEPARATOR_DEFAULT
@@ -326,6 +331,13 @@ sub LoadSettings()
     end if
   end if
 
+  if readIntW(hOptions, SMARTMATH_OPT_SYNTAX_HIGHLIGHT, iVal) > 0 then
+    if iVal >= 0 then
+      g_bSyntaxHighlight = (iVal <> 0)
+      CacheSetBool(g_settingsCache.hasSyntaxHighlight, g_settingsCache.bSyntaxHighlight, g_bSyntaxHighlight)
+    end if
+  end if
+
   if readIntW(hOptions, SMARTMATH_OPT_LOG_PARSED_LINES, iVal) > 0 then
     if iVal >= 0 then
       g_bLogParsedLines = (iVal <> 0)
@@ -345,6 +357,7 @@ sub LoadSettings()
   ' OutputDebugString("[SmartMath] LoadSettings: g_bUseThousandsSeparator=" & g_bUseThousandsSeparator)
   ' OutputDebugString("[SmartMath] LoadSettings: g_bSupportComplexNumbers=" & g_bSupportComplexNumbers)
   ' OutputDebugString("[SmartMath] LoadSettings: g_bShowErrors=" & g_bShowErrors)
+  ' OutputDebugString("[SmartMath] LoadSettings: g_bSyntaxHighlight=" & g_bSyntaxHighlight)
   ' OutputDebugString("[SmartMath] LoadSettings: g_bLogParsedLines=" & g_bLogParsedLines)
   ' OutputDebugString("[SmartMath] LoadSettings: g_sDecimalSeparator=" & g_sDecimalSeparator)
   ' OutputDebugString("[SmartMath] LoadSettings: g_sThousandsSeparator=" & g_sThousandsSeparator)
@@ -367,6 +380,7 @@ sub SaveSettings()
   dim shouldSaveThousandsFlag as BOOL = (g_settingsCache.hasThousandsSeparator = FALSE) orElse (g_settingsCache.bUseThousandsSeparator <> g_bUseThousandsSeparator)
   dim shouldSaveComplexNumbersFlag as BOOL = (g_settingsCache.hasComplexNumbers = FALSE) orElse (g_settingsCache.bSupportComplexNumbers <> g_bSupportComplexNumbers)
   dim shouldSaveShowErrorsFlag as BOOL = (g_settingsCache.hasShowErrors = FALSE) orElse (g_settingsCache.bShowErrors <> g_bShowErrors)
+  dim shouldSaveSyntaxHighlightFlag as BOOL = (g_settingsCache.hasSyntaxHighlight = FALSE) orElse (g_settingsCache.bSyntaxHighlight <> g_bSyntaxHighlight)
   dim shouldSaveLogFlag as BOOL = (g_settingsCache.hasLogParsedLines = FALSE) orElse (g_settingsCache.bLogParsedLines <> g_bLogParsedLines)
   dim shouldSaveDecimalSep as BOOL = (g_settingsCache.hasDecimalSeparator = FALSE) orElse (g_settingsCache.sDecimalSeparator <> g_sDecimalSeparator)
   dim shouldSaveThousandsSep as BOOL = (g_settingsCache.hasThousandsSeparatorChar = FALSE) orElse (g_settingsCache.sThousandsSeparator <> g_sThousandsSeparator)
@@ -377,6 +391,7 @@ sub SaveSettings()
   ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveThousandsFlag=" & shouldSaveThousandsFlag)
   ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveComplexNumbersFlag=" & shouldSaveComplexNumbersFlag)
   ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveShowErrorsFlag=" & shouldSaveShowErrorsFlag)
+  ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveSyntaxHighlightFlag=" & shouldSaveSyntaxHighlightFlag)
   ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveLogFlag=" & shouldSaveLogFlag)
   ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveDecimalSep=" & shouldSaveDecimalSep)
   ' OutputDebugString("[SmartMath] SaveSettings: shouldSaveThousandsSep=" & shouldSaveThousandsSep)
@@ -391,6 +406,7 @@ sub SaveSettings()
      andalso (shouldSaveThousandsFlag = FALSE) _
      andalso (shouldSaveComplexNumbersFlag = FALSE) _
      andalso (shouldSaveShowErrorsFlag = FALSE) _
+     andalso (shouldSaveSyntaxHighlightFlag = FALSE) _
      andalso (shouldSaveLogFlag = FALSE) _
      andalso (shouldSaveDecimalSep = FALSE) _
      andalso (shouldSaveThousandsSep = FALSE) _
@@ -425,6 +441,11 @@ sub SaveSettings()
   if shouldSaveShowErrorsFlag then
     writeIntW(hOptions, SMARTMATH_OPT_SHOW_ERRORS, IIf(g_bShowErrors, 1, 0))
     CacheSetBool(g_settingsCache.hasShowErrors, g_settingsCache.bShowErrors, g_bShowErrors)
+  end if
+
+  if shouldSaveSyntaxHighlightFlag then
+    writeIntW(hOptions, SMARTMATH_OPT_SYNTAX_HIGHLIGHT, IIf(g_bSyntaxHighlight, 1, 0))
+    CacheSetBool(g_settingsCache.hasSyntaxHighlight, g_settingsCache.bSyntaxHighlight, g_bSyntaxHighlight)
   end if
 
   if shouldSaveLogFlag then
