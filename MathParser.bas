@@ -11911,6 +11911,12 @@ function Parser_GetLastError() as String
   return ""
 end function
 
+function Parser_IsFunctionHintError(byref sErr as String) as Boolean
+  if Left(sErr, Len(FB_STR_HINT_PREFIX)) = FB_STR_HINT_PREFIX then return TRUE
+  if Left(sErr, Len(FB_STR_USER_DEFINED_FUNCTION_COLON)) = FB_STR_USER_DEFINED_FUNCTION_COLON then return TRUE
+  return FALSE
+end function
+
 sub Parser_SetShowErrorLine(byval showLine as Boolean)
   Parser_ShowErrorLine = showLine
 end sub

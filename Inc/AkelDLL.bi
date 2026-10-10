@@ -58,8 +58,11 @@ const AKDN_OPENDOCUMENT_FINISH    = (WM_USER + 54)
 const AKD_SETMAINPROC           = (WM_USER + 102)
 const AKD_SETEDITPROC           = (WM_USER + 106)
 const AKD_SETFRAMEPROC          = (WM_USER + 110)
+const AKD_OPENDOCUMENTW         = (WM_USER + 157)
+const AKD_GETMAININFO           = (WM_USER + 198)
 const AKD_GETFRAMEINFO          = (WM_USER + 199)
 const AKD_GETEDITINFO           = (WM_USER + 200)
+const AKD_FRAMEACTIVATE         = (WM_USER + 261)
 const AKD_FRAMEFIND             = (WM_USER + 264)
 const AKD_FRAMEFINDW            = (WM_USER + 266)
 const AKD_DLLCALLW              = (WM_USER + 303)
@@ -71,6 +74,7 @@ const AKD_OPTIONA               = (WM_USER + 335)
 const AKD_OPTIONW               = (WM_USER + 336)
 const AKD_ENDOPTIONS            = (WM_USER + 341)
 
+' Flags and consts
 const DLLSF_NOW    = &h01
 const DLLSF_ONEXIT = &h02
 const POB_READ     = &h01
@@ -83,6 +87,18 @@ const FWF_NEXT       = 2
 const FWF_PREV       = 3
 const FWF_BYFILENAME = 5
 const FI_WNDEDIT     = 2
+
+' Open document flags
+const OD_ADT_BINARYERROR    = &h00000001  ' Check if file is binary
+const OD_ADT_REGCODEPAGE    = &h00000002  ' Either from registry or (ADT_DETECTCODEPAGE|ADT_DETECTBOM).
+const OD_ADT_DETECTCODEPAGE = &h00000004  ' Detect code page.
+const OD_ADT_DETECTBOM      = &h00000008  ' Detect BOM mark.
+const OD_ADT_NOMESSAGES     = &h00000010  ' No messages, if errors in autodetect.
+const OD_ADT_ONLYBOM        = &h00000020  ' Detect code page only if BOM mark is present, otherwise default codepage is used.
+const OD_REOPEN             = &h00000100  ' Don't create new MDI window, use the exited one.
+const OD_NOSCROLL           = &h00000200  ' Don't restore scroll position.
+const OD_MULTIFILE          = &h00000400  ' More documents is on queue. Use MB_YESNOCANCEL instead of MB_OKCANCEL.
+const OD_NOUPDATE           = &h00000800  ' Don't update file info.
 
 #ifndef MAX_PATH
   const MAX_PATH = 260
@@ -117,6 +133,15 @@ type PLUGINCALLSENDW
   lParam as LPARAM
   dwSupport as DWORD
   nResult as LPARAM
+end type
+
+type OPENDOCUMENTW
+  pFile as WString ptr     ' File to open.
+  pWorkDir as WString ptr  ' Set working directory before open, if NULL then don't set.
+  dwFlags as DWORD         ' Open flags. See OD_* defines.
+  nCodePage as Long        ' File code page, ignored if (dwFlags & OD_ADT_DETECTCODEPAGE). Corresponds to 32-bit `int` in C!
+  bBOM as WINBOOL          ' File BOM, ignored if (dwFlags & OD_ADT_DETECTBOM).
+  hDoc as HANDLE           ' Edit document. Can be NULL.
 end type
 
 ' Callback type used for all WNDPROCDATA proc fields

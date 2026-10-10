@@ -47,8 +47,9 @@ The full expression language reference (functions, operators, precedence, arrays
 1.  Locate your AkelPad installation directory.
 2.  Copy the compiled DLL (`SmartMath.dll`) into the `AkelFiles\Plugs\` folder.
     *   Typical path: `C:\Program Files (x86)\AkelPad\AkelFiles\Plugs\`
-3.  Restart AkelPad.
-4.  Go to `Options -> Plugins` (or press `Alt+P`), find `SmartMath::ToggleSmartMath`, and check it to enable it and set it to Autoload.
+3.  Be sure to copy "AkelFiles\Docs\SmartMath-Eng.md" and the Coder syntax file "AkelFiles\Plugs\Coder\smartmath.coder".
+4.  Restart AkelPad.
+5.  Go to `Options -> Plugins` (or press `Alt+P`), find `SmartMath::ToggleSmartMath`, and check it to enable it and set it to Autoload.
 
 ### Development
 1. It is highly recommended to use an AI-assistant for any further development and bug fixing.

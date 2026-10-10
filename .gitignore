@@ -2,5 +2,6 @@
 *.o
 *.obj
 *.exe
+*.zip
 tools/backup/*
 tools/__pycache__/*

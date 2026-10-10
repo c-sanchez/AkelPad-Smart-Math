@@ -24,6 +24,7 @@ rem   -Wc -O2    GCC: optimize for speed.
 rem 32-bit DLL can be slightly larger than 64-bit for the same source: more stack spills / different
 rem tuning in libgcc+runtime, x87 vs SSE paths, and x64 sometimes shrinking hot code via extra GPRs.
 
+echo Compiling (32-bit)...
 fbc -dll -gen gcc -arch 386 -x "%OUT_DIR%\SmartMath.dll" -strip -O 2 -Wc -O2 "SmartMath.bas" "SmartMath_Config.bas" "SmartMath_Format.bas" "SmartMath_CopyNormalize.bas" "SmartMath_About.bas" "SmartMath_Menu.bas" "MathParser.bas" "SmartMath.rc"
 if exist "%OUT_DIR%\*.a" del "%OUT_DIR%\*.a"
 if exist "%OUT_DIR%\*.o" del "%OUT_DIR%\*.o"

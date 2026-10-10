@@ -7,9 +7,9 @@ sub ShowAboutDialog(byval hWnd as HWND)
            "Transform AkelPad into a high-performance scratchpad." & wchr(13, 10, 13, 10) & _
            wchr(&h2714) & " REAL-TIME: No need to press 'Equal'." & wchr(13, 10) & _
            wchr(&h2714) & " SMART: Logic-aware percentage handling." & wchr(13, 10) & _
-           wchr(&h2714) & " VISUAL: Customizable colors." & wchr(13, 10) & _
+           wchr(&h2714) & " VISUAL: Syntax highlight." & wchr(13, 10) & _
            wchr(&h2714) & " PERSISTENT: Auto-loads your preferred settings." & wchr(13, 10, 13, 10) & _
-           "Designed and Coded by Carlos S" & wchr(&h00E1) & "nchez, Vitalii Dovgan (2026)." & wchr(13, 10) & _
+           "Designed and Coded by Carlos S" & wchr(&h00E1) & "nchez, Vitalii Dovgan, 2026." & wchr(13, 10) & _
            "MathParser build: " & __DATE__ & " " & __TIME__ & wchr(13, 10) & _
            "Special thanks to the FreeBASIC community." & wchr(13, 10, 13, 10) & _
            "Open official GitHub repository?"

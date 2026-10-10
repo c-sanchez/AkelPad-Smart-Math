@@ -24,6 +24,7 @@ echo ERROR: FreeBASIC neither "%FB_HOME%\bin\win32" nor "%FB_HOME%\bin\win64" fo
 exit /b 1
 
 :Compile
+echo Compiling...
 fbc -dll -gen gcc %GCC_FLAGS% "SmartMath.bas" "SmartMath_Config.bas" "SmartMath_Format.bas" "SmartMath_CopyNormalize.bas" "SmartMath_About.bas" "SmartMath_Menu.bas" "MathParser.bas" "SmartMath.rc"
 if exist "*.a" del "*.a"
 if exist "*.o" del "*.o"

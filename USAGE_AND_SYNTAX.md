@@ -23,6 +23,10 @@ SmartMath evaluates math expressions inside AkelPad.
 To enable calculations in your current document, click "Active on Current Tab" under the SmartMath menu.
 SmartMath remembers which documents (tabs) have "Active on Current Tab" checked.
 
+### Copying Math Results to the Clipboard
+
+Double-click the math result to copy it to the Clipboard.
+
 ### Copy/Paste Examples:
 
 - `2+3*4` -> `14`

@@ -8,6 +8,7 @@ declare function Parser_TryEvaluate(byref sExpr as String, byref result as Doubl
 declare function Parser_TryEvaluateEx(byref sExpr as String, byref result as Double, byref resultText as String, byref isArray as Boolean) as Boolean
 declare function Parser_TryEvaluateExRaw(byref sExpr as String, byref rawOut as RawResult) as Boolean
 declare function Parser_GetLastError() as String
+declare function Parser_IsFunctionHintError(byref sErr as String) as Boolean
 declare sub Parser_SetShowErrorLine(byval showLine as Boolean)
 declare function Parser_GetShowErrorLine() as Boolean
 declare sub Parser_SetSupportComplexNumbers(byval enabled as Boolean)
