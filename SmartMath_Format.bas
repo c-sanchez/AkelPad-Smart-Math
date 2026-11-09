@@ -1,3 +1,4 @@
+#include once "crt.bi"
 #include once "SmartMath_Globals.bi"
 
 #ifdef FORMATTER_TEST_BUILD
@@ -55,6 +56,9 @@ private const SM_STR_ZERO_DOT as String = "0."
 private const SM_STR_SCI_ZERO_PAD_EXP as String = "0E+00"
 private const SM_STR_SCI_EXP_SUFFIX as String = "E+00"
 private const SM_STR_EXPLICIT_FLOAT_FRAC_DIGIT as String = "0"
+'' Same bound as MathParser FB_MAX_EXACT_INT_FROM_DOUBLE (2^53).
+private const SM_MAX_EXACT_INT_FROM_DOUBLE as Double = 9007199254740992.0
+private const SM_STR_FMT_SCIENTIFIC_16 as String = "%.15e"
 
 '' Lowercase tokens from parser scalar strings (ValueToString / classification).
 private const SM_TOK_NAN_LC as String = "nan"
@@ -312,6 +316,13 @@ private function InsertThousandsIntPart(byref intPart as String, byref localThou
   return outText
 end function
 
+'' Raw %.15e text. FormatNumericValue trims the mantissa and the exponent.
+private function FormatForcedScientific16(byval d as Double) as String
+  dim buf as zstring * 64
+  if sprintf(@buf, SM_STR_FMT_SCIENTIFIC_16, d) < 0 then return "0"
+  return buf
+end function
+
 private function FormatNumericValue(byval d as Double) as String
   dim sRes as String
   dim eScanPos as Integer
@@ -323,6 +334,13 @@ private function FormatNumericValue(byval d as Double) as String
   if g_nDecimals < 0 then
     sRes = LTrim(Str(d))
     eScanPos = IndexOfExponentLetter(sRes)
+    '' Above 2^53 a bare integer is not an exact int. Keep the same scientific form as other auto floats.
+    if eScanPos = 0 andalso PositionOfNumericDecimal(sRes) = 0 then
+      if d <> 0.0 andalso Abs(d) > SM_MAX_EXACT_INT_FROM_DOUBLE then
+        sRes = FormatForcedScientific16(d)
+        eScanPos = IndexOfExponentLetter(sRes)
+      end if
+    end if
   else
     dim useScientific as Boolean = FALSE
     dim ad as Double = Abs(d)

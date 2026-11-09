@@ -1,6 +1,7 @@
 SmartMath 1.5
 -------------
-- internal improvements and bug-fixes for edge cases 
+- internal improvements and bug-fixes for edge cases
+- corrected: floating-point vs. exact-integer results
 + added: "cpp\calc.cpp" (C++) and "tools\calc.bas" (FreeBasic)
 + added: SmartMath Online (web version of the calculator)
 * maintenance: improved AI skills

@@ -395,6 +395,15 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   FormatterTestInitRawScalarInt64 r.scalar, 2147483647
   AssertEq("raw int64 integer-like no .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "2147483647", failCount)
 
+  FormatterTestSetup()
+  g_nDecimals = -1
+  g_bUseThousandsSeparator = FALSE
+  ApplySeparatorDefaults()
+  '' Python format(4285714285714285.5, '.16g') is 4285714285714286; auto mode appends .0.
+  AssertEq("raw float hidden fraction shows .0", FormatResult(4285714285714285.5), SMARTMATH_RESULT_PREFIX & "4285714285714286.0", failCount)
+  '' Python format((2**53)*1.1, '.15e') is 9.907919180215092e+15; auto mode strips the padded exponent.
+  AssertEq("raw float above 2^53 uses scientific", FormatResult(9007199254740992.0 * 1.1), SMARTMATH_RESULT_PREFIX & "9.907919180215092e+15", failCount)
+
   RawResultClear(r)
   r.kind = RRK_SCALAR
   r.scalar.kind = RSK_COMPLEX

@@ -606,10 +606,11 @@ private sub RunTrigAngleReductionTests()
   nearZeroExpr(6) = "tan(2*pi)"
   dim exactOneExpr(1 to 4) as String
   dim exactOneExpect(1 to 4) as String
-  exactOneExpr(1) = "tan(pi/4)": exactOneExpect(1) = "1"
-  exactOneExpr(2) = "tan(3*pi/4)": exactOneExpect(2) = "-1"
-  exactOneExpr(3) = "tan(-pi/4)": exactOneExpect(3) = "-1"
-  exactOneExpr(4) = "tan(-3*pi/4)": exactOneExpect(4) = "1"
+  '' Angle reduction returns the float 1, not an exact int, so the display keeps ".0".
+  exactOneExpr(1) = "tan(pi/4)": exactOneExpect(1) = "1.0"
+  exactOneExpr(2) = "tan(3*pi/4)": exactOneExpect(2) = "-1.0"
+  exactOneExpr(3) = "tan(-pi/4)": exactOneExpect(3) = "-1.0"
+  exactOneExpr(4) = "tan(-3*pi/4)": exactOneExpect(4) = "1.0"
   dim ti as Integer
   dim mag as Double
   for ti = 1 to 12
@@ -2870,6 +2871,52 @@ private sub RunLambdaFunctionsSupportOptionTests()
   print ""
 end sub
 
+'' Exact display: a non-exact float must not look like an exact integer.
+'' Digits from Python: format(4285714285714285.5, '.16g') and format((2**53)*1.1, '.15e').
+private sub RunInexactFloatDisplayTests()
+  print "=== Inexact float display ==="
+  dim subPass as Integer = 0
+  dim subFail as Integer = 0
+  dim r as Double
+  dim rt as String
+  dim ia as Boolean
+  dim prevCx as Boolean = Parser_GetSupportComplexNumbers()
+  Parser_ClearVariables()
+  Parser_SetSupportComplexNumbers(TRUE)
+
+  const N as Integer = 11
+  dim expr(1 to N) as String
+  dim want(1 to N) as String
+  expr(1) = "(3*10**16-1)/7": want(1) = "4285714285714286.0"
+  expr(2) = "frac((3*10**16-1)/7)": want(2) = "0.5"
+  expr(3) = "-(3*10**16-1)/7": want(3) = "-4285714285714286.0"
+  expr(4) = "(3*10**17-1)/7": want(4) = "42857142857142857"
+  expr(5) = "(2**53)*1.1": want(5) = "9.907919180215092e+015"
+  expr(6) = "(2**53)*(-1.1)": want(6) = "-9.907919180215092e+015"
+  expr(7) = "sqrt(2**70)": want(7) = "34359738368.0"
+  expr(8) = "sqrt(-2**70)": want(8) = "34359738368.0i"
+  expr(9) = "f(n)=(3*10**n-1)/7; x=f(16); x": want(9) = "4285714285714286.0"
+  expr(10) = "sqrt(4)": want(10) = "2"
+  expr(11) = "2**53+2": want(11) = "9007199254740994"
+
+  dim i as Integer
+  for i = 1 to N
+    if Parser_TryEvaluateEx(expr(i), r, rt, ia) = FALSE orelse rt <> want(i) then
+      print "[float-display] FAIL: """ & expr(i) & """ -> """ & rt & """ want """ & want(i) & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  next i
+
+  Parser_SetSupportComplexNumbers(prevCx)
+  Parser_ClearVariables()
+  g_passed += subPass
+  g_failed += subFail
+  print "Inexact-float display sub-tests: passed " & str(subPass) & ", failed " & str(subFail)
+  print ""
+end sub
+
 sub Main()
   dim tests(1 to 1474) as SmokeCase
   ' Inline tag legend:
@@ -4495,6 +4542,8 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   RunTimeValuesSupportOptionTests()
 
   RunLambdaFunctionsSupportOptionTests()
+
+  RunInexactFloatDisplayTests()
 
   print "=== Result ==="
   print "Passed: " & g_passed

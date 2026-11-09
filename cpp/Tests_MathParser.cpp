@@ -1457,10 +1457,12 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                    why = "expected floating raw for non-perfect-square sqrt";
                    return false;
                  }
-                 if (p.getResult() != "2147483647") {
-                   why = "expected \"2147483647\", got \"" + p.getResult() + "\"";
-                   return false;
-                 }
+                // Python sqrt is the integer 2147483647, but an unverified square stays a float.
+                // The ".0" suffix is what shows that the raw result is not an exact int.
+                if (p.getResult() != "2147483647.0") {
+                  why = "expected \"2147483647.0\", got \"" + p.getResult() + "\"";
+                  return false;
+                }
                  return true;
                }});
   t.push_back({"edge/sqrt perfect square raw is int64", [](std::string& why) {
@@ -3034,6 +3036,38 @@ std::vector<TestCase> buildRegressionCases() {
   t.push_back({"regression/factorial 20 keeps exact integer formatting", [](std::string& why) {
                 MathParser p;
                 return expectEval(p, "hex(fact(20))", "0x21C3677C82B40000", why);
+              }});
+  t.push_back({"regression/inexact float display is not a bare integer", [](std::string& why) {
+                // Digits from Python: format(4285714285714285.5, '.16g') and format((2**53)*1.1, '.15e').
+                // sqrt(-2**70) is covered in the complex-option suite; real-only builds return nan.
+                MathParser p;
+                static const struct {
+                  const char* expr;
+                  const char* expect;
+                } kRows[] = {
+                    {"(3*10**16-1)/7", "4285714285714286.0"},
+                    {"frac((3*10**16-1)/7)", "0.5"},
+                    {"-(3*10**16-1)/7", "-4285714285714286.0"},
+                    {"(3*10**17-1)/7", "42857142857142857"},
+                    {"(2**53)*1.1", "9.907919180215092e+015"},
+                    {"(2**53)*(-1.1)", "-9.907919180215092e+015"},
+                    {"sqrt(2**70)", "34359738368.0"},
+                    {"f(n)=(3*10**n-1)/7; x=f(16); x", "4285714285714286.0"},
+                    {"sqrt(4)", "2"},
+                    {"2**53+2", "9007199254740994"},
+                };
+                for (const auto& row : kRows) {
+                  p.parseAndEvaluate(row.expr);
+                  if (!p.getError().empty()) {
+                    why = std::string(row.expr) + ": " + p.getError();
+                    return false;
+                  }
+                  if (p.getResult() != row.expect) {
+                    why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
+                    return false;
+                  }
+                }
+                return true;
               }});
   t.push_back({"regression/factorial 30 remains available in floating mode", [](std::string& why) {
                 MathParser p;
@@ -6158,7 +6192,9 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"conj(1+2i)", "1-2i"},
                      {"phase(1)", "0"},
                      {"polar(1+1i)", "(1.414213562373095,0.7853981633974483)"},
-                     {"cart(polar(1+1i))", "1+i"},
+                     // Python cmath.rect(*cmath.polar(1+1j)) is 1+1j. This round trip is 1 ulp
+                     // off on both parts, so the float display is 1.0+1.0i (Basic's imag is exact 1: 1.0+i).
+                     {"cart(polar(1+1i))", "1.0+1.0i"},
                     {"phase(-1-0i)", "3.141592653589793"},
                     {"polar(-1-0i)", "(1,3.141592653589793)"},
                      {"fact(5)", "120"},
@@ -6171,13 +6207,13 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + ": " + p.getError();
                      return false;
                    }
-                   if (p.getResult() != row.expect) {
-                     why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
-                     return false;
-                   }
-                 }
-                 return true;
-               }});
+                  if (p.getResult() != row.expect) {
+                    why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
+                    return false;
+                  }
+                }
+                return true;
+              }});
   t.push_back({"complex-opt: polar/cart arity and shape (parity Basic cxPolCartOk/cxPolCartErr)",
                [](std::string& why) {
                  MathParser p;
@@ -6473,6 +6509,21 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  const std::size_t count = sizeof(kComplexCoverageRows) / sizeof(kComplexCoverageRows[0]);
                  return runNegBandRowBatch(p, kComplexCoverageRows, count, why);
                }});
+  t.push_back({"complex-opt: inexact imag float is not a bare integer", [](std::string& why) {
+                // Python: cmath.sqrt(-2**70) == 34359738368j; %.16g hides the fraction, so display keeps .0.
+                MathParser p;
+                p.setSupportComplexNumbers(true);
+                p.parseAndEvaluate("sqrt(-2**70)");
+                if (!p.getError().empty()) {
+                  why = p.getError();
+                  return false;
+                }
+                if (p.getResult() != "34359738368.0i") {
+                  why = std::string("sqrt(-2**70) -> ") + p.getResult() + " (want 34359738368.0i)";
+                  return false;
+                }
+                return true;
+              }});
   return t;
 }
 

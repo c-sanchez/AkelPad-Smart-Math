@@ -969,6 +969,8 @@ constexpr const char* STR_UNEXPECTED_TOKEN = "unexpected token";
 constexpr const char* STR_INCOMPATIBLE_OPERANDS = "incompatible operands";
 constexpr const char* STR_POS_POW63_DEC_TEXT = "9.223372036854778e+018";
 constexpr const char* STR_NEG_POW63_DEC_TEXT = "-9.223372036854778e+018";
+constexpr const char* STR_EXPLICIT_FLOAT_FRAC_SUFFIX = ".0";
+constexpr const char* STR_FMT_SCIENTIFIC_16 = "%.15e";
 constexpr double K_MAX_EXACT_INT_FROM_DOUBLE = smartmath_internal::kMaxExactIntFromDouble;
 constexpr const char* STR_PREFIX_HEX = "0x";
 constexpr const char* STR_PREFIX_OCT = "0o";
@@ -1493,8 +1495,49 @@ double factorialScalarFloatFromInt(long long n) {
   return d;
 }
 
+std::string formatScientific16(double v) {
+  // 16 significant digits, trailing mantissa zeros removed, exponent at least 3 digits.
+  char buf[64];
+  const int n = std::snprintf(buf, sizeof(buf), STR_FMT_SCIENTIFIC_16, v);
+  if (n <= 0 || n >= static_cast<int>(sizeof(buf))) return "0";
+  std::string text(buf, static_cast<std::size_t>(n));
+  for (char& ch : text) {
+    if (ch == 'E') ch = 'e';
+  }
+  const std::size_t expPos = text.find('e');
+  if (expPos == std::string::npos) return text;
+  std::string mantissa = text.substr(0, expPos);
+  const std::size_t dotPos = mantissa.find('.');
+  if (dotPos != std::string::npos) {
+    while (!mantissa.empty() && mantissa.back() == '0') mantissa.pop_back();
+    if (!mantissa.empty() && mantissa.back() == '.') mantissa.pop_back();
+  }
+  std::string exponent = text.substr(expPos + 1);
+  char expSign = '+';
+  std::size_t expIndex = 0;
+  if (!exponent.empty() && (exponent[0] == '+' || exponent[0] == '-')) {
+    expSign = exponent[0];
+    expIndex = 1;
+  }
+  while (expIndex < exponent.size() && exponent[expIndex] == '0') ++expIndex;
+  std::string expDigits = (expIndex < exponent.size()) ? exponent.substr(expIndex) : std::string();
+  if (expDigits.empty()) expDigits = "0";
+  constexpr std::size_t kMinExpDigits = 3;
+  if (expDigits.size() < kMinExpDigits) {
+    expDigits.insert(0, kMinExpDigits - expDigits.size(), '0');
+  }
+  return mantissa + "e" + expSign + expDigits;
+}
+
+bool generalFormatHidesFraction(const std::string& text) {
+  return text.find('.') == std::string::npos && text.find('e') == std::string::npos &&
+         text.find('E') == std::string::npos;
+}
+
 std::string formatDoubleFast(double v) {
-  // "General" format with 16 significant digits and an exponent of at least 3 digits (Basic str() parity).
+  // General format, 16 significant digits, exponent at least 3 digits (Basic str() parity).
+  // A non-exact float whose general form has no fraction is marked so it is not read as an exact int:
+  // magnitude above 2^53 uses scientific form; a smaller magnitude keeps the digits and appends ".0".
   if (std::isnan(v)) return STR_NAN;
   if (std::isinf(v)) return (v < 0.0) ? STR_NEG_INF : STR_INF;
   if (v == 0.0) return "0";
@@ -1502,15 +1545,25 @@ std::string formatDoubleFast(double v) {
   const int n = std::snprintf(buf, sizeof(buf), "%.16g", v);
   if (n <= 0 || n >= static_cast<int>(sizeof(buf))) return "0";
   const char* expMark = std::strchr(buf, 'e');
-  if (expMark == nullptr) return std::string(buf, static_cast<std::size_t>(n));
-  const char* expDigits = expMark + 2;
-  const std::size_t expDigitCount = std::strlen(expDigits);
-  constexpr std::size_t kMinExpDigits = 3;
-  if (expDigitCount >= kMinExpDigits) return std::string(buf, static_cast<std::size_t>(n));
-  std::string out(buf, static_cast<std::size_t>(expDigits - buf));
-  out.append(kMinExpDigits - expDigitCount, '0');
-  out.append(expDigits);
-  return out;
+  std::string text;
+  if (expMark == nullptr) {
+    text.assign(buf, static_cast<std::size_t>(n));
+  } else {
+    const char* expDigits = expMark + 2;
+    const std::size_t expDigitCount = std::strlen(expDigits);
+    constexpr std::size_t kMinExpDigits = 3;
+    if (expDigitCount >= kMinExpDigits) {
+      text.assign(buf, static_cast<std::size_t>(n));
+    } else {
+      text.assign(buf, static_cast<std::size_t>(expDigits - buf));
+      text.append(kMinExpDigits - expDigitCount, '0');
+      text.append(expDigits);
+    }
+  }
+  if (!generalFormatHidesFraction(text)) return text;
+  if (std::fabs(v) > K_MAX_EXACT_INT_FROM_DOUBLE) return formatScientific16(v);
+  text += STR_EXPLICIT_FLOAT_FRAC_SUFFIX;
+  return text;
 }
 
 std::string formatUnsignedBase(std::uint64_t u, unsigned base, const char* prefix, bool uppercase) {
@@ -5988,15 +6041,6 @@ std::string formatScalar(const EvalValue& v, RenderBase base, bool supportComple
         return STR_NEG_POW63_DEC_TEXT;
       }
     }
-    long long iv = 0;
-    if (nearlyInt(dval, iv)) {
-      // Avoid formatting tiny nonzero values as the integer "0".
-      // (Complex formatting already preserves small nonzero magnitudes.)
-      if (iv == 0LL && dval != 0.0) {
-        return formatDoubleFast(dval);
-      }
-      return std::to_string(iv);
-    }
     return formatDoubleFast(dval);
   }
 
@@ -6100,26 +6144,13 @@ std::string formatComplexScalarValue(const EvalValue::ScalarValue& sv, bool supp
     } else {
       tail = std::to_string(ac) + STR_I;
     }
+  } else if (coeffAbs == 1.0) {
+    tail = STR_I;
+    negUnit = ai < 0.0;
+  } else if (ai < 0.0) {
+    tail = std::string("-") + formatDoubleFast(coeffAbs) + STR_I;
   } else {
-    long long nearlyI = 0;
-    if (nearlyInt(ai, nearlyI) && nearlyI != 0) {
-      const long long ac = nearlyI >= 0 ? nearlyI : -nearlyI;
-      if (ac == 1LL) {
-        tail = STR_I;
-        negUnit = nearlyI < 0;
-      } else if (nearlyI < 0) {
-        tail = std::string("-") + std::to_string(ac) + STR_I;
-      } else {
-        tail = std::to_string(ac) + STR_I;
-      }
-    } else if (coeffAbs == 1.0) {
-      tail = STR_I;
-      negUnit = ai < 0.0;
-    } else if (ai < 0.0) {
-      tail = std::string("-") + formatDoubleFast(coeffAbs) + STR_I;
-    } else {
-      tail = formatDoubleFast(coeffAbs) + STR_I;
-    }
+    tail = formatDoubleFast(coeffAbs) + STR_I;
   }
   const bool reZero = (sv.hasExactInt64() && sv.exactInt64 == 0) || (!sv.hasExactInt64() && ar == 0.0);
   return assembleComplexDecimalText(rePart, tail, negUnit, reZero);
