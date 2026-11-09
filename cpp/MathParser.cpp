@@ -1719,12 +1719,25 @@ long long bitwiseShiftLeftDefined(long long value, unsigned int shiftCount) {
 }
 
 long long bitwiseShiftRightDefined(long long value, unsigned int shiftCount) {
+  // Arithmetic right shift. VC2017 x86 /O2 miscompiles ~((~uint64) >> n) into a
+  // logical shift, so -1>>1 becomes 0x7FFFFFFFFFFFFFFF. 32-bit halves use SAR.
   const std::uint64_t u = static_cast<std::uint64_t>(value);
-  std::uint64_t shifted = 0;
-  if (value >= 0) {
-    shifted = u >> shiftCount;
+  const std::uint32_t lo = static_cast<std::uint32_t>(u);
+  const std::uint32_t hi = static_cast<std::uint32_t>(u >> 32);
+  std::uint64_t shifted = u;
+  if (shiftCount == 0u) {
+    shifted = u;
+  } else if (shiftCount < 32u) {
+    const std::uint32_t outLo = (lo >> shiftCount) | (hi << (32u - shiftCount));
+    const std::uint32_t outHi =
+        static_cast<std::uint32_t>(static_cast<std::int32_t>(hi) >> static_cast<int>(shiftCount));
+    shifted = (static_cast<std::uint64_t>(outHi) << 32) | outLo;
   } else {
-    shifted = ~((~u) >> shiftCount);
+    const unsigned int s = shiftCount - 32u;
+    const std::int32_t hiSigned = static_cast<std::int32_t>(hi);
+    const std::uint32_t outLo = static_cast<std::uint32_t>(hiSigned >> static_cast<int>(s));
+    const std::uint32_t outHi = static_cast<std::uint32_t>(hiSigned >> 31);
+    shifted = (static_cast<std::uint64_t>(outHi) << 32) | outLo;
   }
   if (shifted <= static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
     return static_cast<long long>(shifted);

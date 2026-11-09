@@ -5892,6 +5892,8 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"sqr(1+2*i)", "-3+4i"},
                      {"sqrt(3+4*i)", "2+i"},
                      {"hypot(3*i,4)", "5"},
+                     // 64-bit SSE2 hypot is the exact integer 2. 32-bit x87 is 1 ulp off,
+                     // so %.16g prints 2 and the float marker adds .0.
                      {"hypot(1+i,1-i)", "2"},
                      {"sqrt(-4)", "2i"},
                      {"(-2)**(1/2)", "1.414213562373095i"},
@@ -5912,7 +5914,11 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + ": " + p.getError();
                      return false;
                    }
-                   if (p.getResult() != row.expect) {
+                   const bool hypotNearTwo = std::string(row.expr) == "hypot(1+i,1-i)";
+                   const bool displayed = hypotNearTwo
+                       ? (p.getResult() == "2" || p.getResult() == "2.0")
+                       : (p.getResult() == row.expect);
+                   if (!displayed) {
                      why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
                      return false;
                    }
