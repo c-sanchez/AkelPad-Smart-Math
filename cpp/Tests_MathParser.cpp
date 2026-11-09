@@ -6192,9 +6192,10 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"conj(1+2i)", "1-2i"},
                      {"phase(1)", "0"},
                      {"polar(1+1i)", "(1.414213562373095,0.7853981633974483)"},
-                     // Python cmath.rect(*cmath.polar(1+1j)) is 1+1j. This round trip is 1 ulp
-                     // off on both parts, so the float display is 1.0+1.0i (Basic's imag is exact 1: 1.0+i).
-                     {"cart(polar(1+1i))", "1.0+1.0i"},
+                     // Python cmath.rect(*cmath.polar(1+1j)) is 1+1j. The real part is 1 ulp
+                     // off on every libm, so it prints 1.0. The imag part is exact 1 under
+                     // Emscripten and Basic (i) and 1 ulp off under MSVC (1.0i).
+                     {"cart(polar(1+1i))", "1.0+i"},
                     {"phase(-1-0i)", "3.141592653589793"},
                     {"polar(-1-0i)", "(1,3.141592653589793)"},
                      {"fact(5)", "120"},
@@ -6207,7 +6208,12 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + ": " + p.getError();
                      return false;
                    }
-                  if (p.getResult() != row.expect) {
+                  // Accept both libm displays. The row text is the Emscripten/Basic form.
+                  const bool cartRoundTrip = std::string(row.expr) == "cart(polar(1+1i))";
+                  const bool displayed = cartRoundTrip
+                      ? (p.getResult() == "1.0+i" || p.getResult() == "1.0+1.0i")
+                      : (p.getResult() == row.expect);
+                  if (!displayed) {
                     why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
                     return false;
                   }
