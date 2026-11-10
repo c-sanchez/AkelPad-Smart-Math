@@ -445,6 +445,30 @@ private sub RunRawResultApiTests()
     subPass += 1
   end if
 
+  dim evalOk as Boolean = Parser_TryEvaluateEx("()", r, rt, ia)
+  dim textOk as Boolean = (rt = "()")
+  if evalOk = FALSE orelse textOk = FALSE orelse ia = FALSE then
+    print "[raw] FAIL: () eval"
+    subFail += 1
+  elseif Parser_GetLastRawResult(raw) = FALSE orelse raw.kind <> RRK_ARRAY orelse ubound(raw.arr) >= lbound(raw.arr) then
+    print "[raw] FAIL: () must stay an empty array in the raw result"
+    subFail += 1
+  else
+    print "[raw] PASS: () -> empty RRK_ARRAY"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("sort(())", r, rt, ia) = FALSE orelse rt <> "()" then
+    print "[raw] FAIL: sort(()) eval"
+    subFail += 1
+  elseif Parser_GetLastRawResult(raw) = FALSE orelse raw.kind <> RRK_ARRAY orelse ubound(raw.arr) >= lbound(raw.arr) then
+    print "[raw] FAIL: sort(()) raw empty array"
+    subFail += 1
+  else
+    print "[raw] PASS: sort(()) -> empty RRK_ARRAY"
+    subPass += 1
+  end if
+
   if Parser_TryEvaluateExRaw("f(x)=2", raw) = FALSE then
     print "[raw] FAIL: Parser_TryEvaluateExRaw UDF defined should succeed"
     subFail += 1
@@ -1673,6 +1697,23 @@ private sub RunComplexNumberSupportOptionTests()
     end if
   next sri
 
+  dim cxFilterOk(1 to 3) as String
+  dim cxFilterExpect(1 to 3) as String
+  cxFilterOk(1) = "filter((1+2i, 0, 3-i), x: x)": cxFilterExpect(1) = "(1+2i, 3-i)"
+  cxFilterOk(2) = "filter((3+4i, 0), abs)": cxFilterExpect(2) = "(3+4i)"
+  cxFilterOk(3) = "filter((1+i, 2), x: imag(x))": cxFilterExpect(3) = "(1+i)"
+  dim cfi as Integer
+  for cfi = 1 to 3
+    if Parser_TryEvaluateEx(cxFilterOk(cfi), r, rt, ia) = FALSE orelse rt <> cxFilterExpect(cfi) then
+      print "[complex-opt] FAIL: """ & cxFilterOk(cfi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
+      print "[complex-opt]      want: """ & cxFilterExpect(cfi) & """"
+      subFail += 1
+    else
+      print "[complex-opt] PASS: """ & cxFilterOk(cfi) & """ -> """ & rt & """"
+      subPass += 1
+    end if
+  next cfi
+
   print "=== Negative argument magnitude bands (complex, 3 ranges) ==="
   dim negCxPass as Integer = 0
   dim negCxFail as Integer = 0
@@ -2807,11 +2848,18 @@ private sub RunLambdaFunctionsSupportOptionTests()
   elseif rt <> "(3,2,1)" andalso rt <> "(3, 2, 1)" then
     isOK = FALSE
   end if
+  if isOK then
+    if Parser_TryEvaluateEx("filter((1,0,2), x: x)", r, rt, ia) = FALSE then
+      isOK = FALSE
+    elseif rt <> "(1,2)" andalso rt <> "(1, 2)" then
+      isOK = FALSE
+    end if
+  end if
   if not isOK then
-    print "[lambda-opt] FAIL: sortby anonymous lambda with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
+    print "[lambda-opt] FAIL: sortby/filter anonymous lambda with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
     subFail += 1
   else
-    print "[lambda-opt] PASS: sortby((3,1,2), x:-x) -> (3,2,1) with support flag ON"
+    print "[lambda-opt] PASS: sortby and filter anonymous lambdas with support flag ON"
     subPass += 1
   end if
 
@@ -2840,13 +2888,27 @@ private sub RunLambdaFunctionsSupportOptionTests()
     subPass += 1
   end if
 
-  dim rejectExprs(1 to 4) as String
+  dim filterOffOk as Boolean = FALSE
+  if Parser_TryEvaluateEx("filter((1,-2,0), abs)", r, rt, ia) then
+    if rt = "(1, -2)" orelse rt = "(1,-2)" then filterOffOk = TRUE
+  end if
+  if filterOffOk = FALSE then
+    print "[lambda-opt] FAIL: filter builtin ref with flag OFF, got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[lambda-opt] PASS: filter((1,-2,0), abs) still works when lambda support is OFF"
+    subPass += 1
+  end if
+
+  dim rejectExprs(1 to 6) as String
   rejectExprs(1) = "f=x:x+1"
   rejectExprs(2) = "f=(x,y):(x+y)"
   rejectExprs(3) = "sortby((3,1,2), x:-x)"
   rejectExprs(4) = "sortby((1,2), (x):(1/x))"
+  rejectExprs(5) = "filter((3,1,2), x: x>0)"
+  rejectExprs(6) = "filter((1,2), (x):(x>1))"
   dim ri as Integer
-  for ri = 1 to 4
+  for ri = 1 to 6
     if Parser_TryEvaluateEx(rejectExprs(ri), r, rt, ia) then
       print "[lambda-opt] FAIL: expected failure for """ & rejectExprs(ri) & """ with support OFF but got """ & rt & """"
       subFail += 1
@@ -2868,6 +2930,36 @@ private sub RunLambdaFunctionsSupportOptionTests()
   g_passed += subPass
   g_failed += subFail
   print "Lambda-option sub-tests: passed " & str(subPass) & ", failed " & str(subFail)
+  print ""
+end sub
+
+'' filter copies the original element, so exact int64/uint64 metadata must survive.
+private sub RunFilterExactIntegerTests()
+  print "=== filter exact integer metadata ==="
+  dim subPass as Integer = 0
+  dim subFail as Integer = 0
+  dim r as Double
+  dim rt as String
+  dim ia as Boolean
+  const N as Integer = 3
+  dim expr(1 to N) as String
+  dim want(1 to N) as String
+  expr(1) = "filter((9223372036854775807, -1), x: x>0)": want(1) = "(9223372036854775807)"
+  expr(2) = "filter((18446744073709551615, 1), x: x>2)": want(2) = "(18446744073709551615)"
+  expr(3) = "filter((-9223372036854775807, 1), x: x<0)": want(3) = "(-9223372036854775807)"
+  dim i as Integer
+  for i = 1 to N
+    if Parser_TryEvaluateEx(expr(i), r, rt, ia) = FALSE orelse rt <> want(i) then
+      print "[filter-exact] FAIL: """ & expr(i) & """ -> """ & rt & """ want """ & want(i) & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  next i
+  Parser_ClearVariables()
+  g_passed += subPass
+  g_failed += subFail
+  print "filter exact-integer sub-tests: passed " & str(subPass) & ", failed " & str(subFail)
   print ""
 end sub
 
@@ -2918,7 +3010,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1474) as SmokeCase
+  dim tests(1 to 1522) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -3171,8 +3263,8 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   ' but should not change accidentally without an explicit decision.
   tests(225).expr = "clamp((1,2,3),(4,5),6)": tests(225).expectedErrContains = "expects scalar min/max" ' [type]
   tests(226).expr = "sum((1,2),(3,4),5)": tests(226).expected = "15" ' [ok-array]
-  tests(227).expr = "sort(())":         tests(227).expectedErrContains = "expects at least 1 argument" ' [syntax]
-  tests(228).expr = "unique(())":       tests(228).expectedErrContains = "expects at least 1 argument" ' [syntax]
+  tests(227).expr = "sort(())":         tests(227).expected = "()" ' empty array passes through; Python sorted([]) is []
+  tests(228).expr = "unique(())":       tests(228).expected = "()" ' empty array passes through
   tests(229).expr = "RestoreAnsFromCachedRender(g_cachedRenderText(i))": tests(229).expectedErrContains = "unknown function" ' [regression-lock]
   tests(230).expr = "deg(pi/2,pi/4)":   tests(230).expected = "(90,45)" ' [ok-array]
   tests(231).expr = "rad(180,90)":      tests(231).expected = "(3.141592653589793,1.570796326794897)" ' [ok-array]
@@ -3264,7 +3356,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(317).expr = "reverse":          tests(317).expectedErrContains = "function: reverse(...)" ' [hint]
   tests(318).expr = "reverse()":        tests(318).expectedErrContains = "expects at least 1 argument" ' [arity]
   tests(319).expr = "reverse((2,5,1),4,3)": tests(319).expected = "(3,4,1,5,2)" ' [ok-array]
-  tests(320).expr = "reverse(())":      tests(320).expectedErrContains = "expects at least 1 argument" ' [syntax]
+  tests(320).expr = "reverse(())":      tests(320).expected = "()" ' empty array passes through; Python list(reversed([])) is []
   tests(321).expr = "(10,20,30)[0]":    tests(321).expected = "10" ' [ok-array]
   tests(322).expr = "(10,20,30)[2]":    tests(322).expected = "30" ' [ok-array]
   tests(323).expr = "(10,20,30)[-1]":   tests(323).expected = "30" ' [ok-array]
@@ -4022,7 +4114,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1045).expr = "cart((5,1))":       tests(1045).expectedErrContains = "incompatible operands" ' [ok-func]
   tests(1046).expr = "sortby((3,-1,2), abs)": tests(1046).expected = "(-1,2,3)" ' [ok-func]
   tests(1047).expr = "sortby((5,1,5,2,2,9,1), abs)": tests(1047).expected = "(1,1,2,2,5,5,9)" ' [ok-func]
-  tests(1048).expr = "sortby((), abs)": tests(1048).expectedErrContains = "expects at least 1 argument" ' [arity]
+  tests(1048).expr = "sortby((), abs)": tests(1048).expected = "()" ' empty array passes through after the key is accepted
   tests(1049).expr = "f(x)=x*x; sortby((3,1,2), f)": tests(1049).expected = "(1,2,3)" ' [ok-func]
   tests(1050).expr = "sortby((1,2), abs())": tests(1050).expectedErrContains = "sortby expects exactly one function" ' [err]
   tests(1051).expr = "sortby((1,2), pow)": tests(1051).expectedErrContains = "sortby expects a function that takes 1 parameter" ' [err]
@@ -4384,7 +4476,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1405).expr = "flat((1,2,3))": tests(1405).expected = "(1,2,3)" ' [flat] single array passthrough
   tests(1406).expr = "flat((1,2),3,(4,5))": tests(1406).expected = "(1,2,3,4,5)" ' [flat] multi-arg
   tests(1407).expr = "flat()": tests(1407).expectedErrContains = "expects at least 1 argument" ' [flat] arity
-  tests(1408).expr = "flat(())": tests(1408).expectedErrContains = "expects at least 1 argument" ' [flat] empty array
+  tests(1408).expr = "flat(())": tests(1408).expected = "()" ' [flat] empty array passes through
   tests(1409).expr = "flat": tests(1409).expectedErrContains = "function: flat(...)" ' [flat] hint
   tests(1410).expr = "f(x,y)=x*y; f(flat((2,3)))": tests(1410).expectedErrContains = "expects 2 argument(s)" ' [flat] no call spreading
   tests(1411).expr = "flat(1,Inf,2)": tests(1411).expected = "(1,inf,2)" ' [flat] keep non-finite
@@ -4462,6 +4554,55 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1472).expr = "unique(nan, -nan, nan)": tests(1472).expected = "(nan)" ' [unique-nan] -nan counts as the same NaN slot
   tests(1473).expr = "unique(inf, -inf, inf, -inf)": tests(1473).expected = "(inf, -inf)" ' [unique-nan] opposite infinities stay distinct
   tests(1474).expr = "nan==-nan": tests(1474).expected = "0" ' [unique-nan] sign bit does not make NaNs equal
+  ' filter: truthiness is the documented !! rule (nan is falsy). Python bool(nan) is True, so these expectations do not come from Python's filter.
+  tests(1475).expr = "filter(range(1,11), x: x%3==0)": tests(1475).expected = "(3,6,9)"
+  tests(1476).expr = "filter((1,0,inf,-10,nan), x: !!x)": tests(1476).expected = "(1,inf,-10)"
+  tests(1477).expr = "g(x)=x>=0; filter((1,-2,3,inf,4,-5,0,-inf), g)": tests(1477).expected = "(1,3,inf,4,0)"
+  tests(1478).expr = "filter((1,2,0), x: x)": tests(1478).expected = "(1,2)"
+  tests(1479).expr = "filter((1,-2,0), abs)": tests(1479).expected = "(1,-2)"
+  tests(1480).expr = "filter((1,-2,0), sign)": tests(1480).expected = "(1,-2)" ' sign(-2) is -1, which is truthy
+  tests(1481).expr = "filter(5, x: x>0)": tests(1481).expected = "(5)" ' scalar is a one-element array
+  tests(1482).expr = "filter(0, x: !!x)": tests(1482).expected = "()" ' one element dropped; empty output is allowed
+  tests(1483).expr = "filter((0,nan), x: x)": tests(1483).expected = "()"
+  tests(1484).expr = "filter((1,0), x: (x,x))": tests(1484).expected = "(1,0)" ' non-empty array results are truthy
+  tests(1485).expr = "filter((1:30, 0:00, 0:45), x: !!x)": tests(1485).expected = "(01:30,00:45)"
+  tests(1486).expr = "filter((3,1,2), x: x%2==1)": tests(1486).expected = "(3,1)"
+  tests(1487).expr = "filter((1,2), (x):(x>1))": tests(1487).expected = "(2)"
+  tests(1488).expr = "filter((), abs)": tests(1488).expected = "()" ' empty array passes through; the predicate is not called
+  tests(1489).expr = "filter((1,2))": tests(1489).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1490).expr = "filter((1,2), 3)": tests(1490).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1491).expr = "filter((1,2), abs())": tests(1491).expectedErrContains = "filter expects exactly one function"
+  tests(1492).expr = "filter((1,2), (1,2))": tests(1492).expectedErrContains = "filter expects exactly one function"
+  tests(1493).expr = "filter((1,2), pow)": tests(1493).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1494).expr = "filter((1,2), nosuchfn)": tests(1494).expectedErrContains = "unknown function: nosuchfn"
+  tests(1495).expr = "filter(1,2,3)": tests(1495).expectedErrContains = "filter expects"
+  tests(1496).expr = "filter()": tests(1496).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1497).expr = "filter((5,1), ():1)": tests(1497).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1498).expr = "filter((1,2), x,y:x+y)": tests(1498).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1499).expr = "x=10; filter((1,2), x)": tests(1499).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1500).expr = "filter((1,2), sortby)": tests(1500).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1501).expr = "sortby((1,2), filter)": tests(1501).expectedErrContains = "sortby expects a function that takes 1 parameter"
+  tests(1502).expr = "filter((1,2), x:)": tests(1502).expectedErrContains = "function body is empty"
+  tests(1503).expr = "filter((1,2,3),x:x": tests(1503).expectedErrContains = "missing closing parenthesis"
+  tests(1504).expr = "filter(": tests(1504).expectedErrContains = "filter(array, func)"
+  tests(1505).expr = "sorted(())": tests(1505).expected = "()"
+  tests(1506).expr = "reversed(())": tests(1506).expected = "()"
+  tests(1507).expr = "sort((), ())": tests(1507).expected = "()"
+  tests(1508).expr = "flat((), ())": tests(1508).expected = "()"
+  tests(1509).expr = "unique((), ())": tests(1509).expected = "()"
+  tests(1510).expr = "filter(())": tests(1510).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1511).expr = "filter((), pow)": tests(1511).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1512).expr = "sortby((), 3)": tests(1512).expectedErrContains = "sortby expects a function that takes 1 parameter"
+  tests(1513).expr = "f(x)=x>0; filter((), f)": tests(1513).expected = "()"
+  tests(1514).expr = "f(x)=x; sortby((), f)": tests(1514).expected = "()"
+  tests(1515).expr = "repeat((), 3)": tests(1515).expected = "()"
+  tests(1516).expr = "repeat((), 0)": tests(1516).expectedErrContains = "repeat() expects a positive integer"
+  tests(1517).expr = "repeat((), 1.5)": tests(1517).expectedErrContains = "repeat() expects integer values"
+  tests(1518).expr = "repeat(())": tests(1518).expectedErrContains = "expects 2 argument(s)"
+  tests(1519).expr = "unpack(())": tests(1519).expected = "()"
+  tests(1520).expr = "unpack((), ())": tests(1520).expected = "()"
+  tests(1521).expr = "f(x)=!!x; sort(filter((0,0), f))": tests(1521).expected = "()"
+  tests(1522).expr = "f(x)=x>0; g(x)=x<2; filter(filter((1,-2,0), f), g)": tests(1522).expected = "(1)"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer
@@ -4544,6 +4685,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   RunLambdaFunctionsSupportOptionTests()
 
   RunInexactFloatDisplayTests()
+  RunFilterExactIntegerTests()
 
   print "=== Result ==="
   print "Passed: " & g_passed

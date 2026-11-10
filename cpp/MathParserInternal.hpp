@@ -106,6 +106,7 @@ namespace smartmath_internal {
     Polar,
     Cart,
     Conj,
+    Filter,
     Count
   };
 
@@ -537,6 +538,7 @@ namespace smartmath_internal {
     TimeUnit,
     PolarCart,
     Log,
+    Filter,
     Unknown,
   };
 

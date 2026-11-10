@@ -171,11 +171,18 @@ private:
   bool tryParseCompactSuffixTimeLiteral(EvalContext& ctx, EvalValue& out) const;
 #endif
   std::unique_ptr<Expr> parsePrimaryIdentifierOrCall(EvalContext& ctx);
-  bool parseSortbyCallArguments(EvalContext& ctx, std::vector<std::unique_ptr<Expr>>& outArgs);
-  std::unique_ptr<Expr> parseSortbyFunctionRef(EvalContext& ctx);
+  bool parseUnaryFunctionCallArguments(
+      EvalContext& ctx,
+      std::vector<std::unique_ptr<Expr>>& outArgs,
+      const char* expectsOneFunction,
+      const char* expectsUnaryFunction);
+  std::unique_ptr<Expr> parseUnaryFunctionRef(
+      EvalContext& ctx,
+      const char* expectsOneFunction,
+      const char* expectsUnaryFunction);
   enum class LambdaBodyStop {
     WrappedParenClose,
-    SortbyArgDelim,
+    ArgDelim,
     TopLevelSemicolonOrEof
   };
 #if SMARTMATH_LAMBDA_FUNCTIONS
@@ -184,13 +191,13 @@ private:
       EvalContext& ctx,
       std::string& outBody,
       LambdaBodyStop stop,
-      const char* sortbyLambdaKeyStart);
+      const char* lambdaArgStart);
   bool tryParseLambdaInnerUnwrappedSuffix(
       EvalContext& ctx,
       std::vector<std::string>& outParams,
       std::string& outBody,
       LambdaBodyStop bodyStop,
-      const char* sortbyLambdaKeyStart,
+      const char* lambdaArgStart,
       bool quiet) const;
   bool tryParseWrappedParenLambdaSuffix(
       EvalContext& ctx,
@@ -199,19 +206,29 @@ private:
       LambdaBodyStop bodyStop,
       bool quiet) const;
   bool tryParseLambdaRhsAfterEquals(EvalContext& ctx, std::vector<std::string>& outParams, std::string& outExpr) const;
-  std::unique_ptr<Expr> tryParseUnarySortbyLambdaOrFunctionRef(EvalContext& ctx);
-  std::unique_ptr<Expr> makeUnarySortbyInlineLambdaExpr(
+  std::unique_ptr<Expr> tryParseUnaryLambdaOrFunctionRef(
+      EvalContext& ctx,
+      const char* expectsOneFunction,
+      const char* expectsUnaryFunction);
+  std::unique_ptr<Expr> makeUnaryInlineLambdaExpr(
       EvalContext& ctx,
       std::vector<std::string>&& params,
-      std::string&& body);
+      std::string&& body,
+      const char* expectsUnaryFunction);
   EvalValue evalInlineLambdaCall(
       EvalContext& ctx,
       const std::vector<std::string>& paramNames,
       const std::string& bodyExpr,
       std::vector<EvalValue>&& args);
 #endif
-  std::unique_ptr<Expr> parseSortbyKeyArg(EvalContext& ctx);
-  std::unique_ptr<Expr> parseSortbyKeyArgFunctionRefOnly(EvalContext& ctx);
+  std::unique_ptr<Expr> parseUnaryFunctionArg(
+      EvalContext& ctx,
+      const char* expectsOneFunction,
+      const char* expectsUnaryFunction);
+  std::unique_ptr<Expr> parseUnaryFunctionRefOnly(
+      EvalContext& ctx,
+      const char* expectsOneFunction,
+      const char* expectsUnaryFunction);
   static bool udfBodyIsEmptyTupleLiteral(const std::string& bodyExpr);
 
 #if SMARTMATH_COMPLEX_NUMBERS
@@ -425,12 +442,21 @@ private:
       const std::vector<EvalValue>& args,
       const std::unordered_map<std::string, EvalValue>* scopedVars);
   EvalValue builtinRatio(EvalContext& ctx, const std::string& fnName, const std::vector<EvalValue>& args) const;
-  EvalValue sortbyInvokeKeyFunction(
+  EvalValue invokeUnaryFunctionOnElement(
       EvalContext& ctx,
       const std::string& funcName,
       const EvalValue::ScalarValue& elem,
+      const std::unordered_map<std::string, EvalValue>* scopedVars,
+      const char* expectsUnaryFunction);
+  bool isEligibleUnaryFunctionName(
+      const std::string& funcName,
+      std::string& outErr,
+      const char* expectsUnaryFunction) const;
+  EvalValue builtinFilter(
+      EvalContext& ctx,
+      const std::string& fnName,
+      const std::vector<EvalValue>& args,
       const std::unordered_map<std::string, EvalValue>* scopedVars);
-  bool isSortbyEligibleFunctionName(const std::string& funcName, std::string& outErr) const;
   bool tryLexicographicCompareEvalValues(
       EvalContext& ctx,
       const EvalValue& a,

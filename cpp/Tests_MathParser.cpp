@@ -657,6 +657,18 @@ std::vector<TestCase> buildUnitCases() {
                    why = "expected no raw value on error";
                    return false;
                  }
+                 p.parseAndEvaluate("()");
+                 r = p.getRawResult();
+                 if (!p.getError().empty() || !r.isArray() || !r.array.empty() || p.getResult() != "()") {
+                   why = "expected empty array raw result for ()";
+                   return false;
+                 }
+                 p.parseAndEvaluate("sort(())");
+                 r = p.getRawResult();
+                 if (!p.getError().empty() || !r.isArray() || !r.array.empty() || p.getResult() != "()") {
+                   why = "expected empty array raw result for sort(())";
+                   return false;
+                 }
                  return true;
                }});
   t.push_back({"unit/getRawResult rational from ratio()",
@@ -3701,11 +3713,33 @@ std::vector<TestCase> buildSortbyRatioCases() {
                  if (!expectEval(p, "sortby((5,1,5,2,2,9,1), abs)", "(1,1,2,2,5,5,9)", why)) return false;
                  return true;
                }});
-  t.push_back({"sortby/ratio: empty array rejects like sort",
+  t.push_back({"sortby/ratio: empty array passes through; ratio still rejects",
                [](std::string& why) {
                  MathParser p;
-                 if (!expectEvalErrorContains(p, "sortby((), abs)", "expects at least 1 argument", why)) return false;
+                 if (!expectEval(p, "sortby((), abs)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=x; sortby((), f)", "()", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((), 3)", "sortby expects a function that takes 1 parameter", why))
+                   return false;
                  return expectEvalErrorContains(p, "ratio(())", "expects at least 1 argument", why);
+               }});
+  t.push_back({"array: empty input passes through",
+               [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "sorted(())", "()", why)) return false;
+                 if (!expectEval(p, "reversed(())", "()", why)) return false;
+                 if (!expectEval(p, "sort((), ())", "()", why)) return false;
+                 if (!expectEval(p, "flat((), ())", "()", why)) return false;
+                 if (!expectEval(p, "unique((), ())", "()", why)) return false;
+                 if (!expectEval(p, "repeat((), 3)", "()", why)) return false;
+                 if (!expectEvalErrorContains(p, "repeat((), 0)", "repeat() expects a positive integer", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "repeat((), 1.5)", "repeat() expects integer values", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "repeat(())", "expects 2 argument(s)", why)) return false;
+                 if (!expectEval(p, "unpack(())", "()", why)) return false;
+                 if (!expectEval(p, "unpack((), ())", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=!!x; sort(filter((0,0), f))", "()", why)) return false;
+                 return expectEval(p, "f(x)=x>0; g(x)=x<2; filter(filter((1,-2,0), f), g)", "(1)", why);
                }});
   t.push_back({"sortby/ratio: sortby parse and arity errors",
                [](std::string& why) {
@@ -4368,8 +4402,8 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "factorial((1,2))", "expects a non-negative integer"} ,
     {ParityBasicCase::Kind::ErrorContains, "clamp((1,2,3),(4,5),6)", "expects scalar min/max"} ,
     {ParityBasicCase::Kind::Expected, "sum((1,2),(3,4),5)", "15"} ,
-    {ParityBasicCase::Kind::ErrorContains, "sort(())", "expects at least 1 argument"} ,
-    {ParityBasicCase::Kind::ErrorContains, "unique(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "sort(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "unique(())", "()"} ,
     {ParityBasicCase::Kind::ErrorContains, "RestoreAnsFromCachedRender(g_cachedRenderText(i))", "unknown function"} ,
     {ParityBasicCase::Kind::Expected, "deg(pi/2,pi/4)", "(90,45)"} ,
     {ParityBasicCase::Kind::Expected, "rad(180,90)", "(3.141592653589793,1.570796326794897)"} ,
@@ -4461,13 +4495,13 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "reverse", "function: reverse(...)"} ,
     {ParityBasicCase::Kind::ErrorContains, "reverse()", "expects at least 1 argument"} ,
     {ParityBasicCase::Kind::Expected, "reverse((2,5,1),4,3)", "(3,4,1,5,2)"} ,
-    {ParityBasicCase::Kind::ErrorContains, "reverse(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "reverse(())", "()"} ,
     {ParityBasicCase::Kind::Expected, "a=(1,2); b=(4,5); flat(a,3,b,6)", "(1,2,3,4,5,6)"} ,
     {ParityBasicCase::Kind::Expected, "flat(5)", "(5)"} ,
     {ParityBasicCase::Kind::Expected, "flat((1,2,3))", "(1,2,3)"} ,
     {ParityBasicCase::Kind::Expected, "flat((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat()", "expects at least 1 argument"} ,
-    {ParityBasicCase::Kind::ErrorContains, "flat(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "flat(())", "()"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat", "function: flat(...)"} ,
     {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x*y; f(flat((2,3)))", "expects 2 argument(s)"} ,
     {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"} ,
@@ -5186,6 +5220,15 @@ std::vector<TestCase> buildLambdaFunctionsSupportOptionCases() {
                    why = std::string("got ") + p.getResult();
                    return false;
                  }
+                 p.parseAndEvaluate("filter((1,0,2), x: x)");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != "(1,2)") {
+                   why = std::string("filter lambda got ") + p.getResult();
+                   return false;
+                 }
                  p.parseAndEvaluate("f=x:x+2; f(3)");
                  if (!p.getError().empty()) {
                    why = p.getError();
@@ -5224,11 +5267,22 @@ std::vector<TestCase> buildLambdaFunctionsSupportOptionCases() {
                    why = std::string("got ") + p.getResult();
                    return false;
                  }
+                 p.parseAndEvaluate("filter((1,-2,0), abs)");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != "(1,-2)" && p.getResult() != "(1, -2)") {
+                   why = std::string("filter named got ") + p.getResult();
+                   return false;
+                 }
                  const char* const rejects[] = {
                      "f=x:x+1",
                      "f=(x,y):(x+y)",
                      "sortby((3,1,2), x:-x)",
-                     "sortby((1,2), (x):(1/x))"};
+                     "sortby((1,2), (x):(1/x))",
+                     "filter((3,1,2), x: x>0)",
+                     "filter((1,2), (x):(x>1))"};
                  for (const char* expr : rejects) {
                    p.parseAndEvaluate(expr);
                    if (p.getError().empty()) {
@@ -6090,6 +6144,14 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  }
                  return true;
                }});
+  t.push_back({"complex-opt: filter keeps truthy complex elements",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 if (!expectEval(p, "f(x)=x; filter((1+2i, 0, 3-i), f)", "(1+2i,3-i)", why)) return false;
+                 if (!expectEval(p, "filter((3+4i, 0), abs)", "(3+4i)", why)) return false;
+                 return expectEval(p, "f(x)=imag(x); filter((1+i, 2), f)", "(1+i)", why);
+               }});
   t.push_back({"complex-opt: getRawResult exposes complex and rational components",
                [](std::string& why) {
                  MathParser p;
@@ -6580,6 +6642,104 @@ void runSuite(const std::string& title, const std::vector<TestCase>& cases, Test
   clearParserConstDedupState();
 }
 
+std::vector<TestCase> buildFilterCases() {
+  std::vector<TestCase> t;
+  t.push_back({"filter: named predicates and truthiness", [](std::string& why) {
+                 MathParser p;
+                 // nan is falsy here (USAGE truthiness). Python bool(nan) is True.
+                 if (!expectEval(p, "f(x)=x%3==0; filter(range(1,11), f)", "(3,6,9)", why)) return false;
+                 if (!expectEval(p, "f(x)=!!x; filter((1,0,inf,-10,nan), f)", "(1,inf,-10)", why)) return false;
+                 if (!expectEval(p, "g(x)=x>=0; filter((1,-2,3,inf,4,-5,0,-inf), g)", "(1,3,inf,4,0)", why))
+                   return false;
+                 if (!expectEval(p, "f(x)=x; filter((1,2,0), f)", "(1,2)", why)) return false;
+                 if (!expectEval(p, "filter((1,-2,0), abs)", "(1,-2)", why)) return false;
+                 if (!expectEval(p, "filter((1,-2,0), sign)", "(1,-2)", why)) return false;
+                 if (!expectEval(p, "f(x)=x>0; filter(5, f)", "(5)", why)) return false;
+                 if (!expectEval(p, "f(x)=!!x; filter(0, f)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=x; filter((0,nan), f)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=(x,x); filter((1,0), f)", "(1,0)", why)) return false;
+                 return expectEval(p, "f(x)=x%2==1; filter((3,1,2), f)", "(3,1)", why);
+               }});
+#if SMARTMATH_LAMBDA_FUNCTIONS
+  t.push_back({"filter: anonymous lambdas", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "filter(range(1,11), x: x%3==0)", "(3,6,9)", why)) return false;
+                 if (!expectEval(p, "filter((1,0,inf,-10,nan), x: !!x)", "(1,inf,-10)", why)) return false;
+                 if (!expectEval(p, "filter((1,2,0), x: x)", "(1,2)", why)) return false;
+                 if (!expectEval(p, "filter(5, x: x>0)", "(5)", why)) return false;
+                 if (!expectEval(p, "filter((1,0), x: (x,x))", "(1,0)", why)) return false;
+                 return expectEval(p, "filter((1,2), (x):(x>1))", "(2)", why);
+               }});
+#endif
+#if SMARTMATH_TIME_VALUES
+  t.push_back({"filter: time elements use scalar truthiness", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "f(x)=!!x; filter((1:30, 0:00, 0:45), f)", "(01:30,00:45)", why);
+               }});
+#endif
+  t.push_back({"filter: exact integer metadata is preserved", [](std::string& why) {
+                 MathParser p;
+                 p.parseAndEvaluate("f(x)=x>0; filter((9223372036854775807, -1), f)");
+                 if (!p.getError().empty() || p.getResult() != "(9223372036854775807)") {
+                   why = p.getError().empty() ? p.getResult() : p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("f(x)=x>2; filter((18446744073709551615, 1), f)");
+                 if (!p.getError().empty() || p.getResult() != "(18446744073709551615)") {
+                   why = p.getError().empty() ? p.getResult() : p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("f(x)=x<0; filter((-9223372036854775807, 1), f)");
+                 if (!p.getError().empty() || p.getResult() != "(-9223372036854775807)") {
+                   why = p.getError().empty() ? p.getResult() : p.getError();
+                   return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"filter: arity, type, and predicate errors", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "filter((), abs)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=x>0; filter((), f)", "()", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter(())", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((), pow)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2))", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), 3)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), abs())", "filter expects exactly one function", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), (1,2))", "filter expects exactly one function", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), pow)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), nosuchfn)", "unknown function: nosuchfn", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter(1,2,3)", "filter expects", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter()", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "x=10; filter((1,2), x)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), sortby)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), filter)", "sortby expects a function that takes 1 parameter", why))
+                   return false;
+                 return expectEvalErrorContains(p, "filter(", "filter(array, func)", why);
+               }});
+#if SMARTMATH_LAMBDA_FUNCTIONS
+  t.push_back({"filter: lambda predicate errors", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEvalErrorContains(p, "filter((5,1), ():1)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), x,y:x+y)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), x:)", "function body is empty", why)) return false;
+                 return expectEvalErrorContains(p, "filter((1,2,3),x:x", "missing closing parenthesis", why);
+               }});
+#endif
+  return t;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -6616,6 +6776,7 @@ int main(int argc, char** argv) {
   const auto timeValuesSupportOption = buildTimeValuesSupportOptionCases();
   const auto lambdaFunctionsSupportOption = buildLambdaFunctionsSupportOptionCases();
   const auto sortbyRatio = buildSortbyRatioCases();
+  const auto filterCases = buildFilterCases();
   const auto ratioInExpression = buildRatioInExpressionCases();
   const auto minMaxPreserveWinner = buildMinMaxPreserveWinnerCases();
   const auto clampPreserveIntegerMetadata = buildClampPreserveIntegerMetadataCases();
@@ -6645,6 +6806,7 @@ int main(int argc, char** argv) {
   runSuite("Lambda function support (parser option)", lambdaFunctionsSupportOption, s);
 #endif
   runSuite("Sortby/Ratio", sortbyRatio, s);
+  runSuite("Filter", filterCases, s);
   runSuite("Ratio in expressions", ratioInExpression, s);
   runSuite("Min/max preserve winner", minMaxPreserveWinner, s);
   runSuite("Clamp preserve integer metadata", clampPreserveIntegerMetadata, s);

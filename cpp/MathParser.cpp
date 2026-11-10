@@ -212,6 +212,7 @@ const smartmath_internal::BuiltinMetaRow kBuiltinMeta[] = {
     { BF::Unary, 1, 1, BHK::Value, BC::PolarCart },  // Polar
     { BF::None, 1, 2, BHK::Value, BC::PolarCart },  // Cart
     { BF::Unary, 1, 1, BHK::Value, BC::UnaryMath },  // Conj
+    { BF::NonCalculating, 2, 2, BHK::ArrayFunc, BC::Filter },  // Filter
 };
 #undef BC
 #undef BHK
@@ -250,6 +251,7 @@ constexpr UnaryScalarKind kUnaryScalarKind[static_cast<std::size_t>(BuiltinFunct
   UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
   UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
   UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None, UnaryScalarKind::None,
+  /* Filter */ UnaryScalarKind::None,
 };
 
 static_assert(
@@ -884,12 +886,16 @@ constexpr const char* STR_VARIANCE = "variance";
 constexpr const char* STR_STDDEV = "stddev";
 constexpr const char* STR_SORT = "sort";
 constexpr const char* STR_SORTBY = "sortby";
+constexpr const char* STR_FILTER = "filter";
 constexpr const char* STR_RATIO = "ratio";
 constexpr const char* STR_RANGE = "range";
 constexpr const char* STR_SORTED = "sorted";
 constexpr const char* STR_SORTBY_EXPECTS_ONE_FUNCTION = "sortby expects exactly one function";
 constexpr const char* STR_SORTBY_EXPECTS_UNARY_FUNCTION = "sortby expects a function that takes 1 parameter";
 constexpr const char* STR_SORTBY_KEY_MUST_BE_SCALAR_OR_ARRAY = "sortby key function must return a scalar or an array";
+constexpr const char* STR_FILTER_EXPECTS_ONE_FUNCTION = "filter expects exactly one function";
+constexpr const char* STR_FILTER_EXPECTS_UNARY_FUNCTION = "filter expects a function that takes 1 parameter";
+constexpr const char* STR_FILTER_PREDICATE_MUST_BE_SCALAR_OR_ARRAY = "filter predicate must return a scalar or an array";
 constexpr const char* STR_PAR_ARRAY_COMMA_FUNC = "(array, func)";
 constexpr double RATIO_APPROX_EPS = 1e-14;
 constexpr long long RATIO_MAX_DENOMINATOR = 10000000LL;
@@ -2575,7 +2581,7 @@ EvalValue::ScalarValue clampScalarValue(
   return s;
 }
 
-bool isSortbyIneligibleBuiltin(BuiltinFunctionId id) {
+bool isIneligibleUnaryBuiltin(BuiltinFunctionId id) {
   switch (id) {
     case BuiltinFunctionId::Rand:
     case BuiltinFunctionId::Pow:
@@ -2636,7 +2642,7 @@ const std::vector<std::string>& functionNames() {
       STR_CLAMP,        STR_HYPOT,    STR_GCD,       STR_LCM,    STR_NCR,     STR_NPR,
       STR_PRODUCT,      STR_MIN,      STR_MAX,       STR_UHEX,   STR_UOCT,    STR_UBIN,
       STR_MILLISECONDS, STR_SECONDS,  STR_MINUTES,   STR_HOURS,  STR_DAYS,    STR_REAL,
-      STR_IMAG,         STR_PHASE,    STR_POLAR,     STR_CART,   STR_CONJ
+      STR_IMAG,         STR_PHASE,    STR_POLAR,     STR_CART,   STR_CONJ,    STR_FILTER
   };
   return kNames;
 }
@@ -8169,7 +8175,7 @@ bool MathParser::lambdaBodyConsume(
     EvalContext& ctx,
     std::string& outBody,
     LambdaBodyStop stop,
-    const char* sortbyLambdaKeyStart) {
+    const char* lambdaArgStart) {
   outBody.clear();
   int g = 0;
   while (*ctx.p) {
@@ -8181,9 +8187,9 @@ bool MathParser::lambdaBodyConsume(
             return true;
           }
           break;
-        case LambdaBodyStop::SortbyArgDelim:
-          if ((c == ',' || c == ')') && sortbyLambdaKeyStart != nullptr &&
-              netRoundParenDepthBetween(sortbyLambdaKeyStart, ctx.p) == 0) {
+        case LambdaBodyStop::ArgDelim:
+          if ((c == ',' || c == ')') && lambdaArgStart != nullptr &&
+              netRoundParenDepthBetween(lambdaArgStart, ctx.p) == 0) {
             return true;
           }
           break;
@@ -8214,7 +8220,7 @@ bool MathParser::lambdaBodyConsume(
     outBody.push_back(c);
     ++ctx.p;
   }
-  return stop == LambdaBodyStop::TopLevelSemicolonOrEof || stop == LambdaBodyStop::SortbyArgDelim;
+  return stop == LambdaBodyStop::TopLevelSemicolonOrEof || stop == LambdaBodyStop::ArgDelim;
 }
 
 bool MathParser::tryConsumeLambdaParameterList(EvalContext& ctx, std::vector<std::string>& outParams, bool quiet) const {
@@ -8276,7 +8282,7 @@ bool MathParser::tryParseLambdaInnerUnwrappedSuffix(
     std::vector<std::string>& outParams,
     std::string& outBody,
     LambdaBodyStop bodyStop,
-    const char* sortbyLambdaKeyStart,
+    const char* lambdaArgStart,
     bool quiet) const {
   if (!tryConsumeLambdaParameterList(ctx, outParams, quiet)) {
     return false;
@@ -8287,7 +8293,7 @@ bool MathParser::tryParseLambdaInnerUnwrappedSuffix(
   }
   ++ctx.p;
   skipSpaces(ctx.p);
-  return lambdaBodyConsume(ctx, outBody, bodyStop, sortbyLambdaKeyStart);
+  return lambdaBodyConsume(ctx, outBody, bodyStop, lambdaArgStart);
 }
 
 bool MathParser::tryParseWrappedParenLambdaSuffix(
@@ -8343,12 +8349,13 @@ bool MathParser::tryParseLambdaRhsAfterEquals(
   return *ctx.p == '\0' || *ctx.p == ';';
 }
 
-std::unique_ptr<MathParser::Expr> MathParser::makeUnarySortbyInlineLambdaExpr(
+std::unique_ptr<MathParser::Expr> MathParser::makeUnaryInlineLambdaExpr(
     EvalContext& ctx,
     std::vector<std::string>&& params,
-    std::string&& body) {
+    std::string&& body,
+    const char* expectsUnaryFunction) {
   if (params.size() != 1U) {
-    ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+    ctx.fail(expectsUnaryFunction);
     return nullptr;
   }
   if (trim(body).empty()) {
@@ -8361,7 +8368,10 @@ std::unique_ptr<MathParser::Expr> MathParser::makeUnarySortbyInlineLambdaExpr(
   return lit;
 }
 
-std::unique_ptr<MathParser::Expr> MathParser::tryParseUnarySortbyLambdaOrFunctionRef(EvalContext& ctx) {
+std::unique_ptr<MathParser::Expr> MathParser::tryParseUnaryLambdaOrFunctionRef(
+    EvalContext& ctx,
+    const char* expectsOneFunction,
+    const char* expectsUnaryFunction) {
   ctx.parseError = false;
   ctx.errorText.clear();
   const char* const save = ctx.p;
@@ -8372,7 +8382,8 @@ std::unique_ptr<MathParser::Expr> MathParser::tryParseUnarySortbyLambdaOrFunctio
     std::string body;
     if (tryParseWrappedParenLambdaSuffix(ctx, params, body, LambdaBodyStop::WrappedParenClose, true)) {
       if (*ctx.p == ',' || *ctx.p == ')' || *ctx.p == '\0') {
-        return makeUnarySortbyInlineLambdaExpr(ctx, std::move(params), std::move(body));
+        return makeUnaryInlineLambdaExpr(
+            ctx, std::move(params), std::move(body), expectsUnaryFunction);
       }
     }
   }
@@ -8380,22 +8391,23 @@ std::unique_ptr<MathParser::Expr> MathParser::tryParseUnarySortbyLambdaOrFunctio
   ctx.p = save;
   skipSpaces(ctx.p);
   if (!peekRhsMayBeLambdaSyntaxAt(ctx.p)) {
-    return parseSortbyFunctionRef(ctx);
+    return parseUnaryFunctionRef(ctx, expectsOneFunction, expectsUnaryFunction);
   }
 
   std::vector<std::string> params;
   std::string body;
   if (!tryParseLambdaInnerUnwrappedSuffix(
-          ctx, params, body, LambdaBodyStop::SortbyArgDelim, save, true)) {
+          ctx, params, body, LambdaBodyStop::ArgDelim, save, true)) {
     ctx.p = save;
-    return parseSortbyFunctionRef(ctx);
+    return parseUnaryFunctionRef(ctx, expectsOneFunction, expectsUnaryFunction);
   }
   skipSpaces(ctx.p);
   if (*ctx.p == ',' || *ctx.p == ')' || *ctx.p == '\0') {
-    return makeUnarySortbyInlineLambdaExpr(ctx, std::move(params), std::move(body));
+    return makeUnaryInlineLambdaExpr(
+        ctx, std::move(params), std::move(body), expectsUnaryFunction);
   }
   ctx.p = save;
-  return parseSortbyFunctionRef(ctx);
+  return parseUnaryFunctionRef(ctx, expectsOneFunction, expectsUnaryFunction);
 }
 
 MathParser::EvalValue MathParser::evalInlineLambdaCall(
@@ -8442,26 +8454,32 @@ MathParser::EvalValue MathParser::evalInlineLambdaCall(
 }
 #endif
 
-std::unique_ptr<MathParser::Expr> MathParser::parseSortbyKeyArg(EvalContext& ctx) {
+std::unique_ptr<MathParser::Expr> MathParser::parseUnaryFunctionArg(
+    EvalContext& ctx,
+    const char* expectsOneFunction,
+    const char* expectsUnaryFunction) {
 #if SMARTMATH_LAMBDA_FUNCTIONS
   if (getSupportLambdaFunctions()) {
-    return tryParseUnarySortbyLambdaOrFunctionRef(ctx);
+    return tryParseUnaryLambdaOrFunctionRef(ctx, expectsOneFunction, expectsUnaryFunction);
   }
 #endif
-  return parseSortbyKeyArgFunctionRefOnly(ctx);
+  return parseUnaryFunctionRefOnly(ctx, expectsOneFunction, expectsUnaryFunction);
 }
 
-std::unique_ptr<MathParser::Expr> MathParser::parseSortbyKeyArgFunctionRefOnly(EvalContext& ctx) {
+std::unique_ptr<MathParser::Expr> MathParser::parseUnaryFunctionRefOnly(
+    EvalContext& ctx,
+    const char* expectsOneFunction,
+    const char* expectsUnaryFunction) {
   ctx.parseError = false;
   ctx.errorText.clear();
   skipSpaces(ctx.p);
 #if SMARTMATH_LAMBDA_FUNCTIONS
   if (peekRhsMayBeLambdaSyntaxAt(ctx.p)) {
-      ctx.fail(ParseErrorId::UnexpectedToken);
-      return nullptr;
-    }
+    ctx.fail(ParseErrorId::UnexpectedToken);
+    return nullptr;
+  }
 #endif
-  return parseSortbyFunctionRef(ctx);
+  return parseUnaryFunctionRef(ctx, expectsOneFunction, expectsUnaryFunction);
 }
 
 #if SMARTMATH_COMPLEX_NUMBERS
@@ -8834,8 +8852,11 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryIdentifierOrCall(EvalC
   }
   std::vector<std::unique_ptr<Expr>> args;
   const bool isSortbyCall = (ident == STR_SORTBY);
-  if (isSortbyCall) {
-    if (!parseSortbyCallArguments(ctx, args)) {
+  const bool isFilterCall = (ident == STR_FILTER);
+  if (isSortbyCall || isFilterCall) {
+    const char* expectsOne = isFilterCall ? STR_FILTER_EXPECTS_ONE_FUNCTION : STR_SORTBY_EXPECTS_ONE_FUNCTION;
+    const char* expectsUnary = isFilterCall ? STR_FILTER_EXPECTS_UNARY_FUNCTION : STR_SORTBY_EXPECTS_UNARY_FUNCTION;
+    if (!parseUnaryFunctionCallArguments(ctx, args, expectsOne, expectsUnary)) {
       return nullptr;
     }
   } else if (!parseParenthesizedExprList(ctx, args)) {
@@ -10416,6 +10437,9 @@ MathParser::EvalValue MathParser::builtinUnpack(EvalContext& ctx, const std::vec
   }
   std::vector<EvalValue> elems;
   if (!flattenArgsToScalars(args, elems)) {
+    if (!args.empty()) {
+      return markExpanded(makeArrayFromScalars({}));
+    }
     ctx.failCall(CallErrorId::AtLeastN, getFunctionName(BuiltinFunctionId::Unpack), 1);
     return makeScalar(0);
   }
@@ -10446,7 +10470,8 @@ MathParser::EvalValue MathParser::builtinRepeat(
 
   std::vector<EvalValue> vals;
   copySingleArgToFlat(args[0], vals);
-  if (vals.empty()) {
+  const bool emptyArray = vals.empty() && args[0].kind == ValueKind::Array;
+  if (vals.empty() && !emptyArray) {
     ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
     return makeScalar(0);
   }
@@ -10472,6 +10497,9 @@ MathParser::EvalValue MathParser::builtinRepeat(
   if (n <= 0) {
     ctx.failCall(CallErrorId::PositiveInteger, fnName);
     return makeScalar(0);
+  }
+  if (emptyArray) {
+    return makeArrayFromScalars({});
   }
 
   const std::size_t blockSize = vals.size();
@@ -11052,14 +11080,15 @@ MathParser::EvalValue MathParser::builtinAggregateFamily(
   return aggregateFoldByMode(ctx, fnName, id, args, AggregateFoldMode::Real);
 }
 
-bool MathParser::isSortbyEligibleFunctionName(
+bool MathParser::isEligibleUnaryFunctionName(
     const std::string& funcName,
-    std::string& outErr) const {
+    std::string& outErr,
+    const char* expectsUnaryFunction) const {
   const std::string lowFn = toLower(funcName);
   BuiltinFunctionId fnId = BuiltinFunctionId::Count;
   if (tryGetBuiltinFunctionId(lowFn, fnId)) {
-    if (isSortbyIneligibleBuiltin(fnId)) {
-      outErr = STR_SORTBY_EXPECTS_UNARY_FUNCTION;
+    if (isIneligibleUnaryBuiltin(fnId)) {
+      outErr = expectsUnaryFunction;
       return false;
     }
     return true;
@@ -11067,14 +11096,14 @@ bool MathParser::isSortbyEligibleFunctionName(
   const UserFunction* uf = findUserFunction(lowFn);
   if (!uf) {
     if (variables_.find(lowFn) != variables_.end()) {
-      outErr = STR_SORTBY_EXPECTS_UNARY_FUNCTION;
+      outErr = expectsUnaryFunction;
       return false;
     }
     outErr = std::string(STR_UNKNOWN_FUNCTION_COLON) + funcName;
     return false;
   }
   if (uf->params.size() != 1U) {
-    outErr = STR_SORTBY_EXPECTS_UNARY_FUNCTION;
+    outErr = expectsUnaryFunction;
     return false;
   }
   return true;
@@ -11321,20 +11350,21 @@ MathParser::EvalValue MathParser::builtinRatio(
   return makeArrayFromScalars(wrapped);
 }
 
-MathParser::EvalValue MathParser::sortbyInvokeKeyFunction(
+MathParser::EvalValue MathParser::invokeUnaryFunctionOnElement(
     EvalContext& ctx,
     const std::string& funcName,
     const EvalValue::ScalarValue& elem,
-    const std::unordered_map<std::string, EvalValue>* scopedVars) {
+    const std::unordered_map<std::string, EvalValue>* scopedVars,
+    const char* expectsUnaryFunction) {
   std::vector<EvalValue> args;
   args.push_back(scalarFromScalarValue(elem));
   BuiltinFunctionId fnId = BuiltinFunctionId::Count;
   if (!tryGetBuiltinFunctionId(toLower(funcName), fnId)) {
     return evalUserFunctionCall(ctx, funcName, args, scopedVars);
   }
-  if (getBuiltinCategory(fnId) == BuiltinCategory::Sortby ||
-      getBuiltinCategory(fnId) == BuiltinCategory::Ratio) {
-    ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+  const BuiltinCategory cat = getBuiltinCategory(fnId);
+  if (cat == BuiltinCategory::Sortby || cat == BuiltinCategory::Ratio || cat == BuiltinCategory::Filter) {
+    ctx.fail(expectsUnaryFunction);
     return makeScalar(0);
   }
   EvalValue out = evalFunctionCall(ctx, funcName, std::move(args), fnId, scopedVars);
@@ -11344,7 +11374,7 @@ MathParser::EvalValue MathParser::sortbyInvokeKeyFunction(
   if (out.kind == ValueKind::Scalar || out.kind == ValueKind::Array) {
     return out;
   }
-  ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+  ctx.fail(expectsUnaryFunction);
   return makeScalar(0);
 }
 
@@ -11365,13 +11395,16 @@ MathParser::EvalValue MathParser::builtinSortby(
   }
   if (keyIsRef) {
     std::string errText;
-    if (!isSortbyEligibleFunctionName(args[1].funcRefName, errText)) {
+    if (!isEligibleUnaryFunctionName(args[1].funcRefName, errText, STR_SORTBY_EXPECTS_UNARY_FUNCTION)) {
       ctx.fail(errText.c_str());
       return makeScalar(0);
     }
   }
   std::vector<EvalValue> flat;
   if (!flattenArgsToScalars({args[0]}, flat)) {
+    if (args[0].kind == ValueKind::Array) {
+      return makeArrayFromScalars({});
+    }
     ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
     return makeScalar(0);
   }
@@ -11392,7 +11425,8 @@ MathParser::EvalValue MathParser::builtinSortby(
     } else
 #endif
     {
-      keyV = sortbyInvokeKeyFunction(ctx, args[1].funcRefName, vals[i], scopedVars);
+      keyV = invokeUnaryFunctionOnElement(
+          ctx, args[1].funcRefName, vals[i], scopedVars, STR_SORTBY_EXPECTS_UNARY_FUNCTION);
     }
     if (ctx.parseError) {
       return makeScalar(0);
@@ -11420,7 +11454,10 @@ MathParser::EvalValue MathParser::builtinSortby(
   return makeArrayFromScalars(wrapped);
 }
 
-std::unique_ptr<MathParser::Expr> MathParser::parseSortbyFunctionRef(EvalContext& ctx) {
+std::unique_ptr<MathParser::Expr> MathParser::parseUnaryFunctionRef(
+    EvalContext& ctx,
+    const char* expectsOneFunction,
+    const char* expectsUnaryFunction) {
   skipSpaces(ctx.p);
   if (*ctx.p == '(') {
     auto parsed = parseExpression(ctx);
@@ -11428,14 +11465,14 @@ std::unique_ptr<MathParser::Expr> MathParser::parseSortbyFunctionRef(EvalContext
       return nullptr;
     }
     if (parsed->tag == Expr::Tag::ArrayOrParens) {
-      ctx.fail(STR_SORTBY_EXPECTS_ONE_FUNCTION);
+      ctx.fail(expectsOneFunction);
       return nullptr;
     }
-    ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+    ctx.fail(expectsUnaryFunction);
     return nullptr;
   }
   if (!localIsIdentStart(*ctx.p)) {
-    ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+    ctx.fail(expectsUnaryFunction);
     return nullptr;
   }
   const char* start = ctx.p;
@@ -11450,7 +11487,7 @@ std::unique_ptr<MathParser::Expr> MathParser::parseSortbyFunctionRef(EvalContext
     return nullptr;
   }
   if (*ctx.p == '(') {
-    ctx.fail(STR_SORTBY_EXPECTS_ONE_FUNCTION);
+    ctx.fail(expectsOneFunction);
     return nullptr;
   }
   auto ref = std::make_unique<Expr>();
@@ -11459,14 +11496,18 @@ std::unique_ptr<MathParser::Expr> MathParser::parseSortbyFunctionRef(EvalContext
   return ref;
 }
 
-bool MathParser::parseSortbyCallArguments(EvalContext& ctx, std::vector<std::unique_ptr<Expr>>& outArgs) {
+bool MathParser::parseUnaryFunctionCallArguments(
+    EvalContext& ctx,
+    std::vector<std::unique_ptr<Expr>>& outArgs,
+    const char* expectsOneFunction,
+    const char* expectsUnaryFunction) {
   skipSpaces(ctx.p);
   if (*ctx.p == ',') {
     ctx.fail(ParseErrorId::UnexpectedComma);
     return false;
   }
   if (*ctx.p == ')') {
-    ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+    ctx.fail(expectsUnaryFunction);
     return false;
   }
   auto first = parseExpression(ctx);
@@ -11480,10 +11521,10 @@ bool MathParser::parseSortbyCallArguments(EvalContext& ctx, std::vector<std::uni
     return false;
   }
   if (!hasComma) {
-    ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
+    ctx.fail(expectsUnaryFunction);
     return false;
   }
-  auto keyArg = parseSortbyKeyArg(ctx);
+  auto keyArg = parseUnaryFunctionArg(ctx, expectsOneFunction, expectsUnaryFunction);
   if (ctx.parseError || !keyArg) {
     return false;
   }
@@ -11493,10 +11534,69 @@ bool MathParser::parseSortbyCallArguments(EvalContext& ctx, std::vector<std::uni
     return false;
   }
   if (hasComma) {
-    ctx.fail(STR_SORTBY_EXPECTS_ONE_FUNCTION);
+    ctx.fail(expectsOneFunction);
     return false;
   }
   return true;
+}
+
+MathParser::EvalValue MathParser::builtinFilter(
+    EvalContext& ctx,
+    const std::string& fnName,
+    const std::vector<EvalValue>& args,
+    const std::unordered_map<std::string, EvalValue>* scopedVars) {
+  const bool predIsLambda = (args[1].kind == ValueKind::InlineLambda);
+  const bool predIsRef = (args[1].kind == ValueKind::FunctionRef);
+  if (!predIsLambda && !predIsRef) {
+    if (args[1].kind == ValueKind::Array) {
+      ctx.fail(STR_FILTER_EXPECTS_ONE_FUNCTION);
+    } else {
+      ctx.fail(STR_FILTER_EXPECTS_UNARY_FUNCTION);
+    }
+    return makeScalar(0);
+  }
+  if (predIsRef) {
+    std::string errText;
+    if (!isEligibleUnaryFunctionName(args[1].funcRefName, errText, STR_FILTER_EXPECTS_UNARY_FUNCTION)) {
+      ctx.fail(errText.c_str());
+      return makeScalar(0);
+    }
+  }
+  std::vector<EvalValue> flat;
+  if (!flattenArgsToScalars({args[0]}, flat)) {
+    if (args[0].kind == ValueKind::Array) {
+      return makeArrayFromScalars({});
+    }
+    ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
+    return makeScalar(0);
+  }
+  std::vector<EvalValue> kept;
+  kept.reserve(flat.size());
+  for (const auto& item : flat) {
+    EvalValue predV;
+#if SMARTMATH_LAMBDA_FUNCTIONS
+    if (predIsLambda) {
+      std::vector<EvalValue> lamArgs;
+      lamArgs.push_back(scalarFromScalarValue(item.scalarValue));
+      predV = evalInlineLambdaCall(ctx, args[1].lambdaParams, args[1].lambdaBody, std::move(lamArgs));
+    } else
+#endif
+    {
+      predV = invokeUnaryFunctionOnElement(
+          ctx, args[1].funcRefName, item.scalarValue, scopedVars, STR_FILTER_EXPECTS_UNARY_FUNCTION);
+    }
+    if (ctx.parseError) {
+      return makeScalar(0);
+    }
+    if (predV.kind != ValueKind::Scalar && predV.kind != ValueKind::Array) {
+      ctx.fail(STR_FILTER_PREDICATE_MUST_BE_SCALAR_OR_ARRAY);
+      return makeScalar(0);
+    }
+    if (isTruthy(predV)) {
+      kept.push_back(scalarFromScalarValue(item.scalarValue));
+    }
+  }
+  return makeArrayFromScalars(kept);
 }
 
 MathParser::EvalValue MathParser::builtinSortFamily(
@@ -11633,6 +11733,9 @@ MathParser::EvalValue MathParser::builtinSortFamily(
     std::vector<EvalValue> out;
     copySingleArgToFlat(a, out);
     if (out.empty()) {
+      if (a.kind == ValueKind::Array) {
+        return makeArrayFromScalars({});
+      }
       ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
       return makeScalar(0);
     }
@@ -11655,6 +11758,9 @@ MathParser::EvalValue MathParser::builtinSortFamily(
 
   std::vector<EvalValue> flat;
   if (!flattenArgsToScalars(args, flat)) {
+    if (!args.empty()) {
+      return makeArrayFromScalars({});
+    }
     ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
     return makeScalar(0);
   }
@@ -12483,6 +12589,8 @@ MathParser::EvalValue MathParser::evalFunctionCall(
   switch (getBuiltinCategory(id)) {
     case BuiltinCategory::Sortby:
       return builtinSortby(ctx, fnName, args, scopedVars);
+    case BuiltinCategory::Filter:
+      return builtinFilter(ctx, fnName, args, scopedVars);
     case BuiltinCategory::Ratio:
       return builtinRatio(ctx, fnName, args);
     case BuiltinCategory::TimeUnit:
