@@ -243,19 +243,14 @@ bool smokeScalarCloseEnough(const std::string& actual, const std::string& expect
   if (!tryParseFullDouble(ea, da) || !tryParseFullDouble(ee, de)) {
     return false;
   }
-  const double p63 = std::ldexp(1.0, 63);
-  if (da == p63 || da == -p63 || de == p63 || de == -p63) {
-    return false;
-  }
   if (da == de) {
     return true;
   }
   if (std::nextafter(da, de) == de || std::nextafter(de, da) == da) {
     return true;
   }
-  const double scale = std::max(1.0, std::max(std::fabs(da), std::fabs(de)));
-  const double tol = 16.0 * std::numeric_limits<double>::epsilon() * scale;
-  return std::fabs(da - de) <= tol;
+  const double scale = std::max(std::fabs(da), std::fabs(de));
+  return std::fabs(da - de) <= 16.0 * std::numeric_limits<double>::epsilon() * scale;
 }
 
 namespace {
@@ -334,7 +329,7 @@ bool smokeResultCloseEnough(const std::string& actual, const std::string& expect
       return false;
     }
     for (std::size_t i = 0; i < pa.size(); ++i) {
-      if (!smokeScalarCloseEnough(trimSmokeToken(pa[i]), trimSmokeToken(pe[i]))) {
+      if (!smokeResultCloseEnough(trimSmokeToken(pa[i]), trimSmokeToken(pe[i]))) {
         return false;
       }
     }
@@ -662,6 +657,18 @@ std::vector<TestCase> buildUnitCases() {
                    why = "expected no raw value on error";
                    return false;
                  }
+                 p.parseAndEvaluate("()");
+                 r = p.getRawResult();
+                 if (!p.getError().empty() || !r.isArray() || !r.array.empty() || p.getResult() != "()") {
+                   why = "expected empty array raw result for ()";
+                   return false;
+                 }
+                 p.parseAndEvaluate("sort(())");
+                 r = p.getRawResult();
+                 if (!p.getError().empty() || !r.isArray() || !r.array.empty() || p.getResult() != "()") {
+                   why = "expected empty array raw result for sort(())";
+                   return false;
+                 }
                  return true;
                }});
   t.push_back({"unit/getRawResult rational from ratio()",
@@ -709,6 +716,118 @@ std::vector<TestCase> buildUnitCases() {
                  if (!r.array[1].isRational() || r.array[1].real.rational.numerator != 1LL ||
                      r.array[1].real.rational.denominator != 3ULL) {
                    why = "array[1] expected 1/3";
+                   return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"unit/RawResult clear and cartesian isZero", [](std::string& why) {
+                 using Cart = MathParser::RawResult::CartesianScalar;
+                 using Kind = MathParser::RawResult::ScalarKind;
+                 Cart c;
+                 c.kind = Kind::Int64;
+                 c.intValue = 0;
+                 if (!c.isZero()) {
+                   why = "int64 zero";
+                   return false;
+                 }
+                 c.intValue = 5;
+                 if (c.isZero()) {
+                   why = "int64 nonzero";
+                   return false;
+                 }
+
+                 c.clear();
+                 c.kind = Kind::UInt64;
+                 c.uintValue = 0;
+                 if (!c.isZero()) {
+                   why = "uint64 zero";
+                   return false;
+                 }
+                 c.uintValue = 1;
+                 if (c.isZero()) {
+                   why = "uint64 nonzero";
+                   return false;
+                 }
+
+                 c.clear();
+                 c.kind = Kind::Rational;
+                 c.rational.numerator = 0;
+                 c.rational.denominator = 2;
+                 if (!c.isZero()) {
+                   why = "rational zero";
+                   return false;
+                 }
+                 c.rational.numerator = 1;
+                 if (c.isZero()) {
+                   why = "rational nonzero";
+                   return false;
+                 }
+
+                 c.clear();
+                 c.kind = Kind::Time;
+                 c.intValue = 0;
+                 if (!c.isZero()) {
+                   why = "time zero";
+                   return false;
+                 }
+                 c.intValue = 1000;
+                 if (c.isZero()) {
+                   why = "time nonzero";
+                   return false;
+                 }
+
+                 c.clear();
+                 c.kind = Kind::FloatingPoint;
+                 c.floatingPoint = 0.0;
+                 if (!c.isZero()) {
+                   why = "float zero";
+                   return false;
+                 }
+                 c.floatingPoint = -0.0;
+                 if (!c.isZero()) {
+                   why = "float negative zero";
+                   return false;
+                 }
+                 c.floatingPoint = 0.5;
+                 if (c.isZero()) {
+                   why = "float nonzero";
+                   return false;
+                 }
+                 c.floatingPoint = std::numeric_limits<double>::quiet_NaN();
+                 if (c.isZero()) {
+                   why = "float nan";
+                   return false;
+                 }
+
+#if SMARTMATH_FACTORINT
+                 c.clear();
+                 c.kind = Kind::IntPower;
+                 c.rational.numerator = 0;
+                 c.rational.denominator = 3;
+                 if (!c.isZero()) {
+                   why = "int power zero base";
+                   return false;
+                 }
+                 c.rational.numerator = 8;
+                 if (c.isZero()) {
+                   why = "int power nonzero base";
+                   return false;
+                 }
+#endif
+
+                 MathParser::RawResult r;
+                 r.kind = MathParser::RawResult::Kind::Array;
+                 r.array.push_back(MathParser::RawResult::Scalar{});
+                 r.scalar.kind = Kind::Int64;
+                 r.scalar.real.kind = Kind::Int64;
+                 r.scalar.real.intValue = 4;
+                 r.scalar.imag.kind = Kind::UInt64;
+                 r.scalar.imag.uintValue = 7;
+                 r.clear();
+                 if (r.hasValue() || !r.array.empty() || r.scalar.kind != Kind::FloatingPoint ||
+                     r.scalar.real.kind != Kind::FloatingPoint || r.scalar.real.floatingPoint != 0.0 ||
+                     r.scalar.imag.kind != Kind::FloatingPoint || r.scalar.imag.floatingPoint != 0.0) {
+                   why = "raw result clear";
                    return false;
                  }
                  return true;
@@ -1350,10 +1469,12 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                    why = "expected floating raw for non-perfect-square sqrt";
                    return false;
                  }
-                 if (p.getResult() != "2147483647") {
-                   why = "expected \"2147483647\", got \"" + p.getResult() + "\"";
-                   return false;
-                 }
+                // Python sqrt is the integer 2147483647, but an unverified square stays a float.
+                // The ".0" suffix is what shows that the raw result is not an exact int.
+                if (p.getResult() != "2147483647.0") {
+                  why = "expected \"2147483647.0\", got \"" + p.getResult() + "\"";
+                  return false;
+                }
                  return true;
                }});
   t.push_back({"edge/sqrt perfect square raw is int64", [](std::string& why) {
@@ -1569,6 +1690,29 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
 
 std::vector<TestCase> buildNanInfCases() {
   std::vector<TestCase> t;
+  t.push_back({"naninf/real division by zero is infinity", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "1/0", "inf", why)) return false;
+                 if (!expectEval(p, "-1/0", "-inf", why)) return false;
+                 if (!expectEval(p, "0/0", "nan", why)) return false;
+                 if (!expectEval(p, "x=100; x/0", "inf", why)) return false;
+                 if (!expectEval(p, "(1,-2,0)/0", "(inf,-inf,nan)", why)) return false;
+                 if (!expectEval(p, "4/2", "2", why)) return false;
+#if SMARTMATH_COMPLEX_NUMBERS
+                 p.setSupportComplexNumbers(true);
+                 p.parseAndEvaluate("2/0");
+                 if (!p.getError().empty() || p.getResult() != "inf") {
+                   why = "complex-enabled 2/0: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                   return false;
+                 }
+                 p.parseAndEvaluate("(1+2i)/0");
+                 if (!p.getError().empty() || p.getResult() != "nan") {
+                   why = "complex (1+2i)/0: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                   return false;
+                 }
+#endif
+                 return true;
+               }});
   const double kQNaN = std::numeric_limits<double>::quiet_NaN();
   const double kPosInf = std::numeric_limits<double>::infinity();
   const double kNegInf = -std::numeric_limits<double>::infinity();
@@ -1748,6 +1892,10 @@ std::vector<TestCase> buildNanInfCases() {
   t.push_back({"naninf/nan==nan literal false", [](std::string& why) {
                  MathParser p;
                  return expectEval(p, "nan==nan", "0", why);
+               }});
+  t.push_back({"naninf/nan==-nan literal false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "nan==-nan", "0", why);
                }});
   t.push_back({"naninf/nan!=nan literal true", [](std::string& why) {
                  MathParser p;
@@ -2478,17 +2626,85 @@ std::vector<TestCase> buildRegressionCases() {
                 MathParser p;
                 return expectEval(p, "a=1; 2; ans", "2", why);
               }});
-  t.push_back({"regression/ans resets to zero after failed evaluation", [](std::string& why) {
+  t.push_back({"regression/ans keeps last success after failed evaluation", [](std::string& why) {
                 MathParser p;
-                if (!expectEval(p, "10+5", "15", why)) {
+                const auto evalOk = [&](const std::string& expr, const std::string& expected) {
+                  p.parseAndEvaluate(expr);
+                  if (!p.getError().empty()) {
+                    why = expr + " error: " + p.getError();
+                    return false;
+                  }
+                  if (!smokeResultCloseEnough(p.getResult(), expected)) {
+                    why = expr + " got \"" + p.getResult() + "\"";
+                    return false;
+                  }
+                  return true;
+                };
+                const auto evalErr = [&](const std::string& expr, const std::string& part) {
+                  p.parseAndEvaluate(expr);
+                  const std::string err = p.getError();
+                  if (err.find(part) == std::string::npos) {
+                    why = expr + " error got \"" + err + "\"";
+                    return false;
+                  }
+                  return true;
+                };
+                if (!evalOk("21+4", "25")) {
                   return false;
                 }
-                p.parseAndEvaluate("unknownFunc(1)");
-                if (p.getError().empty()) {
-                  why = "expected failure for unknownFunc(1)";
+                if (!evalErr("unknownFunc(8)", "unknown function:")) {
                   return false;
                 }
-                return expectEval(p, "ans", "0", why);
+                if (!evalOk("ans", "25")) {
+                  return false;
+                }
+                if (!evalErr("missingAnsKeep", "unknown variable:")) {
+                  return false;
+                }
+                if (!evalOk("ans", "25")) {
+                  return false;
+                }
+                if (!evalErr("mod(10,0)", "numeric error in mod()")) {
+                  return false;
+                }
+                if (!evalOk("ans", "25")) {
+                  return false;
+                }
+                if (!evalErr("9; unknownFunc(8)", "unknown function:")) {
+                  return false;
+                }
+                if (!evalOk("ans", "9")) {
+                  return false;
+                }
+                if (!evalOk("(4,5)", "(4,5)")) {
+                  return false;
+                }
+                if (!evalErr("unknownFunc(8)", "unknown function:")) {
+                  return false;
+                }
+                return evalOk("sum(ans)", "9");
+              }});
+  t.push_back({"regression/array variable and ans on a later line", [](std::string& why) {
+                MathParser p;
+                const auto evalOk = [&](const std::string& expr, const std::string& expected) {
+                  p.parseAndEvaluate(expr);
+                  if (!p.getError().empty()) {
+                    why = expr + " error: " + p.getError();
+                    return false;
+                  }
+                  if (!smokeResultCloseEnough(p.getResult(), expected)) {
+                    why = expr + " got \"" + p.getResult() + "\"";
+                    return false;
+                  }
+                  return true;
+                };
+                if (!evalOk("x=(1,2,3)", "(1,2,3)")) return false;
+                if (!evalOk("x", "(1,2,3)")) return false;
+                if (!evalOk("ans", "(1,2,3)")) return false;
+                if (!evalOk("x+1", "(2,3,4)")) return false;
+                if (!evalOk("range(1,10,3)", "(1,4,7)")) return false;
+                if (!evalOk("ans", "(1,4,7)")) return false;
+                return evalOk("ans*2", "(2,8,14)");
               }});
   t.push_back({"regression/exact scalar metadata survives variable copy", [](std::string& why) {
                 MathParser p;
@@ -2581,7 +2797,7 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEval(p, "(2**51-8)*(5/2)", "5629499534213100", why)) return false;
                 if (!expectEval(p, "(2**51-8)*((5/2)+1e-12)", "5629499534215352", why)) return false;
                 if (!expectEval(p, "-(2**50-1)*2", "-2251799813685246", why)) return false;
-                if (!expectEval(p, "-(2**50-1)*(2.0001)", "-225191240367593", why)) return false;
+                if (!expectEval(p, "-(2**50-1)*(2.0001)", "-2251912403675930", why)) return false;
                 p.parseAndEvaluate("7/3");
                 if (p.getResult().find('.') == std::string::npos && p.getResult().find('/') == std::string::npos) {
                   why = "7/3 must stay non-integer float, got \"" + p.getResult() + "\"";
@@ -2833,6 +3049,38 @@ std::vector<TestCase> buildRegressionCases() {
                 MathParser p;
                 return expectEval(p, "hex(fact(20))", "0x21C3677C82B40000", why);
               }});
+  t.push_back({"regression/inexact float display is not a bare integer", [](std::string& why) {
+                // Digits from Python: format(4285714285714285.5, '.16g') and format((2**53)*1.1, '.15e').
+                // sqrt(-2**70) is covered in the complex-option suite; real-only builds return nan.
+                MathParser p;
+                static const struct {
+                  const char* expr;
+                  const char* expect;
+                } kRows[] = {
+                    {"(3*10**16-1)/7", "4285714285714286.0"},
+                    {"frac((3*10**16-1)/7)", "0.5"},
+                    {"-(3*10**16-1)/7", "-4285714285714286.0"},
+                    {"(3*10**17-1)/7", "42857142857142857"},
+                    {"(2**53)*1.1", "9.907919180215092e+015"},
+                    {"(2**53)*(-1.1)", "-9.907919180215092e+015"},
+                    {"sqrt(2**70)", "34359738368.0"},
+                    {"f(n)=(3*10**n-1)/7; x=f(16); x", "4285714285714286.0"},
+                    {"sqrt(4)", "2"},
+                    {"2**53+2", "9007199254740994"},
+                };
+                for (const auto& row : kRows) {
+                  p.parseAndEvaluate(row.expr);
+                  if (!p.getError().empty()) {
+                    why = std::string(row.expr) + ": " + p.getError();
+                    return false;
+                  }
+                  if (p.getResult() != row.expect) {
+                    why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
+                    return false;
+                  }
+                }
+                return true;
+              }});
   t.push_back({"regression/factorial 30 remains available in floating mode", [](std::string& why) {
                 MathParser p;
                 return expectEval(p, "factorial(30)", "2.65252859812191e+032", why);
@@ -2920,9 +3168,63 @@ std::vector<TestCase> buildRegressionCases() {
               }});
   t.push_back({"regression/late binding newfn definition then missing call then define newfn", [](std::string& why) {
                 MathParser p;
-                if (!expectEval(p, "f(x)=x*newfn(x)", "0", why)) return false;
+                if (!expectEval(p, "f(x)=x*newfn(x)", "defined f(x)", why)) return false;
                 if (!expectEvalErrorContains(p, "f(2)", "unknown function: newfn", why)) return false;
                 return expectEval(p, "newfn(x)=x**(1/3); f(8)", "16", why);
+              }});
+  t.push_back({"regression/function definition result is not a number", [](std::string& why) {
+                MathParser p;
+                p.parseAndEvaluate("21+4");
+                if (!p.getError().empty() || p.getResult() != "25") {
+                  why = "setup 21+4: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+                p.parseAndEvaluate("f(x) = x*sin(x)");
+                if (!p.getError().empty()) {
+                  why = "definition error: " + p.getError();
+                  return false;
+                }
+                if (p.getResult() != "defined f(x)" || p.getResultAsHex() != "defined f(x)") {
+                  why = "definition result: \"" + p.getResult() + "\" hex=\"" + p.getResultAsHex() + "\"";
+                  return false;
+                }
+                if (p.getRawResult().hasValue()) {
+                  why = "function definition exposed a raw numeric result";
+                  return false;
+                }
+                p.parseAndEvaluate("ans");
+                if (!p.getError().empty() || p.getResult() != "25") {
+                  why = "ans after definition: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+                p.parseAndEvaluate("mix(a,b)=a+b");
+                if (!p.getError().empty() || p.getResult() != "defined mix(a, b)") {
+                  why = "two-parameter definition: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+                p.parseAndEvaluate("z()=3");
+                if (!p.getError().empty() || p.getResult() != "defined z()") {
+                  why = "zero-parameter definition: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+#if SMARTMATH_LAMBDA_FUNCTIONS
+                p.parseAndEvaluate("g=(y):y*sin(y)");
+                if (!p.getError().empty() || p.getResult() != "defined g(y)") {
+                  why = "lambda definition: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+#endif
+                p.parseAndEvaluate("ans");
+                if (!p.getError().empty() || p.getResult() != "25") {
+                  why = "ans after later definitions: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+                p.parseAndEvaluate("f(x)=x*sin(x); f(0)");
+                if (!p.getError().empty() || p.getResult() != "0") {
+                  why = "call after definition: err=\"" + p.getError() + "\" res=\"" + p.getResult() + "\"";
+                  return false;
+                }
+                return true;
               }});
 #if SMARTMATH_LAMBDA_FUNCTIONS
   t.push_back({"regression/udf reject empty tuple body", [](std::string& why) {
@@ -2949,7 +3251,7 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEvalErrorContains(p, "atan2+1", "unknown variable: atan2", why)) return false;
                 if (!expectEvalErrorContains(p, "log10", "function: log10(value)", why)) return false;
                 if (!expectEvalErrorContains(p, "log10+1", "unknown variable: log10", why)) return false;
-                if (!expectEval(p, "f1(x)=x+1", "0", why)) return false;
+                if (!expectEval(p, "f1(x)=x+1", "defined f1(x)", why)) return false;
                 if (!expectEvalErrorContains(p, "f1", "user-defined function:", why)) return false;
                 if (!expectEvalErrorContains(p, "f1+2", "unknown variable: f1", why)) return false;
                 if (!expectEvalErrorContains(p, "x_1+2", "unknown variable: x_1", why)) return false;
@@ -3015,7 +3317,23 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEval(p, "prod(factorint(2**52))", "4503599627370496", why)) return false;
                 if (!expectEvalErrorContains(p, "factorint(33.5)", "factorint() expects integer values", why))
                   return false;
+                if (!expectEvalErrorContains(p, "factorint", "function: factorint(n)", why)) return false;
                 return true;
+              }});
+#else
+  t.push_back({"regression/factorint compiled out is an unknown name", [](std::string& why) {
+                MathParser p;
+                if (!expectEvalErrorContains(p, "factorint", "unknown variable: factorint", why)) return false;
+                if (!expectEvalErrorContains(p, "factorint(", "unexpected token", why)) return false;
+                if (!expectEvalErrorContains(p, "1+factorint", "unknown variable: factorint", why)) return false;
+                if (!expectEvalErrorContains(p, "factorint+1", "unknown variable: factorint", why)) return false;
+                if (!expectEvalErrorContains(p, "factorint(777)", "unknown function: factorint", why)) return false;
+                if (!expectEvalErrorContains(p, "factorint()", "unknown function: factorint", why)) return false;
+                if (!expectEvalErrorContains(p, "factorint(1,2)", "unknown function: factorint", why)) return false;
+                if (!expectEvalErrorContains(p, "factorint(33.5)", "unknown function: factorint", why)) return false;
+                if (!expectEval(p, "factorint=5", "5", why)) return false;
+                MathParser defined;
+                return expectEval(defined, "factorint(x)=x+1; factorint(3)", "4", why);
               }});
 #endif
   t.push_back({"regression/binary builtin array length mismatch", [](std::string& why) {
@@ -3038,7 +3356,7 @@ std::vector<TestCase> buildRegressionCases() {
               }});
   t.push_back({"regression/incomplete function call open paren hints", [](std::string& why) {
                 MathParser p;
-                if (!expectEval(p, "f(x)=x", "0", why)) return false;
+                if (!expectEval(p, "f(x)=x", "defined f(x)", why)) return false;
                 if (!expectEvalErrorContains(p, "f(", "user-defined function: f(x)", why)) return false;
                 if (!expectEvalErrorContains(p, "f (", "user-defined function: f(x)", why)) return false;
                 if (!expectEvalErrorContains(p, "abs(", "function: abs(value)", why)) return false;
@@ -3073,7 +3391,7 @@ std::vector<TestCase> buildRegressionCases() {
                   why = "sin}: must not emit function hint";
                   return false;
                 }
-                if (!expectEval(p, "f(x)=x", "0", why)) return false;
+                if (!expectEval(p, "f(x)=x", "defined f(x)", why)) return false;
                 if (!expectEvalErrorContains(p, "f(x)=x; f)", "mismatched closing parenthesis", why)) return false;
                 if (p.getError().find("user-defined function:") != std::string::npos) {
                   why = "f(x)=x; f): must not emit UDF signature hint";
@@ -3158,7 +3476,7 @@ std::vector<TestCase> buildRegressionCases() {
                   return false;
                 if (!expectEvalErrorContains(p, "sortby((1,2,3, abs", "function: abs(value)", why))
                   return false;
-                if (!expectEval(p, "f(x)=x", "0", why)) return false;
+                if (!expectEval(p, "f(x)=x", "defined f(x)", why)) return false;
                 return expectEvalErrorContains(p, "f(x)=x; 1+f", "user-defined function: f(x)", why);
               }});
   t.push_back({"regression/semicolon suppresses function hints", [](std::string& why) {
@@ -3184,7 +3502,7 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!mustNotHint("sin(;", "function: sin")) return false;
                 if (!mustNotHint("cos;", "function: cos")) return false;
                 if (!mustNotHint("sum(;", "function: sum")) return false;
-                if (!expectEval(p, "f(x)=x", "0", why)) return false;
+                if (!expectEval(p, "f(x)=x", "defined f(x)", why)) return false;
                 if (!mustNotHint("f(x)=x; f(;", "user-defined function:")) return false;
                 if (!expectEvalErrorContains(p, "f(x)=x; f(", "user-defined function: f(x)", why)) return false;
                 return expectEvalErrorContains(p, "f(x)=x; 1+f", "user-defined function: f(x)", why);
@@ -3395,11 +3713,33 @@ std::vector<TestCase> buildSortbyRatioCases() {
                  if (!expectEval(p, "sortby((5,1,5,2,2,9,1), abs)", "(1,1,2,2,5,5,9)", why)) return false;
                  return true;
                }});
-  t.push_back({"sortby/ratio: empty array rejects like sort",
+  t.push_back({"sortby/ratio: empty array passes through; ratio still rejects",
                [](std::string& why) {
                  MathParser p;
-                 if (!expectEvalErrorContains(p, "sortby((), abs)", "expects at least 1 argument", why)) return false;
+                 if (!expectEval(p, "sortby((), abs)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=x; sortby((), f)", "()", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((), 3)", "sortby expects a function that takes 1 parameter", why))
+                   return false;
                  return expectEvalErrorContains(p, "ratio(())", "expects at least 1 argument", why);
+               }});
+  t.push_back({"array: empty input passes through",
+               [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "sorted(())", "()", why)) return false;
+                 if (!expectEval(p, "reversed(())", "()", why)) return false;
+                 if (!expectEval(p, "sort((), ())", "()", why)) return false;
+                 if (!expectEval(p, "flat((), ())", "()", why)) return false;
+                 if (!expectEval(p, "unique((), ())", "()", why)) return false;
+                 if (!expectEval(p, "repeat((), 3)", "()", why)) return false;
+                 if (!expectEvalErrorContains(p, "repeat((), 0)", "repeat() expects a positive integer", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "repeat((), 1.5)", "repeat() expects integer values", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "repeat(())", "expects 2 argument(s)", why)) return false;
+                 if (!expectEval(p, "unpack(())", "()", why)) return false;
+                 if (!expectEval(p, "unpack((), ())", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=!!x; sort(filter((0,0), f))", "()", why)) return false;
+                 return expectEval(p, "f(x)=x>0; g(x)=x<2; filter(filter((1,-2,0), f), g)", "(1)", why);
                }});
   t.push_back({"sortby/ratio: sortby parse and arity errors",
                [](std::string& why) {
@@ -3474,6 +3814,10 @@ std::vector<TestCase> buildSortbyRatioCases() {
                [](std::string& why) {
                  MathParser p;
                  if (!expectEval(p, "sortby((1:30,0:30,1:00), milliseconds)", "(00:30,01:00,01:30)", why)) return false;
+#if SMARTMATH_LAMBDA_FUNCTIONS
+                 // Identity key: duration compared as seconds (USAGE: 1:30 is 90s).
+                 if (!expectEval(p, "sortby(flat(1:30, 91, 89), x: x)", "(89,01:30,91)", why)) return false;
+#endif
                  return true;
                }});
   t.push_back({"sortby/ratio: UDF divide duration via sortby",
@@ -4058,8 +4402,8 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "factorial((1,2))", "expects a non-negative integer"} ,
     {ParityBasicCase::Kind::ErrorContains, "clamp((1,2,3),(4,5),6)", "expects scalar min/max"} ,
     {ParityBasicCase::Kind::Expected, "sum((1,2),(3,4),5)", "15"} ,
-    {ParityBasicCase::Kind::ErrorContains, "sort(())", "expects at least 1 argument"} ,
-    {ParityBasicCase::Kind::ErrorContains, "unique(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "sort(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "unique(())", "()"} ,
     {ParityBasicCase::Kind::ErrorContains, "RestoreAnsFromCachedRender(g_cachedRenderText(i))", "unknown function"} ,
     {ParityBasicCase::Kind::Expected, "deg(pi/2,pi/4)", "(90,45)"} ,
     {ParityBasicCase::Kind::Expected, "rad(180,90)", "(3.141592653589793,1.570796326794897)"} ,
@@ -4151,13 +4495,13 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "reverse", "function: reverse(...)"} ,
     {ParityBasicCase::Kind::ErrorContains, "reverse()", "expects at least 1 argument"} ,
     {ParityBasicCase::Kind::Expected, "reverse((2,5,1),4,3)", "(3,4,1,5,2)"} ,
-    {ParityBasicCase::Kind::ErrorContains, "reverse(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "reverse(())", "()"} ,
     {ParityBasicCase::Kind::Expected, "a=(1,2); b=(4,5); flat(a,3,b,6)", "(1,2,3,4,5,6)"} ,
     {ParityBasicCase::Kind::Expected, "flat(5)", "(5)"} ,
     {ParityBasicCase::Kind::Expected, "flat((1,2,3))", "(1,2,3)"} ,
     {ParityBasicCase::Kind::Expected, "flat((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat()", "expects at least 1 argument"} ,
-    {ParityBasicCase::Kind::ErrorContains, "flat(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "flat(())", "()"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat", "function: flat(...)"} ,
     {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x*y; f(flat((2,3)))", "expects 2 argument(s)"} ,
     {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"} ,
@@ -4459,10 +4803,26 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "reverse(1,Inf,2)", "(2,inf,1)"},
     {ParityBasicCase::Kind::Expected, "reversed(1,Inf,2)", "(2,inf,1)"},
     {ParityBasicCase::Kind::Expected, "unique(1,Inf,2,Inf)", "(1,inf,2)"},
+    {ParityBasicCase::Kind::Expected, "unique(1, nan, inf, 3, nan, -inf, nan, -inf, inf)", "(1,nan,inf,3,-inf)"},
+    {ParityBasicCase::Kind::Expected, "unique(nan, -nan, nan)", "(nan)"},
+    {ParityBasicCase::Kind::Expected, "unique(inf, -inf, inf, -inf)", "(inf,-inf)"},
+    {ParityBasicCase::Kind::Expected, "nan==-nan", "0"},
     {ParityBasicCase::Kind::Expected, "unpack(1,Inf,2)", "(1,inf,2)"},
     {ParityBasicCase::Kind::Expected, "flat(1,Inf,2)", "(1,inf,2)"},
     {ParityBasicCase::Kind::Expected, "sum(unpack(1,Inf,2))", "inf"},
-    {ParityBasicCase::Kind::Expected, "sortby((1,Inf,2),abs)", "(1,2,inf)"}
+    {ParityBasicCase::Kind::Expected, "sortby((1,Inf,2),abs)", "(1,2,inf)"} ,
+    {ParityBasicCase::Kind::Expected, "((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2); (a,3,a)", "(1,2,3,1,2)"} ,
+    {ParityBasicCase::Kind::Expected, "(((1,2),3),(4,5))", "(1,2,3,4,5)"} ,
+    {ParityBasicCase::Kind::Expected, "((),1,())", "(1)"} ,
+    {ParityBasicCase::Kind::Expected, "((),())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "a=(); (a,4,a)", "(4)"} ,
+    {ParityBasicCase::Kind::Expected, "((1,Inf),2)", "(1,inf,2)"} ,
+    {ParityBasicCase::Kind::Expected, "((1,1),1)", "(1,1,1)"} ,
+    {ParityBasicCase::Kind::Expected, "uhex(((18446744073709551615,2),3)[0])", "0xFFFFFFFFFFFFFFFF"} ,
+    {ParityBasicCase::Kind::Expected, "((ratio(1),ratio(1/2)),3)", "(1,1/2,3)"} ,
+    {ParityBasicCase::Kind::Expected, "((1,2),(3,4))+1", "(2,3,4,5)"} ,
+    {ParityBasicCase::Kind::Expected, "((1,2))", "(1,2)"}
 };
 
 static const ParityBasicCase kParityTimeFromSmokeCases[] = {
@@ -4527,6 +4887,46 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "imag((5,10))", "(0,0)"} ,
     {ParityBasicCase::Kind::Expected, "cart((5,0))", "5"} ,
     {ParityBasicCase::Kind::ErrorContains, "cart((5,1))", "incompatible operands"} ,
+    {ParityBasicCase::Kind::Expected, "((1:00,2:00),3:00)", "(01:00,02:00,03:00)"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1:00,2:00); (a,3:00)", "(01:00,02:00,03:00)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "((1:00),2)", "time values cannot be mixed with non-time values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "((1:00,2:00),3)", "time values cannot be mixed with non-time values"} ,
+    {ParityBasicCase::Kind::Expected, "((),1:00)", "(01:00)"} ,
+    {ParityBasicCase::Kind::Expected, "-9223372036854775808/-1", "9223372036854775808"} ,
+    {ParityBasicCase::Kind::Expected, "mod(-9223372036854775808,-1)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "mod(-5,18446744073709551615)", "-5"} ,
+    {ParityBasicCase::Kind::Expected, "gcd(-6,18446744073709551615)", "3"} ,
+    {ParityBasicCase::Kind::Expected, "gcd(-9223372036854775808,0)", "9223372036854775808"} ,
+    {ParityBasicCase::Kind::Expected, "lcm(-9223372036854775808,1)", "9223372036854775808"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(67,33)", "14226520737620288370"} ,
+    {ParityBasicCase::Kind::ErrorContains, "npr(21,21)", "numeric error in npr()"} ,
+    {ParityBasicCase::Kind::Expected, "factorint(9223372036854775837)", "(9223372036854775837)"} ,
+    {ParityBasicCase::Kind::Expected, "factorint(18446744073709551557)", "(18446744073709551557)"} ,
+    {ParityBasicCase::Kind::Expected, "factorint(-9223372036854775808)", "(-2**63)"} ,
+    {ParityBasicCase::Kind::Expected, "prod(factorint(-9223372036854775808))", "-9223372036854775808"} ,
+    {ParityBasicCase::Kind::Expected, "factorint(18446744073709551614)", "(2,7**2,73,127,337,92737,649657)"} ,
+    {ParityBasicCase::Kind::Expected, "-3 << 62", "-1.383505805528216e+019"} ,
+    {ParityBasicCase::Kind::Expected, "-2 << 62", "-9223372036854775808"} ,
+    {ParityBasicCase::Kind::Expected, "3**2.0000001", "9.000000988751113"} ,
+    {ParityBasicCase::Kind::Expected, "27**0.33333334", "3.000000065916738"} ,
+    {ParityBasicCase::Kind::Expected, "27**(1/3)", "3"} ,
+    {ParityBasicCase::Kind::Expected, "hypot(1e300,1e300)", "1.414213562373095e+300"} ,
+    {ParityBasicCase::Kind::Expected, "hypot(1e-200,1e-200)", "1.414213562373095e-200"} ,
+    {ParityBasicCase::Kind::Expected, "ratio(1e20)", "1e+020"} ,
+    {ParityBasicCase::Kind::Expected, "ratio(-1e300)", "-1e+300"} ,
+    {ParityBasicCase::Kind::Expected, "1e-5", "1e-005"} ,
+    {ParityBasicCase::Kind::Expected, "123e-20", "1.23e-018"} ,
+    {ParityBasicCase::Kind::Expected, "5 % -20", "-19.95"} ,
+    {ParityBasicCase::Kind::Expected, "19.95", "19.95"} ,
+    {ParityBasicCase::Kind::Expected, "4.35", "4.35"} ,
+    {ParityBasicCase::Kind::Expected, "0.1+0.2", "0.3"} ,
+    {ParityBasicCase::Kind::Expected, "1e15+0.3", "1000000000000000"} ,
+    {ParityBasicCase::Kind::Expected, "3**50", "7.178979876918526e+023"} ,
+    {ParityBasicCase::Kind::Expected, "1.5e-11", "1.5e-011"} ,
+    {ParityBasicCase::Kind::ErrorContains, "1:00 + 1e16", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "1:00 * 1e300", "incompatible operands"} ,
+    {ParityBasicCase::Kind::Expected, "1:00 < 1e300", "1"} ,
+    {ParityBasicCase::Kind::ErrorContains, "1:00 < inf", "incompatible operands"} ,
 #include "../tools/smoke_parity_append_generated.cpp.inc"
 };
 
@@ -4550,6 +4950,11 @@ std::vector<TestCase> buildParityBasicFromSmokeCases() {
                    }});
     }
   }
+  t.push_back({"parity/basic: failed assignment does not store the variable", [](std::string& why) {
+                 MathParser p;
+                 return expectEvalErrorContains(p, "failasgvar=failasgunknown+1", "unknown variable: failasgunknown", why) &&
+                        expectEvalErrorContains(p, "failasgvar", "unknown variable: failasgvar", why);
+               }});
   return t;
 }
 
@@ -4815,6 +5220,15 @@ std::vector<TestCase> buildLambdaFunctionsSupportOptionCases() {
                    why = std::string("got ") + p.getResult();
                    return false;
                  }
+                 p.parseAndEvaluate("filter((1,0,2), x: x)");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != "(1,2)") {
+                   why = std::string("filter lambda got ") + p.getResult();
+                   return false;
+                 }
                  p.parseAndEvaluate("f=x:x+2; f(3)");
                  if (!p.getError().empty()) {
                    why = p.getError();
@@ -4853,11 +5267,22 @@ std::vector<TestCase> buildLambdaFunctionsSupportOptionCases() {
                    why = std::string("got ") + p.getResult();
                    return false;
                  }
+                 p.parseAndEvaluate("filter((1,-2,0), abs)");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != "(1,-2)" && p.getResult() != "(1, -2)") {
+                   why = std::string("filter named got ") + p.getResult();
+                   return false;
+                 }
                  const char* const rejects[] = {
                      "f=x:x+1",
                      "f=(x,y):(x+y)",
                      "sortby((3,1,2), x:-x)",
-                     "sortby((1,2), (x):(1/x))"};
+                     "sortby((1,2), (x):(1/x))",
+                     "filter((3,1,2), x: x>0)",
+                     "filter((1,2), (x):(x>1))"};
                  for (const char* expr : rejects) {
                    p.parseAndEvaluate(expr);
                    if (p.getError().empty()) {
@@ -5282,7 +5707,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"cart(1/2*i)", "0.5i"},
                      {"cart(1/(1+2)i)", "-0.3333333333333333i"},
                      {"cart(1/(1+2)*i)", "0.3333333333333333i"},
-                     {"cart(1/2/3i)", "-0.1666666666666666i"},
+                     {"cart(1/2/3i)", "-0.1666666666666667i"},
                      {"ratio(1/2i)", "-1/2*i"},
                      {"cart(-2**57/3**30+2**55/7**20*i)",
                       "-699.9582090286702+0.4515324440664775i"},
@@ -5521,11 +5946,13 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"sqr(1+2*i)", "-3+4i"},
                      {"sqrt(3+4*i)", "2+i"},
                      {"hypot(3*i,4)", "5"},
+                     // 64-bit SSE2 hypot is the exact integer 2. 32-bit x87 is 1 ulp off,
+                     // so %.16g prints 2 and the float marker adds .0.
                      {"hypot(1+i,1-i)", "2"},
                      {"sqrt(-4)", "2i"},
                      {"(-2)**(1/2)", "1.414213562373095i"},
-                     {"(-7)**(3/2)", "-18.52025917745212i"},
-                     {"(-5)**(1/3)", "-1.709975946676696"},
+                     {"(-7)**(3/2)", "-18.52025917745213i"},
+                     {"(-5)**(1/3)", "-1.709975946676697"},
                      {"64**(1/3)", "4"},
                      {"pow(-27,1/3)", "-3"},
                      {"pow(2**64,1/2)", "4294967296"},
@@ -5541,7 +5968,11 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + ": " + p.getError();
                      return false;
                    }
-                   if (p.getResult() != row.expect) {
+                   const bool hypotNearTwo = std::string(row.expr) == "hypot(1+i,1-i)";
+                   const bool displayed = hypotNearTwo
+                       ? (p.getResult() == "2" || p.getResult() == "2.0")
+                       : (p.getResult() == row.expect);
+                   if (!displayed) {
                      why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
                      return false;
                    }
@@ -5557,20 +5988,20 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    const char* expect;
                  } kRows[] = {
                      {"ln(-1)", "3.141592653589793i"},
-                     {"ln(-2)", "0.6931471805599452+3.141592653589793i"},
+                     {"ln(-2)", "0.6931471805599453+3.141592653589793i"},
                      {"log10(-10)", "1+1.364376353841841i"},
-                     {"exp(i)", "0.5403023058681397+0.8414709848078963i"},
+                     {"exp(i)", "0.5403023058681398+0.8414709848078965i"},
                      {"exp(pi*i)", "-1"},
-                     {"ln((-1,-4))", "(3.141592653589793i,1.38629436111989+3.141592653589793i)"},
+                     {"ln((-1,-4))", "(3.141592653589793i,1.386294361119891+3.141592653589793i)"},
                      {"exp((0,pi*i))", "(1,-1)"},
                      {"log10((-10,-100))", "(1+1.364376353841841i,2+1.364376353841841i)"},
-                     {"ln(2)", "0.6931471805599452"},
+                     {"ln(2)", "0.6931471805599453"},
                      {"ln(0)", "-inf"},
                     {"ln(-1-0i)", "3.141592653589793i"},
                      {"log(8,2)", "3"},
                      {"log(-9,7)", "1.129150068107159+1.614459257080781i"},
                      {"log((-9,16),(7,2))", "(1.129150068107159+1.614459257080781i,4)"},
-                     {"log(1+i,2)", "0.5+1.133090035456798i"},
+                     {"log(1+i,2)", "0.5+1.133090035456799i"},
                      {"log((8,16),(2,4))", "(3,2)"},
                  };
                  for (const auto& row : kRows) {
@@ -5579,7 +6010,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + ": " + p.getError();
                      return false;
                    }
-                   if (p.getResult() != row.expect) {
+                   if (!smokeResultCloseEnough(p.getResult(), row.expect)) {
                      why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
                      return false;
                    }
@@ -5630,6 +6061,8 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"flat((1+2i, 3), 4)", "(1+2i,3,4)"},
                      {"flat(1, Inf+2i, 3)", "(1,inf+2i,3)"},
                      {"flat(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
+                     {"((1+2i, 3), 4)", "(1+2i,3,4)"},
+                     {"unique(2, nan+i, nan, 1+nan*i)", "(2,nan)"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5681,7 +6114,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"ratio(2+3i)", "2+3i"},
                      {"ratio(e+10i)", "14665106/5394991+10i"},
                      {"ratio(-2**57/3**30+2**55/7**20*i)", "-113792906/162571+1293463/2864607*i"},
-                     {"ratio(-2**57/3**30+2**55/7**20i)", "12411888722130364-33823353366914148i"},
+                     {"ratio(-2**57/3**30+2**55/7**20i)", "1.241188872213036e+016-3.382335336691415e+016i"},
                      {"ratio((1+2i)/(3+4i))", "11/25+2/25*i"},
                      {"ratio((1.11+2.33i)*(3.37+4.71i))", "-4521/625+65401/5000*i"},
                      {"ratio((1+i)**(2+3i))", "-740749/4531935+329494/3432051*i"},
@@ -5693,7 +6126,10 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"ratio((1+i)/(1-i))", "i"},
                      {"ratio(3i/2)", "3/2*i"},
                      {"ratio(1/2+3i/4)", "1/2+3/4*i"},
-                     {"3+ratio(0.2)i", "3+0.2i"}
+                     {"3+ratio(0.2)i", "3+0.2i"},
+#if SMARTMATH_LAMBDA_FUNCTIONS
+                     {"sortby((3+2i, 2+3i, 2-3i, 3-2i), x: x)", "(2-3i,2+3i,3-2i,3+2i)"}
+#endif
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5707,6 +6143,14 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    }
                  }
                  return true;
+               }});
+  t.push_back({"complex-opt: filter keeps truthy complex elements",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 if (!expectEval(p, "f(x)=x; filter((1+2i, 0, 3-i), f)", "(1+2i,3-i)", why)) return false;
+                 if (!expectEval(p, "filter((3+4i, 0), abs)", "(3+4i)", why)) return false;
+                 return expectEval(p, "f(x)=imag(x); filter((1+i, 2), f)", "(1+i)", why);
                }});
   t.push_back({"complex-opt: getRawResult exposes complex and rational components",
                [](std::string& why) {
@@ -5810,13 +6254,16 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"floor(2.9+3.1i)", "2+3i"},
                      {"ceil(2.1+3.1i)", "3+4i"},
                      {"abs(3+4i)", "5"},
-                     {"sign(3+4i)", "0.5999999999999999+0.8i"},
+                     {"sign(3+4i)", "0.6+0.8i"},
                      {"real(1+2i)", "1"},
                      {"imag(1+2i)", "2"},
                      {"conj(1+2i)", "1-2i"},
                      {"phase(1)", "0"},
-                     {"polar(1+1i)", "(1.414213562373095,0.7853981633974482)"},
-                     {"cart(polar(1+1i))", "1+i"},
+                     {"polar(1+1i)", "(1.414213562373095,0.7853981633974483)"},
+                     // Python cmath.rect(*cmath.polar(1+1j)) is 1+1j. The real part is 1 ulp
+                     // off on every libm, so it prints 1.0. The imag part is exact 1 under
+                     // Emscripten and Basic (i) and 1 ulp off under MSVC (1.0i).
+                     {"cart(polar(1+1i))", "1.0+i"},
                     {"phase(-1-0i)", "3.141592653589793"},
                     {"polar(-1-0i)", "(1,3.141592653589793)"},
                      {"fact(5)", "120"},
@@ -5829,13 +6276,18 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      why = std::string(row.expr) + ": " + p.getError();
                      return false;
                    }
-                   if (p.getResult() != row.expect) {
-                     why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
-                     return false;
-                   }
-                 }
-                 return true;
-               }});
+                  // Accept both libm displays. The row text is the Emscripten/Basic form.
+                  const bool cartRoundTrip = std::string(row.expr) == "cart(polar(1+1i))";
+                  const bool displayed = cartRoundTrip
+                      ? (p.getResult() == "1.0+i" || p.getResult() == "1.0+1.0i")
+                      : (p.getResult() == row.expect);
+                  if (!displayed) {
+                    why = std::string(row.expr) + " -> " + p.getResult() + " (want " + row.expect + ")";
+                    return false;
+                  }
+                }
+                return true;
+              }});
   t.push_back({"complex-opt: polar/cart arity and shape (parity Basic cxPolCartOk/cxPolCartErr)",
                [](std::string& why) {
                  MathParser p;
@@ -5960,15 +6412,15 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    const char* expect;
                  } kRows[] = {
                      {"sin(i)", "1.175201193643801i"},
-                     {"cos(i)", "1.543080634815243"},
-                     {"sin(1+i)", "1.298457581415977+0.634963914784736i"},
-                     {"tan(i)", "0.7615941559557648i"},
-                     {"sinh(i)", "0.8414709848078963i"},
-                     {"cosh(1+i)", "0.8337300251311491+0.988897705762865i"},
-                     {"asinh(1+i)", "1.061275061905035+0.6662394324925152i"},
-                     {"atan(1+i)", "1.017221967897851+0.402359478108525i"},
-                     {"sin((1+i,2))", "(1.298457581415977+0.634963914784736i,0.9092974268256815)"},
-                     {"atanh(i)", "0.7853981633974482i"},
+                     {"cos(i)", "1.543080634815244"},
+                     {"sin(1+i)", "1.298457581415977+0.6349639147847361i"},
+                     {"tan(i)", "0.7615941559557649i"},
+                     {"sinh(i)", "0.8414709848078965i"},
+                     {"cosh(1+i)", "0.8337300251311491+0.9888977057628651i"},
+                     {"asinh(1+i)", "1.061275061905036+0.6662394324925153i"},
+                     {"atan(1+i)", "1.017221967897851+0.4023594781085251i"},
+                     {"sin((1+i,2))", "(1.298457581415977+0.6349639147847361i,0.9092974268256817)"},
+                     {"atanh(i)", "0.7853981633974483i"},
                      {"acos(1)", "0"},
                      {"asin(i)", "0.8813735870195428i"},
                  };
@@ -6005,6 +6457,18 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  }
                  return true;
                }});
+  t.push_back({"complex-opt: log domain errors (parity Basic cxLogDomainErr)",
+               [](std::string& why) {
+                 for (const char* expr : {"log(0,10)", "log(10,1)", "log(10,0)"}) {
+                   MathParser p;
+                   p.setSupportComplexNumbers(true);
+                   if (!expectEvalErrorContains(p, expr, "numeric error in log()", why)) {
+                     why = std::string(expr) + ": " + why;
+                     return false;
+                   }
+                 }
+                 return true;
+               }});
   t.push_back({"complex-opt: hex/oct/bin/u* on integer complex literals (parity Basic cxFmtOk)",
                [](std::string& why) {
                  MathParser p;
@@ -6020,6 +6484,10 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"uhex(-1+2i)", "0xFFFFFFFFFFFFFFFF+0x2i"},
                      {"uoct(-1+i)", "0o1777777777777777777777+i"},
                      {"ubin(5+10i)", "0b101+0b1010i"},
+                     {"hex(-3-4i)", "-0x3-0x4i"},
+                     {"oct(-8+8i)", "-0o10+0o10i"},
+                     {"1e-15+2i", "1e-015+2i"},
+                     {"-1e-15+2i", "-1e-015+2i"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -6115,6 +6583,21 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  const std::size_t count = sizeof(kComplexCoverageRows) / sizeof(kComplexCoverageRows[0]);
                  return runNegBandRowBatch(p, kComplexCoverageRows, count, why);
                }});
+  t.push_back({"complex-opt: inexact imag float is not a bare integer", [](std::string& why) {
+                // Python: cmath.sqrt(-2**70) == 34359738368j; %.16g hides the fraction, so display keeps .0.
+                MathParser p;
+                p.setSupportComplexNumbers(true);
+                p.parseAndEvaluate("sqrt(-2**70)");
+                if (!p.getError().empty()) {
+                  why = p.getError();
+                  return false;
+                }
+                if (p.getResult() != "34359738368.0i") {
+                  why = std::string("sqrt(-2**70) -> ") + p.getResult() + " (want 34359738368.0i)";
+                  return false;
+                }
+                return true;
+              }});
   return t;
 }
 
@@ -6159,6 +6642,104 @@ void runSuite(const std::string& title, const std::vector<TestCase>& cases, Test
   clearParserConstDedupState();
 }
 
+std::vector<TestCase> buildFilterCases() {
+  std::vector<TestCase> t;
+  t.push_back({"filter: named predicates and truthiness", [](std::string& why) {
+                 MathParser p;
+                 // nan is falsy here (USAGE truthiness). Python bool(nan) is True.
+                 if (!expectEval(p, "f(x)=x%3==0; filter(range(1,11), f)", "(3,6,9)", why)) return false;
+                 if (!expectEval(p, "f(x)=!!x; filter((1,0,inf,-10,nan), f)", "(1,inf,-10)", why)) return false;
+                 if (!expectEval(p, "g(x)=x>=0; filter((1,-2,3,inf,4,-5,0,-inf), g)", "(1,3,inf,4,0)", why))
+                   return false;
+                 if (!expectEval(p, "f(x)=x; filter((1,2,0), f)", "(1,2)", why)) return false;
+                 if (!expectEval(p, "filter((1,-2,0), abs)", "(1,-2)", why)) return false;
+                 if (!expectEval(p, "filter((1,-2,0), sign)", "(1,-2)", why)) return false;
+                 if (!expectEval(p, "f(x)=x>0; filter(5, f)", "(5)", why)) return false;
+                 if (!expectEval(p, "f(x)=!!x; filter(0, f)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=x; filter((0,nan), f)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=(x,x); filter((1,0), f)", "(1,0)", why)) return false;
+                 return expectEval(p, "f(x)=x%2==1; filter((3,1,2), f)", "(3,1)", why);
+               }});
+#if SMARTMATH_LAMBDA_FUNCTIONS
+  t.push_back({"filter: anonymous lambdas", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "filter(range(1,11), x: x%3==0)", "(3,6,9)", why)) return false;
+                 if (!expectEval(p, "filter((1,0,inf,-10,nan), x: !!x)", "(1,inf,-10)", why)) return false;
+                 if (!expectEval(p, "filter((1,2,0), x: x)", "(1,2)", why)) return false;
+                 if (!expectEval(p, "filter(5, x: x>0)", "(5)", why)) return false;
+                 if (!expectEval(p, "filter((1,0), x: (x,x))", "(1,0)", why)) return false;
+                 return expectEval(p, "filter((1,2), (x):(x>1))", "(2)", why);
+               }});
+#endif
+#if SMARTMATH_TIME_VALUES
+  t.push_back({"filter: time elements use scalar truthiness", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "f(x)=!!x; filter((1:30, 0:00, 0:45), f)", "(01:30,00:45)", why);
+               }});
+#endif
+  t.push_back({"filter: exact integer metadata is preserved", [](std::string& why) {
+                 MathParser p;
+                 p.parseAndEvaluate("f(x)=x>0; filter((9223372036854775807, -1), f)");
+                 if (!p.getError().empty() || p.getResult() != "(9223372036854775807)") {
+                   why = p.getError().empty() ? p.getResult() : p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("f(x)=x>2; filter((18446744073709551615, 1), f)");
+                 if (!p.getError().empty() || p.getResult() != "(18446744073709551615)") {
+                   why = p.getError().empty() ? p.getResult() : p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("f(x)=x<0; filter((-9223372036854775807, 1), f)");
+                 if (!p.getError().empty() || p.getResult() != "(-9223372036854775807)") {
+                   why = p.getError().empty() ? p.getResult() : p.getError();
+                   return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"filter: arity, type, and predicate errors", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "filter((), abs)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=x>0; filter((), f)", "()", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter(())", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((), pow)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2))", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), 3)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), abs())", "filter expects exactly one function", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), (1,2))", "filter expects exactly one function", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), pow)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), nosuchfn)", "unknown function: nosuchfn", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter(1,2,3)", "filter expects", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter()", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "x=10; filter((1,2), x)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), sortby)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), filter)", "sortby expects a function that takes 1 parameter", why))
+                   return false;
+                 return expectEvalErrorContains(p, "filter(", "filter(array, func)", why);
+               }});
+#if SMARTMATH_LAMBDA_FUNCTIONS
+  t.push_back({"filter: lambda predicate errors", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEvalErrorContains(p, "filter((5,1), ():1)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), x,y:x+y)", "filter expects a function that takes 1 parameter", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), x:)", "function body is empty", why)) return false;
+                 return expectEvalErrorContains(p, "filter((1,2,3),x:x", "missing closing parenthesis", why);
+               }});
+#endif
+  return t;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -6195,6 +6776,7 @@ int main(int argc, char** argv) {
   const auto timeValuesSupportOption = buildTimeValuesSupportOptionCases();
   const auto lambdaFunctionsSupportOption = buildLambdaFunctionsSupportOptionCases();
   const auto sortbyRatio = buildSortbyRatioCases();
+  const auto filterCases = buildFilterCases();
   const auto ratioInExpression = buildRatioInExpressionCases();
   const auto minMaxPreserveWinner = buildMinMaxPreserveWinnerCases();
   const auto clampPreserveIntegerMetadata = buildClampPreserveIntegerMetadataCases();
@@ -6224,6 +6806,7 @@ int main(int argc, char** argv) {
   runSuite("Lambda function support (parser option)", lambdaFunctionsSupportOption, s);
 #endif
   runSuite("Sortby/Ratio", sortbyRatio, s);
+  runSuite("Filter", filterCases, s);
   runSuite("Ratio in expressions", ratioInExpression, s);
   runSuite("Min/max preserve winner", minMaxPreserveWinner, s);
   runSuite("Clamp preserve integer metadata", clampPreserveIntegerMetadata, s);

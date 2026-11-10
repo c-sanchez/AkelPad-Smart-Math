@@ -3,11 +3,11 @@
 function main() as Integer
   dim expr as String = ""
   dim useComplex as Boolean = FALSE
-  if lcase(trim(command(0))) = "--complex" then
+  if lcase(trim(command(1))) = "--complex" then
     useComplex = TRUE
-    expr = command(1)
+    expr = command(2)
   else
-    expr = command(0)
+    expr = command(1)
   end if
   if len(expr) = 0 then return 1
   if useComplex then Parser_SetSupportComplexNumbers(TRUE)
@@ -25,3 +25,5 @@ function main() as Integer
   print "ERROR:"; Parser_GetLastError();
   return 1
 end function
+
+end main()

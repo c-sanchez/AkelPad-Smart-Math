@@ -110,17 +110,23 @@ static shared factorintSmallPrimes(0 to FACTORINT_SMALL_PRIME_COUNT - 1) as ULon
   9941ull, 9949ull, 9967ull, 9973ull, 10007ull _
 }
 
+'' a and b must be < modN; avoids a + b wrapping when modN > 2^63.
+private function AddModU64(byval a as ULongInt, byval b as ULongInt, byval modN as ULongInt) as ULongInt
+  if a >= modN - b then return a - (modN - b)
+  return a + b
+end function
+
 private function MulModU64AddDouble(byval a as ULongInt, byval b as ULongInt, byval modN as ULongInt) as ULongInt
   if modN <= 1ull then return 0ull
   dim res as ULongInt = 0
   a = a mod modN
   while b > 0ull
     if (b and 1ull) <> 0ull then
-      res = (res + a) mod modN
+      res = AddModU64(res, a, modN)
     end if
     b = b shr 1
     if b = 0ull then exit while
-    a = (a + a) mod modN
+    a = AddModU64(a, a, modN)
   wend
   return res
 end function
@@ -164,7 +170,7 @@ end type
 private function IsqrtU64(byval n as ULongInt) as ULongInt
   if n = 0ull then return 0ull
   dim x as ULongInt = n
-  dim y as ULongInt = (x + 1ull) \ 2ull
+  dim y as ULongInt = (x \ 2ull) + (x and 1ull)
   while y < x
     x = y
     y = (x + n \ x) \ 2ull
@@ -249,9 +255,9 @@ private function PollardRhoU64(byval n as ULongInt) as ULongInt
     dim iter as Integer
     for iter = 1 to maxIter
       if d <> 1ull then exit for
-      x = (MulModU64(x, x, n) + c) mod n
-      y = (MulModU64(y, y, n) + c) mod n
-      y = (MulModU64(y, y, n) + c) mod n
+      x = AddModU64(MulModU64(x, x, n), c mod n, n)
+      y = AddModU64(MulModU64(y, y, n), c mod n, n)
+      y = AddModU64(MulModU64(y, y, n), c mod n, n)
       dim diff as ULongInt
       if x >= y then diff = x - y else diff = y - x
       if diff = 0ull then continue for
@@ -484,9 +490,9 @@ private sub FactorintAppendScalarTerm( _
   dim hasUInt as Boolean = FALSE
   if applySign then
     applySign = FALSE
-    if valueU > CULngInt(FB_I64_MAX) then
-      hasUInt = TRUE
-      signedI = 0
+    '' A negative input has magnitude <= 2^63, so the signed term always fits.
+    if valueU = FB_I64_MIN_MAG_U then
+      signedI = FB_I64_MIN
     else
       signedI = -CLngInt(valueU)
     end if

@@ -1,0 +1,56 @@
+name: Web calculator (GitHub Pages)
+
+on:
+  push:
+    branches: [main, feature/maintenance-and-cpp-calc]
+    paths:
+      - "cpp/calc_wasm.cpp"
+      - "cpp/MathParser*.*"
+      - "tools/*.inc"
+      - "tools/build_web_calc.py"
+      - "tools/web/**"
+      - "AkelFiles/Plugs/Coder/smartmath.coder"
+      - "USAGE_AND_SYNTAX.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Build the site and run the C++ tests under WebAssembly
+        run: python3 tools/build_web_calc.py --out tools/_site --tests
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -19,7 +19,7 @@ goto Building
 
 :Building
 set SMARTMATH_FLAGS=/DSMARTMATH_COMPLEX_NUMBERS=0 /DSMARTMATH_TIME_VALUES=0 /DSMARTMATH_LAMBDA_FUNCTIONS=0 /DSMARTMATH_FACTORINT=0
-cl %SMARTMATH_FLAGS% /O2 /EHsc PerfHotPath_MathParser.cpp MathParser.cpp MathParserFactorInt.cpp /Fe:PerfHotPath_MathParser.exe
+cl %SMARTMATH_FLAGS% /O2 /EHsc PerfHotPath_MathParser.cpp MathParser.cpp MathParserFactorInt.cpp MathParserRawResult.cpp /Fe:PerfHotPath_MathParser.exe
 if errorlevel 1 exit /b 1
 
 set ITERATIONS=%1

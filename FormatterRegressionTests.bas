@@ -395,6 +395,15 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   FormatterTestInitRawScalarInt64 r.scalar, 2147483647
   AssertEq("raw int64 integer-like no .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "2147483647", failCount)
 
+  FormatterTestSetup()
+  g_nDecimals = -1
+  g_bUseThousandsSeparator = FALSE
+  ApplySeparatorDefaults()
+  '' Python format(4285714285714285.5, '.16g') is 4285714285714286; auto mode appends .0.
+  AssertEq("raw float hidden fraction shows .0", FormatResult(4285714285714285.5), SMARTMATH_RESULT_PREFIX & "4285714285714286.0", failCount)
+  '' Python format((2**53)*1.1, '.15e') is 9.907919180215092e+15; auto mode strips the padded exponent.
+  AssertEq("raw float above 2^53 uses scientific", FormatResult(9007199254740992.0 * 1.1), SMARTMATH_RESULT_PREFIX & "9.907919180215092e+15", failCount)
+
   RawResultClear(r)
   r.kind = RRK_SCALAR
   r.scalar.kind = RSK_COMPLEX
@@ -403,6 +412,10 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   r.scalar.imag.kind = RSK_FLOATING
   r.scalar.imag.floatValue = 2.0
   AssertEq("raw complex float integer-like shows .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "2147483647.0 + 2.0i", failCount)
+
+  RawResultClear(r)
+  r.kind = RRK_ARRAY
+  AssertEq("raw empty array", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "()", failCount)
 end sub
 
 RunRawResultFormatTests(failures)
@@ -606,11 +619,24 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
   g_bUseThousandsSeparator = FALSE
   ApplySeparatorDefaults()
 
+  dim raw as RawResult
+  dim fmt as String
+  if FormatterTryEvaluateAndFormat("()", fmt, raw) = FALSE orelse raw.kind <> RRK_ARRAY then
+    print !"[FAIL] parser-fmt/empty array () — evaluate or raw kind failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/empty array ()", fmt, SMARTMATH_RESULT_PREFIX & "()", failCount)
+  end if
+  if FormatterTryEvaluateAndFormat("sort(())", fmt, raw) = FALSE orelse raw.kind <> RRK_ARRAY then
+    print !"[FAIL] parser-fmt/sort(()) — evaluate or raw kind failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/sort(())", fmt, SMARTMATH_RESULT_PREFIX & "()", failCount)
+  end if
+
   dim cxLit as String = "0x7FFFFFFFFFFFFFFF-0x7FFFFFFFFFFFFFFFi"
   dim cxLit2 as String = "-0x7FFFFFFFFFFFFFFF-0x7FFFFFFFFFFFFFFFi"
   dim cxMaxLit as String = "0x7FFFFFFFFFFFFFFF+0x7FFFFFFFFFFFFFFFi"
-  dim raw as RawResult
-  dim fmt as String
 
   if FormatterTryEvaluateAndFormat("hex(10+15i)", fmt, raw) = FALSE then
     print !"[FAIL] parser-fmt/hex(10+15i) — evaluate failed"

@@ -43,6 +43,12 @@ To compile the plugin yourself:
 The full expression language reference (functions, operators, precedence, arrays, variables, comments, and usage tips) is documented in:
 - `USAGE_AND_SYNTAX.md`
 
+### 🌐 Online calculator
+The C++ parser is also published as a WebAssembly page (console layout, Help opens the language reference):
+- https://d0vgan.github.io/AkelPad-Smart-Math/
+
+To rebuild the site locally: install [Emscripten](https://emscripten.org/) and [Pandoc](https://pandoc.org/), then run `python tools/build_web_calc.py`. The output is `tools/_site/`. GitHub Actions rebuilds and deploys it on every push to `main` that touches the parser, `tools/web/`, or `USAGE_AND_SYNTAX.md`. In the repo Settings, Pages → Source must be **GitHub Actions**.
+
 ### 📦 Installation
 1.  Locate your AkelPad installation directory.
 2.  Copy the compiled DLL (`SmartMath.dll`) into the `AkelFiles\Plugs\` folder.
@@ -53,8 +59,8 @@ The full expression language reference (functions, operators, precedence, arrays
 
 ### Development
 1. It is highly recommended to use an AI-assistant for any further development and bug fixing.
-2. Use the `add-mathparser-function` skill (under ".cursor\skills\add-mathparser-function") to add new functions or operators. The prompt to AI will be similar to "using the `add-mathparser-function` skill, implement functionality which ... (description of the functionality)". In such way, the new code will automatically follow the existing code structure and paths, reuse the existing helpers, will be covered with new tests and will be reflected in the documentation ("USAGE_AND_SYNTAX.md"). To have more clarity and control of what AI is going to do, add the following to the prompt: "If you have any questions or concerns, ask explicitly. Don't make assumptions".
-3. Use the `parser-reusability-cleanup` skill (under ".cursor\skills\parser-reusability-cleanup") for code efficiency, maintenance, refactoring and cleanup. The prompt to AI may be similar to "using the `parser-reusability-cleanup` skill, what would you refactor, simplify or optimize in the parser to either improve the performance or to reduce the code base?".
+2. Use the `mathparser-add-or-fix` skill (under ".cursor\skills\mathparser-add-or-fix") to add new functions or operators, as well as to fix issues or change the behavior of the math parser. The prompt to AI will be similar to "using the `mathparser-add-or-fix` skill, implement functionality which ... (description of the functionality)". In such way, the new code will automatically follow the existing code structure and paths, reuse the existing helpers, will be covered with new tests and will be reflected in the documentation ("USAGE_AND_SYNTAX.md"). To have more clarity and control of what AI is going to do, add the following to the prompt: "If you have any questions or concerns, ask explicitly. Don't make assumptions".
+3. Use the `mathparser-refactor` skill (under ".cursor\skills\mathparser-refactor") for code efficiency, maintenance, refactoring and cleanup. The prompt to AI may be similar to "using the `mathparser-refactor` skill, what would you refactor, simplify or optimize in the parser to either improve the performance or to reduce the code base?".
 
 ### 🙏 Special Thanks
 I would like to express my deepest gratitude to **Mysoft**, whose persistence and insights were instrumental in convincing me to embrace FreeBASIC for plugin development. While the Notepad++ version of this tool was originally a port from FreePascal, this AkelPad version was built from the ground up using **FreeBASIC**.

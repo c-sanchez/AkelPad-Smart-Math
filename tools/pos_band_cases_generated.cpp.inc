@@ -393,7 +393,7 @@
     {"pos/real/float/D_extreme_hi/round", "round(1.123e+197)", "1.123e+197", nullptr},
     {"pos/real/float/D_extreme_hi/gcd", "gcd(1.123e+197,50)", nullptr, "gcd() expects integer values"},
     {"pos/real/float/D_extreme_hi/mod", "mod(1.123e+197,7)", nullptr, "mod() expects integer values"},
-    {"pos/real/float/D_extreme_hi/hypot", "hypot(1.123e+197,3)", "inf", nullptr},
+    {"pos/real/float/D_extreme_hi/hypot", "hypot(1.123e+197,3)", "1.123e+197", nullptr},
     {"pos/real/float/D_extreme_hi/max", "max(1.123e+197,0)", "1.123e+197", nullptr},
     {"pos/real/float/D_extreme_hi/min", "min(1.123e+197,0)", "0", nullptr},
     {"pos/real/float/D_extreme_hi/bit_and1", "1.123e+197&1", nullptr, "bitwise operands must be integer values"},

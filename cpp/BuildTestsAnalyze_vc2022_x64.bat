@@ -18,7 +18,7 @@ call "%VC_ROOT%\Community\VC\Auxiliary\Build\vcvarsall.bat" %VCVARS_ARG%
 goto Building
 
 :Building
-cl /std:c++17 /EHsc /W4 /analyze /wd4100 Tests_MathParser.cpp MathParser.cpp MathParserFactorInt.cpp /Fe:Tests_MathParser_analyze.exe
+cl /std:c++17 /EHsc /W4 /analyze /wd4100 Tests_MathParser.cpp MathParser.cpp MathParserFactorInt.cpp MathParserRawResult.cpp /Fe:Tests_MathParser_analyze.exe
 goto End
 
 :ErrorNoVcVarsAll

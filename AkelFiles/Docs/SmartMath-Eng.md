@@ -362,7 +362,7 @@ Recommendation: use `==` for equality checks to avoid confusion.
   - `5 + 2*3%` means `5 + (2*3%)` -> `5 + 0.06` -> `5.06`.
   - `5 + (2*3)%` means `5 + 6%` -> `5 + (5*0.06)` -> `5.3`.
 - Tricky examples:
-  - `5 % -20` means `(5%) - 20` -> `0.05 - 20` -> `-19.5`.
+  - `5 % -20` means `(5%) - 20` -> `0.05 - 20` -> `-19.95`.
   - `-20 + 5%` means `-20 + (-20*0.05)` -> `-21`.
   - `5 % (-20)` means `mod(5, -20)` -> `5`.
 
@@ -439,6 +439,7 @@ Quick index (alphabetical):
 | `exp(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `fact/factorial(n)` | [Numeric Utilities](#numeric-utilities) |
 | `factorint(n)` | [Numeric Utilities](#numeric-utilities) |
+| `filter(array, func)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `flat(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `floor(value)` | [Numeric Utilities](#numeric-utilities) |
 | `frac/fract(value)` | [Numeric Utilities](#numeric-utilities) |
@@ -634,6 +635,7 @@ Purpose: show a plain numeric value as a reduced fraction when it is (or is clos
   - `ratio(0.5+0.25i)` -> `1/2+1/4*i`
 - Notes:
   - `nan` / `inf` pass through;
+  - values above `2**53` in magnitude are returned unchanged (for example `ratio(1e20)` -> `1e+020`);
   - duration arguments are rejected (`ratio(1:00)` -> `incompatible operands`);
   - non-exact values use the best reduced fraction `n/m` with `m <= 10_000_000` (for example `ratio(sqrt(2))` -> `13250218/9369319`);
   - exact decimal powers of ten may use a larger denominator (for example `ratio(7.73e-8)` -> `773/10000000000`).
@@ -653,6 +655,7 @@ Purpose: aggregate and transform values/lists.
 - `max(...)` - largest value
 - `sort(...)`, `sorted(...)` - sorted flattened values
 - `sortby(array, func)` - stable sort of `array` by `func(value)` per element
+- `filter(array, func)` - keep each element for which `func(element)` is truthy
 - `reverse(...)`, `reversed(...)` - reversed flattened values
 - `unique(...)` - first-occurrence unique values
 - `flat(...)` - concatenate scalars and arrays into one flat array
@@ -673,7 +676,10 @@ Purpose: aggregate and transform values/lists.
   - `sortby((3,1,2), x:-x)` -> `(3, 2, 1)` (anonymous lambda key; parentheses optional around the lambda)
   - `sortby((1,2), (x):(1/x))` -> `(2, 1)` (parenthesized lambda body; keys `0.5`, `1`; ascending order)
   - `sortby((5,1), ():1)` -> error (`sortby expects a function that takes 1 parameter`; zero-parameter lambdas are not allowed as the sort key)
+  - `filter(range(1,11), x: x%3==0)` -> `(3, 6, 9)`
+  - `filter((1,0,inf,-10,nan), x: !!x)` -> `(1, inf, -10)` (`0` and `nan` are falsy)
   - `unique(3,1,3,2,1,2)` -> `(3, 1, 2)`
+  - `flat(0)` -> `(0)` (an array)
   - `a=(1,2); b=(4,5); flat(a,3,b,6)` -> `(1, 2, 3, 4, 5, 6)`
   - `a=(5,2); pow(unpack(a))` -> `25`
   - `len(1,2,3)` -> `3`
@@ -687,11 +693,14 @@ Purpose: aggregate and transform values/lists.
 Notes:
 
 - Aggregation functions flatten array inputs.
+- `sort`, `reverse`, `unique`, `flat`, `unpack`, `filter`, `sortby` and `repeat` return `()` when the value list is empty. A missing argument is still an error. `filter` and `sortby` still require a valid one-parameter function, and `repeat` still requires a positive integer count.
+- `sum`, `min`, `max`, and the other aggregates reject an empty collection.
 - `variance` and `stddev` use population formulas (`N`, not `N-1`).
 - With complex support enabled (see **Complex Numbers**):
   - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `flat`, `unpack`, and `len`/`length` accept complex scalars and arrays;
   - `min`, `max`, `sort`, `median`, `variance`, and `stddev` do not;
   - `sortby` accepts complex arrays when the key function supports complex scalars (for example `abs`).
+  - `filter` accepts the same element kinds as `sortby` (real scalars, time values, and complex scalars when complex support is on). A nested array literal is flattened before the call, so the predicate receives each scalar.
 
 ### Output Formatting
 
@@ -764,7 +773,6 @@ Purpose: complex numbers utilities.
   - `cart((2.236068, 1.107149))` -> `0.999999+2i`
   - `cart(2.236068, 1.107149)` -> `0.999999+2i`
   - `conj(1+2i)` -> `1-2i`
-
 - See also:
   - [Complex Number Operators](#complex-number-operators)
   - [Trigonometric and Hyperbolic With Complex Numbers](#trigonometric-and-hyperbolic-with-complex-numbers)
@@ -792,6 +800,8 @@ Purpose: random values.
 - It falls back to floating-point when required (for example division or overflow path).
 - Integer-only operators are checked in a defined signed 64-bit domain.
 - Shift count must be in `0..63`.
+- `<<` that overflows the 64-bit range returns a float `x*2**n` (for example `-3 << 62` -> `-1.383505805528216e+019`).
+- `-9223372036854775808/-1` -> `9223372036854775808` (exact unsigned result, not an overflow).
 
 Advanced examples:
 
@@ -814,6 +824,7 @@ Advanced examples:
 
 - `nan == nan` evaluates to `0` (IEEE unordered: NaN is not equal to any value, including another NaN).
 - `nan != nan` is `1`.
+- `unique` keeps only the first NaN. Later `nan` and `-nan` values are dropped.
 
 These behaviors may differ from other tools/languages.
 
@@ -888,7 +899,7 @@ A tight `i` suffix on a numeric literal (decimal/scientific or `0x`/`0b`/`0o`, n
 
 - **Time value support (on by default):** `Parser_SetSupportTimeValues` / `Parser_GetSupportTimeValues`. Default is on: colon and compact unit-suffix duration literals (`1:30`, `1d2h3m4s5ms`), duration constants (`millisecond`, `second`, `minute`, `hour`, `day`), and duration-aware arithmetic, comparisons, aggregates, and converter builtins (`milliseconds`, `seconds`, etc.) are active. When set off, the parser skips time-literal parsing and time-specific evaluation paths (plain numeric parsing only), and duration constants/converters are unavailable.
 
-- **Lambda function support (on by default):** `Parser_SetSupportLambdaFunctions` / `Parser_GetSupportLambdaFunctions`. Default is on: lambda-style user function definitions (`f=x,x+1`, `f=(x,y):(x+y)`, etc.) and anonymous lambda keys in `sortby` (`sortby((3,1,2), x:-x)`) are active. When set off, the parser skips lambda parse and evaluation paths; any input that uses lambda definition syntax fails with `unexpected token`, while ordinary `sortby` with a named function reference (for example `sortby((-3,-1,2), abs)`) still works.
+- **Lambda function support (on by default):** `Parser_SetSupportLambdaFunctions` / `Parser_GetSupportLambdaFunctions`. Default is on: lambda-style user function definitions (`f=x:x+1`, `f=(x,y):(x+y)`, etc.) and anonymous lambdas in `sortby` and `filter` (`sortby((3,1,2), x:-x)`, `filter((1,0,2), x: x)`) are active. When set off, the parser skips lambda parse and evaluation paths; any input that uses lambda definition syntax fails with `unexpected token`, while ordinary `sortby` or `filter` with a named function reference (for example `sortby((-3,-1,2), abs)` or `filter((1,-2,0), abs)`) still works.
 
 ## SmartMath Options
 

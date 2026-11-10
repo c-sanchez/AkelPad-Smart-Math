@@ -19,6 +19,10 @@ long long rawCartesianToInt64(const MathParser::RawResult::CartesianScalar& s) {
     case MathParser::RawResult::ScalarKind::Rational:
       return static_cast<long long>(static_cast<double>(s.rational.numerator) /
                                     static_cast<double>(s.rational.denominator));
+#if SMARTMATH_FACTORINT
+    case MathParser::RawResult::ScalarKind::IntPower:
+      return s.rational.numerator;
+#endif
     case MathParser::RawResult::ScalarKind::FloatingPoint:
     default:
       return static_cast<long long>(s.floatingPoint);

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartMath Online</title>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <h1>SmartMath Online</h1>
+  <button type="button" class="button" id="helpBtn" aria-pressed="false">Help</button>
+</header>
+<div class="views">
+<div class="calc-page" id="calcPage">
+  <div class="console" id="console">
+    <div id="output" aria-live="polite">
+      <div class="line muted" id="status">Loading the calculator...</div>
+    </div>
+    <div class="prompt">
+      <label for="input">&gt;</label>
+      <div class="input-wrap">
+        <div class="input-highlight" id="inputHighlight" aria-hidden="true"></div>
+        <input id="input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" disabled>
+      </div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button type="button" id="clear">Clear</button>
+    <button type="button" id="reset">Reset variables</button>
+    <span>Enter evaluates, Up/Down recalls history. Click a result to copy it.</span>
+  </div>
+</div>
+<button type="button" class="splitter" id="splitter" aria-label="Resize Help" hidden></button>
+<div class="help-page" id="helpHost"></div>
+</div>
+<noscript>SmartMath Online needs JavaScript and WebAssembly.</noscript>
+</body>
+</html>

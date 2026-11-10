@@ -17,7 +17,7 @@ if exist "%VC_ROOT%\Professional\VC\Auxiliary\Build\vcvarsall.bat" (
 
 if exist %EXE% del /f %EXE% 2>nul
 echo Compiling %EXE% ...
-cl /nologo /O2 /EHsc FactorintBench.cpp MathParser.cpp MathParserFactorInt.cpp /Fe:%EXE%
+cl /nologo /O2 /EHsc FactorintBench.cpp MathParser.cpp MathParserFactorInt.cpp MathParserRawResult.cpp /Fe:%EXE%
 if errorlevel 1 exit /b 1
 
 echo Running %EXE% with %TIMEOUT_SEC%s timeout ...

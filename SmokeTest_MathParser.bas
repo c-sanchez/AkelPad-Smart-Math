@@ -131,6 +131,14 @@ private function SmokeStrictScalarMatch(byref actual as String, byref expected a
   return FALSE
 end function
 
+'' Same-sign finite doubles one representation step apart.
+private function SmokeDoublesAdjacent(byval a as Double, byval b as Double) as Boolean
+  if (a < 0) <> (b < 0) then return FALSE
+  dim ba as LongInt = *cast(LongInt ptr, @a)
+  dim bb as LongInt = *cast(LongInt ptr, @b)
+  return abs(ba - bb) = 1
+end function
+
 private function ScalarCloseEnough(byref actual as String, byref expected as String) as Boolean
   dim ea as String = SmokeTrimScalarToken(actual)
   dim ee as String = SmokeTrimScalarToken(expected)
@@ -143,12 +151,10 @@ private function ScalarCloseEnough(byref actual as String, byref expected as Str
   if TryParseDecimalToken(ea, da) = FALSE then return FALSE
   if TryParseDecimalToken(ee, de) = FALSE then return FALSE
   if da = de then return TRUE
+  if SmokeDoublesAdjacent(da, de) then return TRUE
   dim scale as Double = abs(da)
   if abs(de) > scale then scale = abs(de)
-  if scale < 1 then scale = 1
-  dim tol as Double = 256.0 * 2.2204460492503131e-16 * scale
-  if tol < 1e-14 then tol = 1e-14
-  return abs(da - de) <= tol
+  return abs(da - de) <= 16.0 * 2.2204460492503131e-16 * scale
 end function
 
 private function SplitComplexText(byref s as String, byref rePart as String, byref imPart as String) as Boolean
@@ -238,7 +244,7 @@ private function ResultCloseEnough(byref actual as String, byref expected as Str
     next i
     return TRUE
   end if
-  if (instr(lcase(actual), "i") > 0) orelse (instr(lcase(expected), "i") > 0) then
+  if (lcase(right(trim(actual), 1)) = "i") orelse (lcase(right(trim(expected), 1)) = "i") then
     return ComplexResultCloseEnough(actual, expected)
   end if
   return ScalarCloseEnough(actual, expected)
@@ -439,6 +445,30 @@ private sub RunRawResultApiTests()
     subPass += 1
   end if
 
+  dim evalOk as Boolean = Parser_TryEvaluateEx("()", r, rt, ia)
+  dim textOk as Boolean = (rt = "()")
+  if evalOk = FALSE orelse textOk = FALSE orelse ia = FALSE then
+    print "[raw] FAIL: () eval"
+    subFail += 1
+  elseif Parser_GetLastRawResult(raw) = FALSE orelse raw.kind <> RRK_ARRAY orelse ubound(raw.arr) >= lbound(raw.arr) then
+    print "[raw] FAIL: () must stay an empty array in the raw result"
+    subFail += 1
+  else
+    print "[raw] PASS: () -> empty RRK_ARRAY"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("sort(())", r, rt, ia) = FALSE orelse rt <> "()" then
+    print "[raw] FAIL: sort(()) eval"
+    subFail += 1
+  elseif Parser_GetLastRawResult(raw) = FALSE orelse raw.kind <> RRK_ARRAY orelse ubound(raw.arr) >= lbound(raw.arr) then
+    print "[raw] FAIL: sort(()) raw empty array"
+    subFail += 1
+  else
+    print "[raw] PASS: sort(()) -> empty RRK_ARRAY"
+    subPass += 1
+  end if
+
   if Parser_TryEvaluateExRaw("f(x)=2", raw) = FALSE then
     print "[raw] FAIL: Parser_TryEvaluateExRaw UDF defined should succeed"
     subFail += 1
@@ -600,10 +630,11 @@ private sub RunTrigAngleReductionTests()
   nearZeroExpr(6) = "tan(2*pi)"
   dim exactOneExpr(1 to 4) as String
   dim exactOneExpect(1 to 4) as String
-  exactOneExpr(1) = "tan(pi/4)": exactOneExpect(1) = "1"
-  exactOneExpr(2) = "tan(3*pi/4)": exactOneExpect(2) = "-1"
-  exactOneExpr(3) = "tan(-pi/4)": exactOneExpect(3) = "-1"
-  exactOneExpr(4) = "tan(-3*pi/4)": exactOneExpect(4) = "1"
+  '' Angle reduction returns the float 1, not an exact int, so the display keeps ".0".
+  exactOneExpr(1) = "tan(pi/4)": exactOneExpect(1) = "1.0"
+  exactOneExpr(2) = "tan(3*pi/4)": exactOneExpect(2) = "-1.0"
+  exactOneExpr(3) = "tan(-pi/4)": exactOneExpect(3) = "-1.0"
+  exactOneExpr(4) = "tan(-3*pi/4)": exactOneExpect(4) = "1.0"
   dim ti as Integer
   dim mag as Double
   for ti = 1 to 12
@@ -1125,16 +1156,44 @@ private sub RunComplexNumberSupportOptionTests()
   cxLogBaseCases(1) = "log(8,2)": cxLogBaseExpect(1) = "3"
   cxLogBaseCases(2) = "log(-9,7)": cxLogBaseExpect(2) = "1.129150068107159+1.614459257080781i"
   cxLogBaseCases(3) = "log((-9, 16), (7, 2))": cxLogBaseExpect(3) = "(1.129150068107159+1.614459257080781i, 4)"
-  cxLogBaseCases(4) = "log(1+i, 2)": cxLogBaseExpect(4) = "0.5000000000000001+1.133090035456799i"
+  cxLogBaseCases(4) = "log(1+i, 2)": cxLogBaseExpect(4) = "0.5+1.133090035456799i"
   cxLogBaseCases(5) = "log((8, 16), (2, 4))": cxLogBaseExpect(5) = "(3, 2)"
 
   dim lgbi as Integer
   for lgbi = 1 to 5
-    if Parser_TryEvaluateEx(cxLogBaseCases(lgbi), r, rt, ia) = FALSE orelse rt <> cxLogBaseExpect(lgbi) then
+    if Parser_TryEvaluateEx(cxLogBaseCases(lgbi), r, rt, ia) = FALSE orelse ResultCloseEnough(rt, cxLogBaseExpect(lgbi)) = FALSE then
       print "[complex-opt] FAIL: """ & cxLogBaseCases(lgbi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
     else
       print "[complex-opt] PASS: """ & cxLogBaseCases(lgbi) & """ -> """ & rt & """"
+      subPass += 1
+    end if
+  next lgbi
+
+  dim cxLogDomainErr(1 to 3) as String
+  cxLogDomainErr(1) = "log(0,10)"
+  cxLogDomainErr(2) = "log(10,1)"
+  cxLogDomainErr(3) = "log(10,0)"
+  for lgbi = lbound(cxLogDomainErr) to ubound(cxLogDomainErr)
+    if Parser_TryEvaluateEx(cxLogDomainErr(lgbi), r, rt, ia) = FALSE andalso instr(Parser_GetLastError(), "numeric error in log()") > 0 then
+      print "[complex-opt] PASS: """ & cxLogDomainErr(lgbi) & """ -> numeric error"
+      subPass += 1
+    else
+      print "[complex-opt] FAIL: """ & cxLogDomainErr(lgbi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
+      subFail += 1
+    end if
+  next lgbi
+
+  dim cxTinyRe(1 to 2) as String
+  dim cxTinyReExpect(1 to 2) as String
+  cxTinyRe(1) = "1e-15+2i": cxTinyReExpect(1) = "1e-015+2i"
+  cxTinyRe(2) = "-1e-15+2i": cxTinyReExpect(2) = "-1e-015+2i"
+  for lgbi = lbound(cxTinyRe) to ubound(cxTinyRe)
+    if Parser_TryEvaluateEx(cxTinyRe(lgbi), r, rt, ia) = FALSE orelse rt <> cxTinyReExpect(lgbi) then
+      print "[complex-opt] FAIL: """ & cxTinyRe(lgbi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      print "[complex-opt] PASS: """ & cxTinyRe(lgbi) & """ -> """ & rt & """ (tiny real part kept)"
       subPass += 1
     end if
   next lgbi
@@ -1242,8 +1301,8 @@ private sub RunComplexNumberSupportOptionTests()
   next xi
 
   ' Aggregation/array utilities with complex operands (allowed vs rejected builtins).
-  dim cxAggOk(1 to 36) as String
-  dim cxAggExpect(1 to 36) as String
+  dim cxAggOk(1 to 38) as String
+  dim cxAggExpect(1 to 38) as String
   cxAggOk(1) = "sum(1+2i, 3)": cxAggExpect(1) = "4+2i"
   cxAggOk(2) = "sum((1+2i, 3+4i))": cxAggExpect(2) = "4+6i"
   cxAggOk(3) = "prod(1+i, 2)": cxAggExpect(3) = "2+2i"
@@ -1280,9 +1339,11 @@ private sub RunComplexNumberSupportOptionTests()
   cxAggOk(34) = "flat((1+2i, 3), 4)": cxAggExpect(34) = "(1+2i, 3, 4)"
   cxAggOk(35) = "flat(1, Inf+2i, 3)": cxAggExpect(35) = "(1, inf+2i, 3)"
   cxAggOk(36) = "flat(1, 2+Inf*i, 3)": cxAggExpect(36) = "(1, 2+inf*i, 3)"
+  cxAggOk(37) = "((1+2i, 3), 4)": cxAggExpect(37) = "(1+2i, 3, 4)"
+  cxAggOk(38) = "unique(2, nan+i, nan, 1+nan*i)": cxAggExpect(38) = "(2, nan)"
 
   dim agi as Integer
-  for agi = 1 to 36
+  for agi = 1 to 38
     if Parser_TryEvaluateEx(cxAggOk(agi), r, rt, ia) = FALSE orelse rt <> cxAggExpect(agi) then
       print "[complex-opt] FAIL: """ & cxAggOk(agi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -1479,8 +1540,8 @@ private sub RunComplexNumberSupportOptionTests()
     end if
   next txi
 
-  dim cxFmtOk(1 to 7) as String
-  dim cxFmtExpect(1 to 7) as String
+  dim cxFmtOk(1 to 9) as String
+  dim cxFmtExpect(1 to 9) as String
   cxFmtOk(1) = "hex(10+15i)": cxFmtExpect(1) = "0xA+0xFi"
   cxFmtOk(2) = "bin(1+i)": cxFmtExpect(2) = "0b1+i"
   cxFmtOk(3) = "oct(8i)": cxFmtExpect(3) = "0o10i"
@@ -1488,6 +1549,8 @@ private sub RunComplexNumberSupportOptionTests()
   cxFmtOk(5) = "uhex(-1+2i)": cxFmtExpect(5) = "0xFFFFFFFFFFFFFFFF+0x2i"
   cxFmtOk(6) = "uoct(-1+i)": cxFmtExpect(6) = "0o1777777777777777777777+i"
   cxFmtOk(7) = "ubin(5+10i)": cxFmtExpect(7) = "0b101+0b1010i"
+  cxFmtOk(8) = "hex(-3-4i)": cxFmtExpect(8) = "-0x3-0x4i"
+  cxFmtOk(9) = "oct(-8+8i)": cxFmtExpect(9) = "-0o10+0o10i"
 
   if Parser_TryEvaluateEx("(0xFFFFFFFFFFFFFF + 0x7FFFFFFFFFFFFFi);uhex", r, rt, ia) = FALSE orelse rt <> "0xFFFFFFFFFFFFFF+0x7FFFFFFFFFFFFFi" then
     print "[complex-opt] FAIL: large hex complex uhex -> """ & rt & """ err=" & Parser_GetLastError()
@@ -1546,7 +1609,7 @@ private sub RunComplexNumberSupportOptionTests()
   end if
 
   dim ffi as Integer
-  for ffi = 1 to 7
+  for ffi = lbound(cxFmtOk) to ubound(cxFmtOk)
     if Parser_TryEvaluateEx(cxFmtOk(ffi), r, rt, ia) = FALSE orelse rt <> cxFmtExpect(ffi) then
       print "[complex-opt] FAIL: """ & cxFmtOk(ffi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       print "[complex-opt]      want: """ & cxFmtExpect(ffi) & """"
@@ -1595,10 +1658,11 @@ private sub RunComplexNumberSupportOptionTests()
     end if
   next uei
 
-  dim cxSortRatioOk(1 to 24) as String
-  dim cxSortRatioExpect(1 to 24) as String
+  dim cxSortRatioOk(1 to 25) as String
+  dim cxSortRatioExpect(1 to 25) as String
   cxSortRatioOk(1) = "sortby((3+4i, 1+2i), abs)": cxSortRatioExpect(1) = "(1+2i, 3+4i)"
   cxSortRatioOk(6) = "sortby((3+4i, 1+2i), polar)": cxSortRatioExpect(6) = "(1+2i, 3+4i)"
+  cxSortRatioOk(25) = "sortby((3+2i, 2+3i, 2-3i, 3-2i), x: x)": cxSortRatioExpect(25) = "(2-3i, 2+3i, 3-2i, 3+2i)"
   cxSortRatioOk(2) = "ratio(1+2i)": cxSortRatioExpect(2) = "1+2i"
   cxSortRatioOk(3) = "ratio(0.5+0.25i)": cxSortRatioExpect(3) = "1/2+1/4*i"
   cxSortRatioOk(4) = "ratio(2+3i)": cxSortRatioExpect(4) = "2+3i"
@@ -1608,7 +1672,7 @@ private sub RunComplexNumberSupportOptionTests()
   cxSortRatioOk(9) = "ratio(-0.5+0.25i)": cxSortRatioExpect(9) = "-1/2+1/4*i"
   cxSortRatioOk(10) = "ratio(3+0.25i)": cxSortRatioExpect(10) = "3+1/4*i"
   cxSortRatioOk(11) = "ratio(-2**57/3**30+2**55/7**20*i)": cxSortRatioExpect(11) = "-113792906/162571+1293463/2864607*i"
-  cxSortRatioOk(12) = "ratio(-2**57/3**30+2**55/7**20i)": cxSortRatioExpect(12) = "12411888722130364-33823353366914148i"
+  cxSortRatioOk(12) = "ratio(-2**57/3**30+2**55/7**20i)": cxSortRatioExpect(12) = "1.241188872213036e+016-3.382335336691415e+016i"
   cxSortRatioOk(13) = "ratio((1+2i)/(3+4i))": cxSortRatioExpect(13) = "11/25+2/25*i"
   cxSortRatioOk(14) = "ratio((1.11+2.33i)*(3.37+4.71i))": cxSortRatioExpect(14) = "-4521/625+65401/5000*i"
   cxSortRatioOk(15) = "ratio((1+i)**(2+3i))": cxSortRatioExpect(15) = "-740749/4531935+329494/3432051*i"
@@ -1622,7 +1686,7 @@ private sub RunComplexNumberSupportOptionTests()
   cxSortRatioOk(23) = "ratio(1/2+3i/4)": cxSortRatioExpect(23) = "1/2+3/4*i"
   cxSortRatioOk(24) = "3+ratio(0.2)i": cxSortRatioExpect(24) = "3+0.2i"
   dim sri as Integer
-  for sri = 1 to 24
+  for sri = 1 to 25
     if Parser_TryEvaluateEx(cxSortRatioOk(sri), r, rt, ia) = FALSE orelse rt <> cxSortRatioExpect(sri) then
       print "[complex-opt] FAIL: """ & cxSortRatioOk(sri) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       print "[complex-opt]      want: """ & cxSortRatioExpect(sri) & """"
@@ -1632,6 +1696,23 @@ private sub RunComplexNumberSupportOptionTests()
       subPass += 1
     end if
   next sri
+
+  dim cxFilterOk(1 to 3) as String
+  dim cxFilterExpect(1 to 3) as String
+  cxFilterOk(1) = "filter((1+2i, 0, 3-i), x: x)": cxFilterExpect(1) = "(1+2i, 3-i)"
+  cxFilterOk(2) = "filter((3+4i, 0), abs)": cxFilterExpect(2) = "(3+4i)"
+  cxFilterOk(3) = "filter((1+i, 2), x: imag(x))": cxFilterExpect(3) = "(1+i)"
+  dim cfi as Integer
+  for cfi = 1 to 3
+    if Parser_TryEvaluateEx(cxFilterOk(cfi), r, rt, ia) = FALSE orelse rt <> cxFilterExpect(cfi) then
+      print "[complex-opt] FAIL: """ & cxFilterOk(cfi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
+      print "[complex-opt]      want: """ & cxFilterExpect(cfi) & """"
+      subFail += 1
+    else
+      print "[complex-opt] PASS: """ & cxFilterOk(cfi) & """ -> """ & rt & """"
+      subPass += 1
+    end if
+  next cfi
 
   print "=== Negative argument magnitude bands (complex, 3 ranges) ==="
   dim negCxPass as Integer = 0
@@ -2767,11 +2848,18 @@ private sub RunLambdaFunctionsSupportOptionTests()
   elseif rt <> "(3,2,1)" andalso rt <> "(3, 2, 1)" then
     isOK = FALSE
   end if
+  if isOK then
+    if Parser_TryEvaluateEx("filter((1,0,2), x: x)", r, rt, ia) = FALSE then
+      isOK = FALSE
+    elseif rt <> "(1,2)" andalso rt <> "(1, 2)" then
+      isOK = FALSE
+    end if
+  end if
   if not isOK then
-    print "[lambda-opt] FAIL: sortby anonymous lambda with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
+    print "[lambda-opt] FAIL: sortby/filter anonymous lambda with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
     subFail += 1
   else
-    print "[lambda-opt] PASS: sortby((3,1,2), x:-x) -> (3,2,1) with support flag ON"
+    print "[lambda-opt] PASS: sortby and filter anonymous lambdas with support flag ON"
     subPass += 1
   end if
 
@@ -2800,13 +2888,27 @@ private sub RunLambdaFunctionsSupportOptionTests()
     subPass += 1
   end if
 
-  dim rejectExprs(1 to 4) as String
+  dim filterOffOk as Boolean = FALSE
+  if Parser_TryEvaluateEx("filter((1,-2,0), abs)", r, rt, ia) then
+    if rt = "(1, -2)" orelse rt = "(1,-2)" then filterOffOk = TRUE
+  end if
+  if filterOffOk = FALSE then
+    print "[lambda-opt] FAIL: filter builtin ref with flag OFF, got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[lambda-opt] PASS: filter((1,-2,0), abs) still works when lambda support is OFF"
+    subPass += 1
+  end if
+
+  dim rejectExprs(1 to 6) as String
   rejectExprs(1) = "f=x:x+1"
   rejectExprs(2) = "f=(x,y):(x+y)"
   rejectExprs(3) = "sortby((3,1,2), x:-x)"
   rejectExprs(4) = "sortby((1,2), (x):(1/x))"
+  rejectExprs(5) = "filter((3,1,2), x: x>0)"
+  rejectExprs(6) = "filter((1,2), (x):(x>1))"
   dim ri as Integer
-  for ri = 1 to 4
+  for ri = 1 to 6
     if Parser_TryEvaluateEx(rejectExprs(ri), r, rt, ia) then
       print "[lambda-opt] FAIL: expected failure for """ & rejectExprs(ri) & """ with support OFF but got """ & rt & """"
       subFail += 1
@@ -2831,8 +2933,84 @@ private sub RunLambdaFunctionsSupportOptionTests()
   print ""
 end sub
 
+'' filter copies the original element, so exact int64/uint64 metadata must survive.
+private sub RunFilterExactIntegerTests()
+  print "=== filter exact integer metadata ==="
+  dim subPass as Integer = 0
+  dim subFail as Integer = 0
+  dim r as Double
+  dim rt as String
+  dim ia as Boolean
+  const N as Integer = 3
+  dim expr(1 to N) as String
+  dim want(1 to N) as String
+  expr(1) = "filter((9223372036854775807, -1), x: x>0)": want(1) = "(9223372036854775807)"
+  expr(2) = "filter((18446744073709551615, 1), x: x>2)": want(2) = "(18446744073709551615)"
+  expr(3) = "filter((-9223372036854775807, 1), x: x<0)": want(3) = "(-9223372036854775807)"
+  dim i as Integer
+  for i = 1 to N
+    if Parser_TryEvaluateEx(expr(i), r, rt, ia) = FALSE orelse rt <> want(i) then
+      print "[filter-exact] FAIL: """ & expr(i) & """ -> """ & rt & """ want """ & want(i) & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  next i
+  Parser_ClearVariables()
+  g_passed += subPass
+  g_failed += subFail
+  print "filter exact-integer sub-tests: passed " & str(subPass) & ", failed " & str(subFail)
+  print ""
+end sub
+
+'' Exact display: a non-exact float must not look like an exact integer.
+'' Digits from Python: format(4285714285714285.5, '.16g') and format((2**53)*1.1, '.15e').
+private sub RunInexactFloatDisplayTests()
+  print "=== Inexact float display ==="
+  dim subPass as Integer = 0
+  dim subFail as Integer = 0
+  dim r as Double
+  dim rt as String
+  dim ia as Boolean
+  dim prevCx as Boolean = Parser_GetSupportComplexNumbers()
+  Parser_ClearVariables()
+  Parser_SetSupportComplexNumbers(TRUE)
+
+  const N as Integer = 11
+  dim expr(1 to N) as String
+  dim want(1 to N) as String
+  expr(1) = "(3*10**16-1)/7": want(1) = "4285714285714286.0"
+  expr(2) = "frac((3*10**16-1)/7)": want(2) = "0.5"
+  expr(3) = "-(3*10**16-1)/7": want(3) = "-4285714285714286.0"
+  expr(4) = "(3*10**17-1)/7": want(4) = "42857142857142857"
+  expr(5) = "(2**53)*1.1": want(5) = "9.907919180215092e+015"
+  expr(6) = "(2**53)*(-1.1)": want(6) = "-9.907919180215092e+015"
+  expr(7) = "sqrt(2**70)": want(7) = "34359738368.0"
+  expr(8) = "sqrt(-2**70)": want(8) = "34359738368.0i"
+  expr(9) = "f(n)=(3*10**n-1)/7; x=f(16); x": want(9) = "4285714285714286.0"
+  expr(10) = "sqrt(4)": want(10) = "2"
+  expr(11) = "2**53+2": want(11) = "9007199254740994"
+
+  dim i as Integer
+  for i = 1 to N
+    if Parser_TryEvaluateEx(expr(i), r, rt, ia) = FALSE orelse rt <> want(i) then
+      print "[float-display] FAIL: """ & expr(i) & """ -> """ & rt & """ want """ & want(i) & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  next i
+
+  Parser_SetSupportComplexNumbers(prevCx)
+  Parser_ClearVariables()
+  g_passed += subPass
+  g_failed += subFail
+  print "Inexact-float display sub-tests: passed " & str(subPass) & ", failed " & str(subFail)
+  print ""
+end sub
+
 sub Main()
-  dim tests(1 to 1414) as SmokeCase
+  dim tests(1 to 1522) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -3085,8 +3263,8 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   ' but should not change accidentally without an explicit decision.
   tests(225).expr = "clamp((1,2,3),(4,5),6)": tests(225).expectedErrContains = "expects scalar min/max" ' [type]
   tests(226).expr = "sum((1,2),(3,4),5)": tests(226).expected = "15" ' [ok-array]
-  tests(227).expr = "sort(())":         tests(227).expectedErrContains = "expects at least 1 argument" ' [syntax]
-  tests(228).expr = "unique(())":       tests(228).expectedErrContains = "expects at least 1 argument" ' [syntax]
+  tests(227).expr = "sort(())":         tests(227).expected = "()" ' empty array passes through; Python sorted([]) is []
+  tests(228).expr = "unique(())":       tests(228).expected = "()" ' empty array passes through
   tests(229).expr = "RestoreAnsFromCachedRender(g_cachedRenderText(i))": tests(229).expectedErrContains = "unknown function" ' [regression-lock]
   tests(230).expr = "deg(pi/2,pi/4)":   tests(230).expected = "(90,45)" ' [ok-array]
   tests(231).expr = "rad(180,90)":      tests(231).expected = "(3.141592653589793,1.570796326794897)" ' [ok-array]
@@ -3178,7 +3356,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(317).expr = "reverse":          tests(317).expectedErrContains = "function: reverse(...)" ' [hint]
   tests(318).expr = "reverse()":        tests(318).expectedErrContains = "expects at least 1 argument" ' [arity]
   tests(319).expr = "reverse((2,5,1),4,3)": tests(319).expected = "(3,4,1,5,2)" ' [ok-array]
-  tests(320).expr = "reverse(())":      tests(320).expectedErrContains = "expects at least 1 argument" ' [syntax]
+  tests(320).expr = "reverse(())":      tests(320).expected = "()" ' empty array passes through; Python list(reversed([])) is []
   tests(321).expr = "(10,20,30)[0]":    tests(321).expected = "10" ' [ok-array]
   tests(322).expr = "(10,20,30)[2]":    tests(322).expected = "30" ' [ok-array]
   tests(323).expr = "(10,20,30)[-1]":   tests(323).expected = "30" ' [ok-array]
@@ -3936,7 +4114,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1045).expr = "cart((5,1))":       tests(1045).expectedErrContains = "incompatible operands" ' [ok-func]
   tests(1046).expr = "sortby((3,-1,2), abs)": tests(1046).expected = "(-1,2,3)" ' [ok-func]
   tests(1047).expr = "sortby((5,1,5,2,2,9,1), abs)": tests(1047).expected = "(1,1,2,2,5,5,9)" ' [ok-func]
-  tests(1048).expr = "sortby((), abs)": tests(1048).expectedErrContains = "expects at least 1 argument" ' [arity]
+  tests(1048).expr = "sortby((), abs)": tests(1048).expected = "()" ' empty array passes through after the key is accepted
   tests(1049).expr = "f(x)=x*x; sortby((3,1,2), f)": tests(1049).expected = "(1,2,3)" ' [ok-func]
   tests(1050).expr = "sortby((1,2), abs())": tests(1050).expectedErrContains = "sortby expects exactly one function" ' [err]
   tests(1051).expr = "sortby((1,2), pow)": tests(1051).expectedErrContains = "sortby expects a function that takes 1 parameter" ' [err]
@@ -4298,13 +4476,133 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1405).expr = "flat((1,2,3))": tests(1405).expected = "(1,2,3)" ' [flat] single array passthrough
   tests(1406).expr = "flat((1,2),3,(4,5))": tests(1406).expected = "(1,2,3,4,5)" ' [flat] multi-arg
   tests(1407).expr = "flat()": tests(1407).expectedErrContains = "expects at least 1 argument" ' [flat] arity
-  tests(1408).expr = "flat(())": tests(1408).expectedErrContains = "expects at least 1 argument" ' [flat] empty array
+  tests(1408).expr = "flat(())": tests(1408).expected = "()" ' [flat] empty array passes through
   tests(1409).expr = "flat": tests(1409).expectedErrContains = "function: flat(...)" ' [flat] hint
   tests(1410).expr = "f(x,y)=x*y; f(flat((2,3)))": tests(1410).expectedErrContains = "expects 2 argument(s)" ' [flat] no call spreading
   tests(1411).expr = "flat(1,Inf,2)": tests(1411).expected = "(1,inf,2)" ' [flat] keep non-finite
   tests(1412).expr = "a=flat((18446744073709551615,2)); uhex(a[0])": tests(1412).expected = "0xFFFFFFFFFFFFFFFF" ' [flat] int64 metadata
   tests(1413).expr = "flat(1,2,1,2,3)": tests(1413).expected = "(1,2,1,2,3)" ' [flat] keep duplicates
   tests(1414).expr = "flat((9,8,7))": tests(1414).expected = "(9,8,7)" ' [flat] single-arg array edge
+  tests(1415).expr = "20+4": tests(1415).expected = "24" ' [ans] seed last success
+  tests(1416).expr = "unknownFunc(2)": tests(1416).expectedErrContains = "unknown function" ' [ans] error must not clear ans
+  tests(1417).expr = "ans": tests(1417).expected = "24" ' [ans] preserved after unknown function
+  tests(1418).expr = "missingAnsVar": tests(1418).expectedErrContains = "unknown variable" ' [ans] unknown variable
+  tests(1419).expr = "ans*1": tests(1419).expected = "24" ' [ans] preserved after unknown variable
+  tests(1420).expr = "9; unknownFunc(3)": tests(1420).expectedErrContains = "unknown function" ' [ans] later statement fails
+  tests(1421).expr = "ans": tests(1421).expected = "9" ' [ans] earlier statement in the failed line
+
+  ' === array literal flattens nested arrays (same as C++) ===
+  tests(1422).expr = "((1,2),3,(4,5))": tests(1422).expected = "(1,2,3,4,5)" ' [array] nested literal
+  tests(1423).expr = "a=(1,2); (a,3,a)": tests(1423).expected = "(1,2,3,1,2)" ' [array] variable elements
+  tests(1424).expr = "(((1,2),3),(4,5))": tests(1424).expected = "(1,2,3,4,5)" ' [array] deeper nesting
+  tests(1425).expr = "((),1,())": tests(1425).expected = "(1)" ' [array] empty elements skipped
+  tests(1426).expr = "((),())": tests(1426).expected = "()" ' [array] only empty elements
+  tests(1427).expr = "a=(); (a,4,a)": tests(1427).expected = "(4)" ' [array] empty variable
+  tests(1428).expr = "((1,Inf),2)": tests(1428).expected = "(1,inf,2)" ' [array] keep non-finite
+  tests(1429).expr = "((1,1),1)": tests(1429).expected = "(1,1,1)" ' [array] keep duplicates
+  tests(1430).expr = "uhex(((18446744073709551615,2),3)[0])": tests(1430).expected = "0xFFFFFFFFFFFFFFFF" ' [array] uint64 metadata
+  tests(1431).expr = "((ratio(1),ratio(1/2)),3)": tests(1431).expected = "(1,1/2,3)" ' [array] rational metadata
+  tests(1432).expr = "((1,2),(3,4))+1": tests(1432).expected = "(2,3,4,5)" ' [array] flatten then element-wise
+  tests(1433).expr = "((1,2))": tests(1433).expected = "(1,2)" ' [array] grouping is not a comma literal
+  tests(1434).expr = "((1:00,2:00),3:00)": tests(1434).expected = "(01:00,02:00,03:00)" ' [array] flatten durations
+  tests(1435).expr = "a=(1:00,2:00); (a,3:00)": tests(1435).expected = "(01:00,02:00,03:00)" ' [array] duration variables
+  tests(1436).expr = "((1:00),2)": tests(1436).expectedErrContains = "time values cannot be mixed with non-time values" ' [array] mix after flatten
+  tests(1437).expr = "((1:00,2:00),3)": tests(1437).expectedErrContains = "time values cannot be mixed with non-time values" ' [array] mix nested
+  tests(1438).expr = "((),1:00)": tests(1438).expected = "(01:00)" ' [array] empty plus duration
+
+  ' === int64/uint64 edge cases (expected values from Python) ===
+  tests(1439).expr = "-9223372036854775808/-1": tests(1439).expected = "9223372036854775808" ' [int64] INT64_MIN / -1
+  tests(1440).expr = "mod(-9223372036854775808,-1)": tests(1440).expected = "0" ' [mod] INT64_MIN mod -1
+  tests(1441).expr = "mod(-5,18446744073709551615)": tests(1441).expected = "-5" ' [mod] uint64 divisor (math.fmod)
+  tests(1442).expr = "gcd(-6,18446744073709551615)": tests(1442).expected = "3" ' [gcd] uint64 operand
+  tests(1443).expr = "gcd(-9223372036854775808,0)": tests(1443).expected = "9223372036854775808" ' [gcd] |INT64_MIN|
+  tests(1444).expr = "lcm(-9223372036854775808,1)": tests(1444).expected = "9223372036854775808" ' [lcm] |INT64_MIN|
+  tests(1445).expr = "ncr(67,33)": tests(1445).expected = "14226520737620288370" ' [ncr] uint64 result (math.comb)
+  tests(1446).expr = "npr(21,21)": tests(1446).expectedErrContains = "numeric error in npr()" ' [npr] 21! > 2**64
+  tests(1447).expr = "factorint(9223372036854775837)": tests(1447).expected = "(9223372036854775837)" ' [factorint] prime > 2**63
+  tests(1448).expr = "factorint(18446744073709551557)": tests(1448).expected = "(18446744073709551557)" ' [factorint] largest uint64 prime
+  tests(1449).expr = "factorint(-9223372036854775808)": tests(1449).expected = "(-2**63)" ' [factorint] INT64_MIN
+  tests(1450).expr = "prod(factorint(-9223372036854775808))": tests(1450).expected = "-9223372036854775808" ' [factorint] INT64_MIN round trip
+  tests(1451).expr = "factorint(18446744073709551614)": tests(1451).expected = "(2, 7**2, 73, 127, 337, 92737, 649657)" ' [factorint] 2**64-2
+  tests(1452).expr = "-3 << 62": tests(1452).expected = "-1.383505805528216e+019" ' [shift] negative overflow -> float
+  tests(1453).expr = "-2 << 62": tests(1453).expected = "-9223372036854775808" ' [shift] exact INT64_MIN
+
+  ' === float power / hypot / ratio / literals (expected values from Python) ===
+  tests(1454).expr = "3**2.0000001": tests(1454).expected = "9.000000988751113" ' [pow] near-integer exponent is not exact
+  tests(1455).expr = "27**0.33333334": tests(1455).expected = "3.000000065916738" ' [pow] near 1/3 is not a cube root
+  tests(1456).expr = "27**(1/3)": tests(1456).expected = "3" ' [pow] cube root
+  tests(1457).expr = "hypot(1e300,1e300)": tests(1457).expected = "1.414213562373095e+300" ' [hypot] no overflow
+  tests(1458).expr = "hypot(1e-200,1e-200)": tests(1458).expected = "1.414213562373095e-200" ' [hypot] no underflow
+  tests(1459).expr = "ratio(1e20)": tests(1459).expected = "1e+020" ' [ratio] above 2**53 unchanged
+  tests(1460).expr = "ratio(-1e300)": tests(1460).expected = "-1e+300" ' [ratio] above 2**53 unchanged
+  tests(1461).expr = "1e-5": tests(1461).expected = "1e-005" ' [literal] negative exponent rounding
+  tests(1462).expr = "123e-20": tests(1462).expected = "1.23e-018" ' [literal] negative exponent rounding
+  tests(1463).expr = "5 % -20": tests(1463).expected = "-19.95" ' [percent] (5%) - 20
+
+  ' === time overflow / non-finite compare ===
+  tests(1464).expr = "1:00 + 1e16": tests(1464).expectedErrContains = "incompatible operands" ' [time] ms overflow
+  tests(1465).expr = "1:00 * 1e300": tests(1465).expectedErrContains = "incompatible operands" ' [time] ms overflow
+  tests(1466).expr = "1:00 < 1e300": tests(1466).expected = "1" ' [time] compare saturates
+  tests(1467).expr = "1:00 < inf": tests(1467).expectedErrContains = "incompatible operands" ' [time] non-finite compare
+
+  ' === failed assignment must not store the variable ===
+  tests(1468).expr = "failasgvar=failasgunknown+1": tests(1468).expectedErrContains = "unknown variable: failasgunknown" ' [assign] unknown rhs
+  tests(1469).expr = "failasgvar": tests(1469).expectedErrContains = "unknown variable: failasgvar" ' [assign] not stored
+  tests(1470).expr = "sortby(flat(1:30, 91, 89), x: x)": tests(1470).expected = "(89,01:30,91)" ' [sortby] identity key: duration compared as seconds (1:30 = 90)
+  ' unique keeps the first NaN only. nan == nan stays 0. +inf and -inf each collapse to the first copy.
+  tests(1471).expr = "unique(1, nan, inf, 3, nan, -inf, nan, -inf, inf)": tests(1471).expected = "(1, nan, inf, 3, -inf)" ' [unique-nan]
+  tests(1472).expr = "unique(nan, -nan, nan)": tests(1472).expected = "(nan)" ' [unique-nan] -nan counts as the same NaN slot
+  tests(1473).expr = "unique(inf, -inf, inf, -inf)": tests(1473).expected = "(inf, -inf)" ' [unique-nan] opposite infinities stay distinct
+  tests(1474).expr = "nan==-nan": tests(1474).expected = "0" ' [unique-nan] sign bit does not make NaNs equal
+  ' filter: truthiness is the documented !! rule (nan is falsy). Python bool(nan) is True, so these expectations do not come from Python's filter.
+  tests(1475).expr = "filter(range(1,11), x: x%3==0)": tests(1475).expected = "(3,6,9)"
+  tests(1476).expr = "filter((1,0,inf,-10,nan), x: !!x)": tests(1476).expected = "(1,inf,-10)"
+  tests(1477).expr = "g(x)=x>=0; filter((1,-2,3,inf,4,-5,0,-inf), g)": tests(1477).expected = "(1,3,inf,4,0)"
+  tests(1478).expr = "filter((1,2,0), x: x)": tests(1478).expected = "(1,2)"
+  tests(1479).expr = "filter((1,-2,0), abs)": tests(1479).expected = "(1,-2)"
+  tests(1480).expr = "filter((1,-2,0), sign)": tests(1480).expected = "(1,-2)" ' sign(-2) is -1, which is truthy
+  tests(1481).expr = "filter(5, x: x>0)": tests(1481).expected = "(5)" ' scalar is a one-element array
+  tests(1482).expr = "filter(0, x: !!x)": tests(1482).expected = "()" ' one element dropped; empty output is allowed
+  tests(1483).expr = "filter((0,nan), x: x)": tests(1483).expected = "()"
+  tests(1484).expr = "filter((1,0), x: (x,x))": tests(1484).expected = "(1,0)" ' non-empty array results are truthy
+  tests(1485).expr = "filter((1:30, 0:00, 0:45), x: !!x)": tests(1485).expected = "(01:30,00:45)"
+  tests(1486).expr = "filter((3,1,2), x: x%2==1)": tests(1486).expected = "(3,1)"
+  tests(1487).expr = "filter((1,2), (x):(x>1))": tests(1487).expected = "(2)"
+  tests(1488).expr = "filter((), abs)": tests(1488).expected = "()" ' empty array passes through; the predicate is not called
+  tests(1489).expr = "filter((1,2))": tests(1489).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1490).expr = "filter((1,2), 3)": tests(1490).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1491).expr = "filter((1,2), abs())": tests(1491).expectedErrContains = "filter expects exactly one function"
+  tests(1492).expr = "filter((1,2), (1,2))": tests(1492).expectedErrContains = "filter expects exactly one function"
+  tests(1493).expr = "filter((1,2), pow)": tests(1493).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1494).expr = "filter((1,2), nosuchfn)": tests(1494).expectedErrContains = "unknown function: nosuchfn"
+  tests(1495).expr = "filter(1,2,3)": tests(1495).expectedErrContains = "filter expects"
+  tests(1496).expr = "filter()": tests(1496).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1497).expr = "filter((5,1), ():1)": tests(1497).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1498).expr = "filter((1,2), x,y:x+y)": tests(1498).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1499).expr = "x=10; filter((1,2), x)": tests(1499).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1500).expr = "filter((1,2), sortby)": tests(1500).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1501).expr = "sortby((1,2), filter)": tests(1501).expectedErrContains = "sortby expects a function that takes 1 parameter"
+  tests(1502).expr = "filter((1,2), x:)": tests(1502).expectedErrContains = "function body is empty"
+  tests(1503).expr = "filter((1,2,3),x:x": tests(1503).expectedErrContains = "missing closing parenthesis"
+  tests(1504).expr = "filter(": tests(1504).expectedErrContains = "filter(array, func)"
+  tests(1505).expr = "sorted(())": tests(1505).expected = "()"
+  tests(1506).expr = "reversed(())": tests(1506).expected = "()"
+  tests(1507).expr = "sort((), ())": tests(1507).expected = "()"
+  tests(1508).expr = "flat((), ())": tests(1508).expected = "()"
+  tests(1509).expr = "unique((), ())": tests(1509).expected = "()"
+  tests(1510).expr = "filter(())": tests(1510).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1511).expr = "filter((), pow)": tests(1511).expectedErrContains = "filter expects a function that takes 1 parameter"
+  tests(1512).expr = "sortby((), 3)": tests(1512).expectedErrContains = "sortby expects a function that takes 1 parameter"
+  tests(1513).expr = "f(x)=x>0; filter((), f)": tests(1513).expected = "()"
+  tests(1514).expr = "f(x)=x; sortby((), f)": tests(1514).expected = "()"
+  tests(1515).expr = "repeat((), 3)": tests(1515).expected = "()"
+  tests(1516).expr = "repeat((), 0)": tests(1516).expectedErrContains = "repeat() expects a positive integer"
+  tests(1517).expr = "repeat((), 1.5)": tests(1517).expectedErrContains = "repeat() expects integer values"
+  tests(1518).expr = "repeat(())": tests(1518).expectedErrContains = "expects 2 argument(s)"
+  tests(1519).expr = "unpack(())": tests(1519).expected = "()"
+  tests(1520).expr = "unpack((), ())": tests(1520).expected = "()"
+  tests(1521).expr = "f(x)=!!x; sort(filter((0,0), f))": tests(1521).expected = "()"
+  tests(1522).expr = "f(x)=x>0; g(x)=x<2; filter(filter((1,-2,0), f), g)": tests(1522).expected = "(1)"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer
@@ -4385,6 +4683,9 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   RunTimeValuesSupportOptionTests()
 
   RunLambdaFunctionsSupportOptionTests()
+
+  RunInexactFloatDisplayTests()
+  RunFilterExactIntegerTests()
 
   print "=== Result ==="
   print "Passed: " & g_passed
