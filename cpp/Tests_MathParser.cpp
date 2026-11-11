@@ -530,11 +530,11 @@ std::vector<TestCase> buildUnitCases() {
                    why = p.getError();
                    return false;
                  }
-                 if (p.getResultAsHex() != "(0x1,0x2,0x5)") {
+                 if (p.getResultAsHex() != "(0x1, 0x2, 0x5)") {
                    why = "hex array mismatch: " + p.getResultAsHex();
                    return false;
                  }
-                 if (p.getResultAsBin() != "(0b1,0b10,0b101)") {
+                 if (p.getResultAsBin() != "(0b1, 0b10, 0b101)") {
                    why = "bin array mismatch: " + p.getResultAsBin();
                    return false;
                  }
@@ -2393,9 +2393,31 @@ std::vector<TestCase> buildRegressionCases() {
                 MathParser p;
                 return expectEvalErrorContains(p, "rand(1)", "rand() expects 0 argument(s)", why);
               }});
-  t.push_back({"regression/factorial rejects non-scalar input", [](std::string& why) {
+  t.push_back({"regression/factorial maps non-empty arrays", [](std::string& why) {
                 MathParser p;
-                return expectEvalErrorContains(p, "fact((3,4))", "fact() expects a non-negative integer", why);
+                if (!expectEval(p, "fact((3,4))", "(6,24)", why)) return false;
+                if (!expectEval(p, "fact((5, 8))", "(120,40320)", why)) return false;
+                if (!expectEval(p, "factorial((1,2))", "(1,2)", why)) return false;
+                if (!expectEvalErrorContains(p, "fact((5, 1.5))", "expects integer values", why)) return false;
+                if (!expectEvalErrorContains(p, "fact((5, -1))", "expects a non-negative integer", why)) return false;
+                return expectEvalErrorContains(p, "fact(())", "expects a non-negative integer", why);
+              }});
+  t.push_back({"regression/empty aggregate and ratio pass through", [](std::string& why) {
+                MathParser p;
+                if (!expectEval(p, "sum(())", "()", why)) return false;
+                if (!expectEval(p, "product(())", "()", why)) return false;
+                if (!expectEval(p, "prod(())", "()", why)) return false;
+                if (!expectEval(p, "avg(())", "()", why)) return false;
+                if (!expectEval(p, "mean(())", "()", why)) return false;
+                if (!expectEval(p, "median(())", "()", why)) return false;
+                if (!expectEval(p, "variance(())", "()", why)) return false;
+                if (!expectEval(p, "stddev(())", "()", why)) return false;
+                if (!expectEval(p, "min(())", "()", why)) return false;
+                if (!expectEval(p, "max(())", "()", why)) return false;
+                if (!expectEval(p, "ratio(())", "()", why)) return false;
+                if (!expectEval(p, "sum((), ())", "()", why)) return false;
+                if (!expectEval(p, "sum((), 1)", "1", why)) return false;
+                return expectEvalErrorContains(p, "sum()", "expects at least 1 argument", why);
               }});
   t.push_back({"regression/factorial rejects negative input", [](std::string& why) {
                 MathParser p;
@@ -3713,14 +3735,14 @@ std::vector<TestCase> buildSortbyRatioCases() {
                  if (!expectEval(p, "sortby((5,1,5,2,2,9,1), abs)", "(1,1,2,2,5,5,9)", why)) return false;
                  return true;
                }});
-  t.push_back({"sortby/ratio: empty array passes through; ratio still rejects",
+  t.push_back({"sortby/ratio: empty array passes through",
                [](std::string& why) {
                  MathParser p;
                  if (!expectEval(p, "sortby((), abs)", "()", why)) return false;
                  if (!expectEval(p, "f(x)=x; sortby((), f)", "()", why)) return false;
                  if (!expectEvalErrorContains(p, "sortby((), 3)", "sortby expects a function that takes 1 parameter", why))
                    return false;
-                 return expectEvalErrorContains(p, "ratio(())", "expects at least 1 argument", why);
+                 return expectEval(p, "ratio(())", "()", why);
                }});
   t.push_back({"array: empty input passes through",
                [](std::string& why) {
@@ -4382,8 +4404,8 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "arctan(1)", "0.7853981633974483"} ,
     {ParityBasicCase::Kind::ErrorContains, "prod()", "expects at least 1 argument"} ,
     {ParityBasicCase::Kind::ErrorContains, "mean()", "expects at least 1 argument"} ,
-    {ParityBasicCase::Kind::ErrorContains, "variance(())", "expects at least 1 argument"} ,
-    {ParityBasicCase::Kind::ErrorContains, "stddev(())", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "variance(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "stddev(())", "()"} ,
     {ParityBasicCase::Kind::ErrorContains, "gcd(1)", "expects 2 argument(s)"} ,
     {ParityBasicCase::Kind::ErrorContains, "lcm(1)", "expects 2 argument(s)"} ,
     {ParityBasicCase::Kind::ErrorContains, "mod(1)", "expects 2 argument(s)"} ,
@@ -4398,8 +4420,8 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "random(10,10)", "10"} ,
     {ParityBasicCase::Kind::Expected, "random(1.5,1.5)", "1.5"} ,
     {ParityBasicCase::Kind::Expected, "random(3.5,3.5)", "3.5"} ,
-    {ParityBasicCase::Kind::ErrorContains, "fact((1,2))", "expects a non-negative integer"} ,
-    {ParityBasicCase::Kind::ErrorContains, "factorial((1,2))", "expects a non-negative integer"} ,
+    {ParityBasicCase::Kind::Expected, "fact((1,2))", "(1,2)"} ,
+    {ParityBasicCase::Kind::Expected, "factorial((1,2))", "(1,2)"} ,
     {ParityBasicCase::Kind::ErrorContains, "clamp((1,2,3),(4,5),6)", "expects scalar min/max"} ,
     {ParityBasicCase::Kind::Expected, "sum((1,2),(3,4),5)", "15"} ,
     {ParityBasicCase::Kind::Expected, "sort(())", "()"} ,
@@ -4790,6 +4812,13 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "f(x)=x*(10,20); sortby((3,1,2), f)", "(1,2,3)"},
     {ParityBasicCase::Kind::Expected, "sum(1,Inf,2)", "inf"},
     {ParityBasicCase::Kind::Expected, "prod(1,Inf,2)", "inf"},
+    {ParityBasicCase::Kind::Expected, "prod(nan,5)", "nan"},
+    {ParityBasicCase::Kind::Expected, "product(nan,5)", "nan"},
+    {ParityBasicCase::Kind::Expected, "prod(5,nan)", "nan"},
+    {ParityBasicCase::Kind::Expected, "prod(Inf,0)", "nan"},
+    {ParityBasicCase::Kind::Expected, "prod(Inf,2)", "inf"},
+    {ParityBasicCase::Kind::Expected, "prod(-Inf,2)", "-inf"},
+    {ParityBasicCase::Kind::Expected, "prod(Inf,-2)", "-inf"},
     {ParityBasicCase::Kind::Expected, "product(1,Inf,2)", "inf"},
     {ParityBasicCase::Kind::Expected, "avg(1,Inf,2)", "inf"},
     {ParityBasicCase::Kind::Expected, "mean(1,Inf,2)", "inf"},
@@ -5133,12 +5162,12 @@ std::vector<TestCase> buildTimeValuesSupportOptionCases() {
                      {"min(1:30, 0:45)", "00:45"},
                      {"max(1:30, 0:45)", "01:30"},
                      {"sum((0:15, 0:15, 0:30))", "01:00"},
-                     {"reverse(0:30, Inf, 1:00)", "(01:00,inf,00:30)"},
-                     {"unpack(0:30, Inf)", "(00:30,inf)"},
-                     {"unique(0:30, Inf, 0:30)", "(00:30,inf)"},
-                     {"ratio((hours(1:00), 15m/1h))", "(1/60,1/4)"},
-                     {"repeat((1:00, 2:00), 2)", "(01:00,02:00,01:00,02:00)"},
-                     {"flat(0:30, Inf, 1:00)", "(00:30,inf,01:00)"}
+                     {"reverse(0:30, Inf, 1:00)", "(01:00, inf, 00:30)"},
+                     {"unpack(0:30, Inf)", "(00:30, inf)"},
+                     {"unique(0:30, Inf, 0:30)", "(00:30, inf)"},
+                     {"ratio((hours(1:00), 15m/1h))", "(1/60, 1/4)"},
+                     {"repeat((1:00, 2:00), 2)", "(01:00, 02:00, 01:00, 02:00)"},
+                     {"flat(0:30, Inf, 1:00)", "(00:30, inf, 01:00)"}
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5216,7 +5245,7 @@ std::vector<TestCase> buildLambdaFunctionsSupportOptionCases() {
                    why = p.getError();
                    return false;
                  }
-                 if (p.getResult() != "(3,2,1)") {
+                 if (p.getResult() != "(3, 2, 1)") {
                    why = std::string("got ") + p.getResult();
                    return false;
                  }
@@ -5225,7 +5254,7 @@ std::vector<TestCase> buildLambdaFunctionsSupportOptionCases() {
                    why = p.getError();
                    return false;
                  }
-                 if (p.getResult() != "(1,2)") {
+                 if (p.getResult() != "(1, 2)") {
                    why = std::string("filter lambda got ") + p.getResult();
                    return false;
                  }
@@ -5525,6 +5554,12 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
 #if !SMARTMATH_COMPLEX_NUMBERS
   return t;
 #endif
+  t.push_back({"complex-opt: fact maps a real array with complex support on",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 return expectEval(p, "fact((5, 8))", "(120,40320)", why);
+               }});
   t.push_back({"complex-opt: flag and basic eval under enabled mode",
                [](std::string& why) {
                  MathParser p;
@@ -5905,18 +5940,18 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    const char* expr;
                    const char* expect;
                  } kRows[] = {
-                     {"(1,1+2*i)+10", "(11,11+2i)"},
-                     {"10+(1,1+2*i)", "(11,11+2i)"},
-                     {"(5,1+2*i)-(1,i)", "(4,1+i)"},
-                     {"(1,2)-i", "(1-i,2-i)"},
-                     {"(2,1+2*i)*3", "(6,3+6i)"},
-                     {"3*(2,1+2*i)", "(6,3+6i)"},
-                     {"(3,4)*(1,i)", "(3,4i)"},
-                     {"(1,2)*(1+i,0)", "(1+i,0)"},
-                     {"(8,6+8*i)/2", "(4,3+4i)"},
-                     {"(8,6)/(2,3)", "(4,2)"},
-                     {"(4+2*i,6)/(2,3)", "(2+i,2)"},
-                     {"i+(1,2)", "(1+i,2+i)"},
+                     {"(1,1+2*i)+10", "(11, 11+2i)"},
+                     {"10+(1,1+2*i)", "(11, 11+2i)"},
+                     {"(5,1+2*i)-(1,i)", "(4, 1+i)"},
+                     {"(1,2)-i", "(1-i, 2-i)"},
+                     {"(2,1+2*i)*3", "(6, 3+6i)"},
+                     {"3*(2,1+2*i)", "(6, 3+6i)"},
+                     {"(3,4)*(1,i)", "(3, 4i)"},
+                     {"(1,2)*(1+i,0)", "(1+i, 0)"},
+                     {"(8,6+8*i)/2", "(4, 3+4i)"},
+                     {"(8,6)/(2,3)", "(4, 2)"},
+                     {"(4+2*i,6)/(2,3)", "(2+i, 2)"},
+                     {"i+(1,2)", "(1+i, 2+i)"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -5942,7 +5977,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"(1+i)**2", "2i"},
                      {"(3+4*i)**0.5", "2+i"},
                      {"pow(1+i,2)", "2i"},
-                     {"(1+i,2)**(2,2)", "(2i,4)"},
+                     {"(1+i,2)**(2,2)", "(2i, 4)"},
                      {"sqr(1+2*i)", "-3+4i"},
                      {"sqrt(3+4*i)", "2+i"},
                      {"hypot(3*i,4)", "5"},
@@ -6031,10 +6066,10 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"product((2, 1+i))", "2+2i"},
                      {"avg(2+2i, 4+4i)", "3+3i"},
                      {"mean((1+2i, 3))", "2+i"},
-                     {"reverse((1+2i, 3))", "(3,1+2i)"},
-                     {"unique((1+2i, 1+2i, 3))", "(1+2i,3)"},
-                     {"unique((1+2i, 1+3i))", "(1+2i,1+3i)"},
-                     {"unpack((1+2i, 3))", "(1+2i,3)"},
+                     {"reverse((1+2i, 3))", "(3, 1+2i)"},
+                     {"unique((1+2i, 1+2i, 3))", "(1+2i, 3)"},
+                     {"unique((1+2i, 1+3i))", "(1+2i, 1+3i)"},
+                     {"unpack((1+2i, 3))", "(1+2i, 3)"},
                      {"sum(unpack((1+2i, 2+2i)))", "3+4i"},
                      {"f(x,y)=x*y; f(unpack((1+i, 2)))", "2+2i"},
                      {"sum(1i, 2i)", "3i"},
@@ -6047,22 +6082,25 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"prod(1, Inf+2i, 3)", "inf+6i"},
                      {"prod(5, Inf+2i, 3)", "inf+30i"},
                      {"avg(1, Inf+2i, 3)", "inf+0.6666666666666666i"},
-                     {"reverse(1, Inf+2i, 3)", "(3,inf+2i,1)"},
-                     {"unique(1, Inf+2i, 3)", "(1,inf+2i,3)"},
-                     {"unpack(Inf+2i, 3)", "(inf+2i,3)"},
+                     {"reverse(1, Inf+2i, 3)", "(3, inf+2i, 1)"},
+                     {"unique(1, Inf+2i, 3)", "(1, inf+2i, 3)"},
+                     {"unpack(Inf+2i, 3)", "(inf+2i, 3)"},
                      {"sum(1, 2+Inf*i, 3)", "6+inf*i"},
                      {"prod(1, 2+Inf*i, 3)", "6+inf*i"},
                      {"prod(5, 2+Inf*i, 3)", "30+inf*i"},
                      {"avg(1, 2+Inf*i, 3)", "2+inf*i"},
-                     {"reverse(1, 2+Inf*i, 3)", "(3,2+inf*i,1)"},
-                     {"unique(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
-                     {"unpack(2+Inf*i, 3)", "(2+inf*i,3)"},
-                     {"repeat((1, Inf, i), 2)", "(1,inf,i,1,inf,i)"},
-                     {"flat((1+2i, 3), 4)", "(1+2i,3,4)"},
-                     {"flat(1, Inf+2i, 3)", "(1,inf+2i,3)"},
-                     {"flat(1, 2+Inf*i, 3)", "(1,2+inf*i,3)"},
-                     {"((1+2i, 3), 4)", "(1+2i,3,4)"},
-                     {"unique(2, nan+i, nan, 1+nan*i)", "(2,nan)"},
+                     {"reverse(1, 2+Inf*i, 3)", "(3, 2+inf*i, 1)"},
+                     {"unique(1, 2+Inf*i, 3)", "(1, 2+inf*i, 3)"},
+                     {"unpack(2+Inf*i, 3)", "(2+inf*i, 3)"},
+                     {"repeat((1, Inf, i), 2)", "(1, inf, i, 1, inf, i)"},
+                     {"flat((1+2i, 3), 4)", "(1+2i, 3, 4)"},
+                     {"flat(1, Inf+2i, 3)", "(1, inf+2i, 3)"},
+                     {"flat(1, 2+Inf*i, 3)", "(1, 2+inf*i, 3)"},
+                     {"((1+2i, 3), 4)", "(1+2i, 3, 4)"},
+                     {"unique(2, nan+i, nan, 1+nan*i)", "(2, nan)"},
+                     {"prod(Inf+Inf*i, 0)", "nan"},
+                     {"prod(Inf+Inf*i, -2)", "-inf-inf*i"},
+                     {"(Inf+Inf*i)**2", "nan"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -6103,8 +6141,8 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    const char* expr;
                    const char* expect;
                  } kRows[] = {
-                     {"sortby((3+4i, 1+2i), abs)", "(1+2i,3+4i)"},
-                     {"sortby((3+4i, 1+2i), polar)", "(1+2i,3+4i)"},
+                     {"sortby((3+4i, 1+2i), abs)", "(1+2i, 3+4i)"},
+                     {"sortby((3+4i, 1+2i), polar)", "(1+2i, 3+4i)"},
                      {"ratio(1+2i)", "1+2i"},
                      {"ratio(0.5+0.25i)", "1/2+1/4*i"},
                      {"ratio(0.25i)", "1/4*i"},
@@ -6128,7 +6166,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"ratio(1/2+3i/4)", "1/2+3/4*i"},
                      {"3+ratio(0.2)i", "3+0.2i"},
 #if SMARTMATH_LAMBDA_FUNCTIONS
-                     {"sortby((3+2i, 2+3i, 2-3i, 3-2i), x: x)", "(2-3i,2+3i,3-2i,3+2i)"}
+                     {"sortby((3+2i, 2+3i, 2-3i, 3-2i), x: x)", "(2-3i, 2+3i, 3-2i, 3+2i)"}
 #endif
                  };
                  for (const auto& row : kRows) {
@@ -6259,16 +6297,16 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"imag(1+2i)", "2"},
                      {"conj(1+2i)", "1-2i"},
                      {"phase(1)", "0"},
-                     {"polar(1+1i)", "(1.414213562373095,0.7853981633974483)"},
+                     {"polar(1+1i)", "(1.414213562373095, 0.7853981633974483)"},
                      // Python cmath.rect(*cmath.polar(1+1j)) is 1+1j. The real part is 1 ulp
                      // off on every libm, so it prints 1.0. The imag part is exact 1 under
                      // Emscripten and Basic (i) and 1 ulp off under MSVC (1.0i).
                      {"cart(polar(1+1i))", "1.0+i"},
                     {"phase(-1-0i)", "3.141592653589793"},
-                    {"polar(-1-0i)", "(1,3.141592653589793)"},
+                    {"polar(-1-0i)", "(1, 3.141592653589793)"},
                      {"fact(5)", "120"},
-                     {"int((1+2.7i,4.2+5.8i))", "(1+2i,4+5i)"},
-                     {"abs((3+4i,0))", "(5,0)"},
+                     {"int((1+2.7i,4.2+5.8i))", "(1+2i, 4+5i)"},
+                     {"abs((3+4i,0))", "(5, 0)"},
                  };
                  for (const auto& row : kRows) {
                    p.parseAndEvaluate(row.expr);
@@ -6419,7 +6457,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"cosh(1+i)", "0.8337300251311491+0.9888977057628651i"},
                      {"asinh(1+i)", "1.061275061905036+0.6662394324925153i"},
                      {"atan(1+i)", "1.017221967897851+0.4023594781085251i"},
-                     {"sin((1+i,2))", "(1.298457581415977+0.6349639147847361i,0.9092974268256817)"},
+                     {"sin((1+i,2))", "(1.298457581415977+0.6349639147847361i, 0.9092974268256817)"},
                      {"atanh(i)", "0.7853981633974483i"},
                      {"acos(1)", "0"},
                      {"asin(i)", "0.8813735870195428i"},
@@ -6480,7 +6518,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"hex(10+15i)", "0xA+0xFi"},
                      {"bin(1+i)", "0b1+i"},
                      {"oct(8i)", "0o10i"},
-                     {"hex((1+2i,10+11i))", "(0x1+0x2i,0xA+0xBi)"},
+                     {"hex((1+2i,10+11i))", "(0x1+0x2i, 0xA+0xBi)"},
                      {"uhex(-1+2i)", "0xFFFFFFFFFFFFFFFF+0x2i"},
                      {"uoct(-1+i)", "0o1777777777777777777777+i"},
                      {"ubin(5+10i)", "0b101+0b1010i"},

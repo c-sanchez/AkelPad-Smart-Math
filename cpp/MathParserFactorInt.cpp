@@ -96,7 +96,7 @@ constexpr std::size_t kFactorintMrBaseCount =
 
 constexpr std::size_t kFactorintSmallPrimeCount = 1229;
 constexpr std::uint64_t kFactorintSmallMaxPrime = 10007u;
-constexpr std::uint64_t kFactorintSmallPrimes[kFactorintSmallPrimeCount] = {
+constexpr std::uint32_t kFactorintSmallPrimes[kFactorintSmallPrimeCount] = {
   3u, 5u, 7u, 11u, 13u, 17u, 19u, 23u, 29u, 31u, 37u, 41u,
   43u, 47u, 53u, 59u, 61u, 67u, 71u, 73u, 79u, 83u, 89u, 97u,
   101u, 103u, 107u, 109u, 113u, 127u, 131u, 137u, 139u, 149u, 151u, 157u,

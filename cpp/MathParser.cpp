@@ -667,9 +667,6 @@ void complexPowPrincipal(double ar, double ai, double br, double bi, double& out
             const double ni = cr * ai + ci * ar;
             cr = nr;
             ci = ni;
-            if (!std::isfinite(cr) && !std::isfinite(ci)) {
-              break;
-            }
           }
           outRe = cr;
           outIm = ci;
@@ -683,9 +680,6 @@ void complexPowPrincipal(double ar, double ai, double br, double bi, double& out
             const double ni = cr * ai + ci * ar;
             cr = nr;
             ci = ni;
-            if (!std::isfinite(cr) && !std::isfinite(ci)) {
-              break;
-            }
           }
           pr = cr;
           pi = ci;
@@ -6090,7 +6084,7 @@ std::string valueToString(const EvalValue& v, RenderBase forcedBase, bool suppor
   }
   std::string out = "(";
   for (std::size_t i = 0; i < v.arr.size(); ++i) {
-    if (i) out += ",";
+    if (i) out += STR_COMMA;
     EvalValue e = scalarFromScalarValue(v.arr[i]);
     e.setRenderUnsigned(v.hasRenderUnsigned());
     out += formatScalar(e, forcedBase, supportComplexNumbers);
@@ -10601,6 +10595,13 @@ MathParser::EvalValue MathParser::aggregateFoldByMode(
     BuiltinFunctionId id,
     const std::vector<EvalValue>& args,
     AggregateFoldMode mode) const {
+  if (args.empty()) {
+    ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
+    return makeScalar(0);
+  }
+  if (countAggregateArgScalarItems(args) == 0) {
+    return makeArrayFromScalars({});
+  }
   switch (mode) {
 #if SMARTMATH_COMPLEX_NUMBERS
   case AggregateFoldMode::Complex: {
@@ -10644,18 +10645,11 @@ MathParser::EvalValue MathParser::aggregateFoldByMode(
   }
   double br = 0.0;
   double bi = 0.0;
-  bool stopComplexProduct = false;
   forEachArgScalarValue([&](const EvalValue::ScalarValue& s) {
-    if (stopComplexProduct) {
-      return;
-    }
     scalarLoadCartesian(s, br, bi);
     if (id == BuiltinFunctionId::Product) {
+      // A later 0 or sign change still applies after Inf (Inf*0 is NaN).
       complexMultiply(ar, ai, br, bi, ar, ai);
-      // allow `Inf + N*i` or `N + Inf*i`
-      if (!std::isfinite(ar) && !std::isfinite(ai)) {
-        stopComplexProduct = true;
-      }
     } else {
       ar += br;
       ai += bi;
@@ -10942,16 +10936,8 @@ MathParser::EvalValue MathParser::aggregateFoldByMode(
     std::size_t n = 0;
     if (id == BuiltinFunctionId::Product) {
       acc = 1.0;
-      bool stopProduct = false;
-      n = forEachArgScalar([&](double v) {
-        if (stopProduct) {
-          return;
-        }
-        acc *= v;
-        if (!std::isfinite(acc)) {
-          stopProduct = true;
-        }
-      });
+      // A later 0 or sign change still applies after Inf (Inf*0 is NaN).
+      n = forEachArgScalar([&](double v) { acc *= v; });
     } else {
       acc = 0.0;
       n = forEachArgScalar([&](double v) { acc += v; });
@@ -11322,6 +11308,9 @@ MathParser::EvalValue MathParser::builtinRatio(
   EvalContext sub;
   std::vector<EvalValue> flat;
   if (!flattenArgsToScalars({args[0]}, flat)) {
+    if (!args.empty() && args[0].kind == ValueKind::Array) {
+      return makeArrayFromScalars({});
+    }
     ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
     return makeScalar(0);
   }
@@ -11925,6 +11914,19 @@ MathParser::EvalValue MathParser::builtinModCall(EvalContext& ctx, const std::ve
   return out;
 }
 
+bool tryApplyFactorialRealNonNegative(const EvalValue::ScalarValue& sv, EvalValue& out) {
+  long long n = 0;
+  if (!nearlyInt(sv.scalar, n) || n < 0) {
+    return false;
+  }
+  if (n <= 20) {
+    out = makeScalarInt(kFactorialTable21[n]);
+    return true;
+  }
+  out = makeScalar(factorialScalarFloatFromInt(n));
+  return true;
+}
+
 MathParser::EvalValue MathParser::builtinFactorial(
     EvalContext& ctx,
     const std::string& fnName,
@@ -11934,15 +11936,25 @@ MathParser::EvalValue MathParser::builtinFactorial(
     return builtinUnaryMath(ctx, fnName, BuiltinFunctionId::Fact, args);
   }
 #endif
-  long long n = 0;
-  if (args[0].kind != ValueKind::Scalar || !nearlyInt(args[0].scalarValue.scalar, n) || n < 0) {
+  if (args[0].kind == ValueKind::Array && !args[0].arr.empty()) {
+    std::vector<EvalValue> outVals;
+    outVals.reserve(args[0].arr.size());
+    for (const auto& elem : args[0].arr) {
+      EvalValue one;
+      if (!tryApplyFactorialRealNonNegative(elem, one)) {
+        ctx.failCall(CallErrorId::NonNegativeInteger, fnName);
+        return makeScalar(0);
+      }
+      outVals.push_back(std::move(one));
+    }
+    return makeArrayFromScalars(std::move(outVals));
+  }
+  EvalValue out;
+  if (args[0].kind != ValueKind::Scalar || !tryApplyFactorialRealNonNegative(args[0].scalarValue, out)) {
     ctx.failCall(CallErrorId::NonNegativeInteger, fnName);
     return makeScalar(0);
   }
-  if (n <= 20) {
-    return makeScalarInt(kFactorialTable21[n]);
-  }
-  return makeScalar(factorialScalarFloatFromInt(n));
+  return out;
 }
 
 MathParser::EvalValue MathParser::builtinDegRad(

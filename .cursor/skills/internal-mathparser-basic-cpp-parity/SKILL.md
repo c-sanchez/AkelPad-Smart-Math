@@ -37,7 +37,6 @@ Language-specific workarounds are not mirrored when the other side has no such d
 
 Do not "fix" these unless the user asks, and do not write shared tests that require them to match; record new ones here when a task leaves a non-floating-point difference in place. Floating-point inaccuracy needs no entry; smoke-tests "Handling a test mismatch" covers it.
 
-- Array separator: Basic `(1, 2)`, C++ `(1,2)`. Comparators normalize it; exact-string tables follow their own side.
 - Unknown-name errors: C++ lowercases identifiers and lists every unknown name in the input; Basic keeps case and stops at the first.
 - Float formatting: C++ prints correctly rounded `%.16g`; Basic uses FreeBASIC `str()`, which can differ on exact decimal ties (`1e15+0.5`: Basic `1000000000000001.0`, C++ `1000000000000000.0`). Both append `.0` when that general form has no fraction and no exponent, and both use scientific form for a non-exact value with magnitude above `2^53`. The plugin auto formatter uses the same rule and then strips leading zeros in the exponent (`9.907919180215092e+15`).
 - `±2^63` results (accepted within the test tolerance; do not write exact-string tests that require them to match):
@@ -45,6 +44,7 @@ Do not "fix" these unless the user asks, and do not write shared tests that requ
   - `-(-9223372036854775808)` and `h(x)=-x; h(-9223372036854775808)`: C++ returns the exact `9223372036854775808` (as Python does); Basic returns the float `9.223372036854776e+018`, the same double value.
   - `0-(-9223372036854775808)`: both return the float `9.223372036854776e+018`; Python gives the exact integer.
 - Complex `ln`/`log` real part is `log(hypot(re, im))`, which can be one ulp from Python near `|z| = 1` (`log(1+i,2)` → `0.5000000000000001+...`, Python `0.5+...`). This is allowed floating-point inaccuracy: the tests expect the Python value with tolerant comparison.
+- `fact(())` / `factorial(())` with complex support on: C++ `builtinUnaryMath` maps the empty array to `()`; Basic `ApplyUnaryFunction` still reports a numeric error. Complex support off, both report `expects a non-negative integer`. Non-empty real arrays map elementwise in both modes.
 
 ## Calc tools
 

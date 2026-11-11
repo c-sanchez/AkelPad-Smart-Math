@@ -775,6 +775,14 @@ private sub RunComplexNumberSupportOptionTests()
     subPass += 1
   end if
 
+  if Parser_TryEvaluateEx("fact((5, 8))", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "(120,40320)") = FALSE then
+    print "[complex-opt] FAIL: fact((5, 8)) with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: fact((5, 8)) -> (120,40320) with support flag ON"
+    subPass += 1
+  end if
+
   if Parser_TryEvaluateEx("abs(0x7FFFFFFFFFFFFFFF+20)", r, rt, ia) = FALSE orelse rt <> "9223372036854775827" then
     print "[complex-opt] FAIL: abs exact int with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
     subFail += 1
@@ -1301,8 +1309,8 @@ private sub RunComplexNumberSupportOptionTests()
   next xi
 
   ' Aggregation/array utilities with complex operands (allowed vs rejected builtins).
-  dim cxAggOk(1 to 38) as String
-  dim cxAggExpect(1 to 38) as String
+  dim cxAggOk(1 to 41) as String
+  dim cxAggExpect(1 to 41) as String
   cxAggOk(1) = "sum(1+2i, 3)": cxAggExpect(1) = "4+2i"
   cxAggOk(2) = "sum((1+2i, 3+4i))": cxAggExpect(2) = "4+6i"
   cxAggOk(3) = "prod(1+i, 2)": cxAggExpect(3) = "2+2i"
@@ -1341,9 +1349,12 @@ private sub RunComplexNumberSupportOptionTests()
   cxAggOk(36) = "flat(1, 2+Inf*i, 3)": cxAggExpect(36) = "(1, 2+inf*i, 3)"
   cxAggOk(37) = "((1+2i, 3), 4)": cxAggExpect(37) = "(1+2i, 3, 4)"
   cxAggOk(38) = "unique(2, nan+i, nan, 1+nan*i)": cxAggExpect(38) = "(2, nan)"
+  cxAggOk(39) = "prod(Inf+Inf*i, 0)": cxAggExpect(39) = "nan" ' IEEE; both parts NaN
+  cxAggOk(40) = "prod(Inf+Inf*i, -2)": cxAggExpect(40) = "-inf-inf*i" ' pure-real factor scales each part; Python's (nan+nanj) is a spurious Inf*0
+  cxAggOk(41) = "(Inf+Inf*i)**2": cxAggExpect(41) = "nan" ' Inf*Inf - Inf*Inf
 
   dim agi as Integer
-  for agi = 1 to 38
+  for agi = 1 to 41
     if Parser_TryEvaluateEx(cxAggOk(agi), r, rt, ia) = FALSE orelse rt <> cxAggExpect(agi) then
       print "[complex-opt] FAIL: """ & cxAggOk(agi) & """ -> """ & rt & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -3010,7 +3021,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1522) as SmokeCase
+  dim tests(1 to 1542) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -3239,8 +3250,8 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(204).expr = "arctan(1)":        tests(204).expected = "0.7853981633974483" ' [ok-func]
   tests(205).expr = "prod()":           tests(205).expectedErrContains = "expects at least 1 argument" ' [arity]
   tests(206).expr = "mean()":           tests(206).expectedErrContains = "expects at least 1 argument" ' [arity]
-  tests(207).expr = "variance(())":     tests(207).expectedErrContains = "expects at least 1 argument" ' [syntax]
-  tests(208).expr = "stddev(())":       tests(208).expectedErrContains = "expects at least 1 argument" ' [syntax]
+  tests(207).expr = "variance(())":     tests(207).expected = "()" ' empty array passes through; Python statistics.pvariance([]) raises
+  tests(208).expr = "stddev(())":       tests(208).expected = "()" ' empty array passes through; Python statistics.pstdev([]) raises
   tests(209).expr = "gcd(1)":           tests(209).expectedErrContains = "expects 2 argument(s)" ' [arity]
   tests(210).expr = "lcm(1)":           tests(210).expectedErrContains = "expects 2 argument(s)" ' [arity]
   tests(211).expr = "mod(1)":           tests(211).expectedErrContains = "expects 2 argument(s)" ' [arity]
@@ -3255,8 +3266,8 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(220).expr = "random(10,10)":    tests(220).expected = "10" ' [edge]
   tests(221).expr = "random(1.5,1.5)":  tests(221).expected = "1.5" ' [edge]
   tests(222).expr = "random(3.5,3.5)":  tests(222).expected = "3.5" ' [edge]
-  tests(223).expr = "fact((1,2))":      tests(223).expectedErrContains = "expects a non-negative integer" ' [shape]
-  tests(224).expr = "factorial((1,2))": tests(224).expectedErrContains = "expects a non-negative integer" ' [shape]
+  tests(223).expr = "fact((1,2))":      tests(223).expected = "(1,2)" ' math.factorial(1), math.factorial(2)
+  tests(224).expr = "factorial((1,2))": tests(224).expected = "(1,2)" ' math.factorial(1), math.factorial(2)
   '
   ' === REGRESSION-LOCK / compatibility behavior ===
   ' These cases intentionally lock currently observed behavior that may look odd,
@@ -3754,7 +3765,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(694).expr = "x=0.0/0.0; x&1": tests(694).expectedErrContains = "bitwise operands must be integer values"
   tests(695).expr = "clamp(5,1,(4,7))": tests(695).expectedErrContains = "clamp() expects scalar min/max"
   tests(696).expr = "hypot((3,4),5)": tests(696).expected = "(5.830951894845301,6.403124237432849)"
-  tests(697).expr = "fact((3,4))": tests(697).expectedErrContains = "fact() expects a non-negative integer"
+  tests(697).expr = "fact((3,4))": tests(697).expected = "(6,24)" ' math.factorial(3), math.factorial(4)
   tests(698).expr = "mod(5)": tests(698).expectedErrContains = "mod() expects 2 argument(s)"
   tests(699).expr = "pow(5)": tests(699).expectedErrContains = "pow() expects 2 argument(s)"
   tests(700).expr = "log(5)": tests(700).expectedErrContains = "log() expects 2 argument(s)"
@@ -4142,7 +4153,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1073).expr = "g(a)=1/a; sortby((0:30, 1:00, 0:45), g)": tests(1073).expectedErrContains = ", |g)" ' [error-snippet] key fn failure -> sortby key arg
   tests(1074).expr = "a(x)=1/a; sortby((0:30, 1:00, 0:45), a)": tests(1074).expectedErrContains = "unknown variable: a" ' [sortby] body uses a but param is x; not UDF hint
   tests(1075).expr = "a(x)=1/x; sortby((0:30, 1:00, 0:45), a)": tests(1075).expectedErrContains = "incompatible operands" ' [sortby] duration key fn
-  tests(1076).expr = "ratio(())": tests(1076).expectedErrContains = "expects at least 1 argument" ' [arity]
+  tests(1076).expr = "ratio(())": tests(1076).expected = "()" ' empty array passes through
   tests(1077).expr = "ratio(0.14285714285714285)": tests(1077).expected = "1/7" ' [ok-func] repeating decimal
   tests(1078).expr = "ratio(-0.3333333333333333)": tests(1078).expected = "-1/3" ' [ok-func] negative
   tests(1079).expr = "ratio(1234567)": tests(1079).expected = "1234567" ' [ok-func] exact integer
@@ -4603,6 +4614,26 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1520).expr = "unpack((), ())": tests(1520).expected = "()"
   tests(1521).expr = "f(x)=!!x; sort(filter((0,0), f))": tests(1521).expected = "()"
   tests(1522).expr = "f(x)=x>0; g(x)=x<2; filter(filter((1,-2,0), f), g)": tests(1522).expected = "(1)"
+  tests(1523).expr = "fact((5, 8))": tests(1523).expected = "(120,40320)" ' math.factorial(5), math.factorial(8)
+  tests(1524).expr = "fact((5, 1.5))": tests(1524).expectedErrContains = "expects integer values" ' same as fact(2.5)
+  tests(1535).expr = "fact((5, -1))": tests(1535).expectedErrContains = "expects a non-negative integer" ' same as fact(-1)
+  tests(1525).expr = "sum(())": tests(1525).expected = "()" ' empty passes through; Python sum([]) is 0
+  tests(1526).expr = "product(())": tests(1526).expected = "()" ' empty passes through; Python math.prod([]) is 1
+  tests(1527).expr = "prod(())": tests(1527).expected = "()"
+  tests(1528).expr = "avg(())": tests(1528).expected = "()"
+  tests(1529).expr = "mean(())": tests(1529).expected = "()"
+  tests(1530).expr = "median(())": tests(1530).expected = "()"
+  tests(1531).expr = "min(())": tests(1531).expected = "()"
+  tests(1532).expr = "max(())": tests(1532).expected = "()"
+  tests(1533).expr = "sum((), ())": tests(1533).expected = "()"
+  tests(1534).expr = "sum((), 1)": tests(1534).expected = "1"
+  tests(1536).expr = "prod(nan,5)": tests(1536).expected = "nan" ' IEEE nan * 5
+  tests(1537).expr = "product(nan,5)": tests(1537).expected = "nan"
+  tests(1538).expr = "prod(5,nan)": tests(1538).expected = "nan"
+  tests(1539).expr = "prod(Inf,0)": tests(1539).expected = "nan" ' IEEE Inf * 0
+  tests(1540).expr = "prod(Inf,2)": tests(1540).expected = "inf"
+  tests(1541).expr = "prod(-Inf,2)": tests(1541).expected = "-inf"
+  tests(1542).expr = "prod(Inf,-2)": tests(1542).expected = "-inf"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer
