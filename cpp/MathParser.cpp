@@ -961,7 +961,6 @@ constexpr const char* STR_PAR_X_COMMA_N = "(x, n)";
 constexpr const char* STR_PAR_X = "(x)";
 constexpr const char* STR_PAR_START_COMMA_STOP_COMMA_STEP = "(start, stop [, step])";
 constexpr const char* STR_PAR_STEP_MUST_NOT_BE_ZERO = "() step must not be zero";
-constexpr const char* STR_PAR_PRODUCES_NO_VALUES = "() produces no values";
 constexpr const char* STR_PAR_PRODUCES_TOO_MANY_VALUES = "() produces too many values";
 constexpr int BUILTIN_MAX_PRODUCED_ITEMS = 1000;
 constexpr const char* STR_PAR_DOTDOTDOT = "(...)";
@@ -6424,9 +6423,6 @@ void EvalContext::failCall(CallErrorId id, const std::string& fnName, std::size_
     case CallErrorId::RangeStepZero:
       fail(fnName + STR_PAR_STEP_MUST_NOT_BE_ZERO);
       return;
-    case CallErrorId::RangeEmpty:
-      fail(fnName + STR_PAR_PRODUCES_NO_VALUES);
-      return;
     case CallErrorId::TooManyValues:
       fail(fnName + STR_PAR_PRODUCES_TOO_MANY_VALUES);
       return;
@@ -10557,14 +10553,12 @@ MathParser::EvalValue MathParser::builtinRange(
     return makeScalar(0);
   }
   if ((stepV > 0 && startV >= stopV) || (stepV < 0 && startV <= stopV)) {
-    ctx.failCall(CallErrorId::RangeEmpty, fnName);
-    return makeScalar(0);
+    return makeArrayFromScalars({});
   }
 
   const std::uint64_t estimated = estimateRangeItemCount(startV, stopV, stepV);
   if (estimated == 0ull) {
-    ctx.failCall(CallErrorId::RangeEmpty, fnName);
-    return makeScalar(0);
+    return makeArrayFromScalars({});
   }
   if (!acceptProducedItemCount(ctx, fnName, estimated)) {
     return makeScalar(0);
@@ -11800,10 +11794,10 @@ MathParser::EvalValue MathParser::builtinBaseFormat(
   } else {
     std::vector<EvalValue> elems;
     if (!flattenArgsToScalars(args, elems)) {
-      ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
-      return makeScalar(0);
+      out = makeArrayFromScalars({});
+    } else {
+      out = makeArrayFromScalars(elems);
     }
-    out = makeArrayFromScalars(elems);
   }
   applyBuiltinFormatRenderMeta(id, out);
   return out;
@@ -11936,7 +11930,10 @@ MathParser::EvalValue MathParser::builtinFactorial(
     return builtinUnaryMath(ctx, fnName, BuiltinFunctionId::Fact, args);
   }
 #endif
-  if (args[0].kind == ValueKind::Array && !args[0].arr.empty()) {
+  if (args[0].kind == ValueKind::Array) {
+    if (args[0].arr.empty()) {
+      return makeArrayFromScalars({});
+    }
     std::vector<EvalValue> outVals;
     outVals.reserve(args[0].arr.size());
     for (const auto& elem : args[0].arr) {
@@ -11981,8 +11978,7 @@ MathParser::EvalValue MathParser::builtinDegRad(
   }
   std::vector<EvalValue> inVals;
   if (!flattenArgsToScalars(args, inVals)) {
-    ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
-    return makeScalar(0);
+    return makeArrayFromScalars({});
   }
   std::vector<EvalValue> outVals;
   outVals.reserve(inVals.size());

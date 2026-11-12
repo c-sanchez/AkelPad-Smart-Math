@@ -5,6 +5,7 @@ Load when **adding or reviewing** test expectations, or when any test fails ("Ha
 ## Coverage in `SmokeTest_MathParser.bas`
 
 - Normal behavior; invalid arity/types; array/scalar combos when arrays apply; variadic min + extra args when applicable.
+- When a function or operator accepts arrays, include `()`. Those expectations come from empty-array-policy and `USAGE_AND_SYNTAX.md`. Python `sum([])` and `math.prod([])` are not the reference. An empty `range` span follows Python and is `()`.
 - 1-arg or variadic functions: one normal single-arg case, one single-arg edge, one overflow/range case when the domain has limits.
 - Regression cases for fixed defects (fix-behavior flow).
 - Match existing naming and assertion style. Mirror equivalent cases into `cpp/Tests_MathParser.cpp` (parity skill).

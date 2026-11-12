@@ -3021,7 +3021,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1542) as SmokeCase
+  dim tests(1 to 1563) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4416,11 +4416,11 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1338).expr = "range(1, 2)": tests(1338).expected = "(1)" ' [range] single value
   tests(1339).expr = "range(-1, 2)": tests(1339).expected = "(-1, 0, 1)" ' [range] negative start
   tests(1340).expr = "range(1, 10, 0)": tests(1340).expectedErrContains = "range() step must not be zero" ' [range] zero step
-  tests(1341).expr = "range(1, 10, -1)": tests(1341).expectedErrContains = "range() produces no values" ' [range] empty forward
-  tests(1342).expr = "range(10, 0, 2)": tests(1342).expectedErrContains = "range() produces no values" ' [range] empty reverse
-  tests(1343).expr = "range(0, 0, 2)": tests(1343).expectedErrContains = "range() produces no values" ' [range] empty equal bounds
-  tests(1344).expr = "range(1, 1)": tests(1344).expectedErrContains = "range() produces no values" ' [range] empty default step
-  tests(1345).expr = "range(5, 1)": tests(1345).expectedErrContains = "range() produces no values" ' [range] empty start>=stop
+  tests(1341).expr = "range(1, 10, -1)": tests(1341).expected = "()" ' [range] empty span; Python range(1, 10, -1)
+  tests(1342).expr = "range(10, 0, 2)": tests(1342).expected = "()" ' [range] empty span; Python range(10, 0, 2)
+  tests(1343).expr = "range(0, 0, 2)": tests(1343).expected = "()" ' [range] empty span; Python range(0, 0, 2)
+  tests(1344).expr = "range(1, 1)": tests(1344).expected = "()" ' [range] empty span; Python range(1, 1)
+  tests(1345).expr = "range(5, 1)": tests(1345).expected = "()" ' [range] empty span; Python range(5, 1)
   tests(1346).expr = "range(1, 2, 1.5)": tests(1346).expectedErrContains = "range() expects integer values" ' [range] float step
   tests(1347).expr = "range((1,2), 5)": tests(1347).expectedErrContains = "range() expects integer values" ' [range] array arg
   tests(1348).expr = "range(1, 1:00)": tests(1348).expectedErrContains = "range() expects integer values" ' [range] time arg
@@ -4634,6 +4634,27 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1540).expr = "prod(Inf,2)": tests(1540).expected = "inf"
   tests(1541).expr = "prod(-Inf,2)": tests(1541).expected = "-inf"
   tests(1542).expr = "prod(Inf,-2)": tests(1542).expected = "-inf"
+  tests(1543).expr = "sin(())": tests(1543).expected = "()" ' empty array maps to empty; no angle to transform
+  tests(1544).expr = "ln(())": tests(1544).expected = "()"
+  tests(1545).expr = "abs(())": tests(1545).expected = "()"
+  tests(1546).expr = "hex(())": tests(1546).expected = "()"
+  tests(1547).expr = "hex((), ())": tests(1547).expected = "()"
+  tests(1548).expr = "deg(())": tests(1548).expected = "()"
+  tests(1549).expr = "()+1": tests(1549).expected = "()"
+  tests(1550).expr = "-()": tests(1550).expected = "()"
+  tests(1562).expr = "+()": tests(1562).expected = "()" ' unary plus of an empty array is empty
+  tests(1551).expr = "!()": tests(1551).expected = "1" ' empty array is falsy
+  tests(1552).expr = "()==()": tests(1552).expected = "1" ' equal length, no mismatched element
+  tests(1553).expr = "() && 1": tests(1553).expected = "0"
+  tests(1554).expr = "() || 0": tests(1554).expected = "0"
+  tests(1555).expr = "not ()": tests(1555).expected = "1"
+  tests(1556).expr = "sum((), 2, ())": tests(1556).expected = "2" ' empty arrays contribute nothing
+  tests(1557).expr = "stddev((),(),())": tests(1557).expected = "()" ' no values left; not a numeric identity
+  tests(1558).expr = "fact(())": tests(1558).expected = "()"
+  tests(1559).expr = "f(x)=x+1; f(())": tests(1559).expected = "()"
+  tests(1560).expr = "f(x)=max(x); f(())": tests(1560).expected = "()"
+  tests(1561).expr = "seconds(())": tests(1561).expected = "()"
+  tests(1563).expr = "clamp((), 0, 9)": tests(1563).expected = "()" ' empty value maps to empty; bounds stay scalar
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

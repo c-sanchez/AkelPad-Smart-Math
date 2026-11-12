@@ -20,6 +20,7 @@ Load when editing `USAGE_AND_SYNTAX.md`: function or constant documentation, or 
 ## Semantics changes
 
 - Put the rule next to the related operator or function (for example integer accuracy, NaN/Inf, complex-mode notes), with one example.
+- Array examples that include `()` follow empty-array-policy.
 - Fix wrong existing examples in place; do not add a contradicting note elsewhere.
 - Complex-only behavior goes in the matching "... With Complex Numbers" subsection.
 

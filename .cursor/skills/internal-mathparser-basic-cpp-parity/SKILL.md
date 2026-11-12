@@ -44,7 +44,8 @@ Do not "fix" these unless the user asks, and do not write shared tests that requ
   - `-(-9223372036854775808)` and `h(x)=-x; h(-9223372036854775808)`: C++ returns the exact `9223372036854775808` (as Python does); Basic returns the float `9.223372036854776e+018`, the same double value.
   - `0-(-9223372036854775808)`: both return the float `9.223372036854776e+018`; Python gives the exact integer.
 - Complex `ln`/`log` real part is `log(hypot(re, im))`, which can be one ulp from Python near `|z| = 1` (`log(1+i,2)` → `0.5000000000000001+...`, Python `0.5+...`). This is allowed floating-point inaccuracy: the tests expect the Python value with tolerant comparison.
-- `fact(())` / `factorial(())` with complex support on: C++ `builtinUnaryMath` maps the empty array to `()`; Basic `ApplyUnaryFunction` still reports a numeric error. Complex support off, both report `expects a non-negative integer`. Non-empty real arrays map elementwise in both modes.
+
+Empty-array results follow `.cursor/skills/mathparser-add-or-fix/flows/empty-array-policy.md`. A Basic/C++ mismatch with that policy is a defect, not an entry in this list.
 
 ## Calc tools
 

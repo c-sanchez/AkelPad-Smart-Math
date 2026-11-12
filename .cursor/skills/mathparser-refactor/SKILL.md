@@ -42,6 +42,7 @@ All of it within the hard constraints below.
 ## Hard constraints
 
 - No behavior change unless explicitly requested. Keep the exact-int/exact-uint behavior the path already had; do not add metadata it did not keep.
+- Do not change `()` results. Behavior changes go through mathparser-add-or-fix and its empty-array policy.
 - No user-visible error message drift unless explicitly requested.
 - C++: follow cpp-class-design, including its cleanup order (one cluster at a time). Leave Basic's procedure layout as it is.
 - No UB; keep Basic/C++ parity; string constants per coding-standards.

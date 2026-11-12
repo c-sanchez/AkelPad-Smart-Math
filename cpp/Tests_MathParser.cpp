@@ -2400,7 +2400,7 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEval(p, "factorial((1,2))", "(1,2)", why)) return false;
                 if (!expectEvalErrorContains(p, "fact((5, 1.5))", "expects integer values", why)) return false;
                 if (!expectEvalErrorContains(p, "fact((5, -1))", "expects a non-negative integer", why)) return false;
-                return expectEvalErrorContains(p, "fact(())", "expects a non-negative integer", why);
+                return expectEval(p, "fact(())", "()", why);
               }});
   t.push_back({"regression/empty aggregate and ratio pass through", [](std::string& why) {
                 MathParser p;
@@ -4591,11 +4591,34 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "range(1, 10, 2)", "(1,3,5,7,9)"} ,
     {ParityBasicCase::Kind::Expected, "sum(range(1,4))", "6"} ,
     {ParityBasicCase::Kind::ErrorContains, "range(1, 10, 0)", "step must not be zero"} ,
-    {ParityBasicCase::Kind::ErrorContains, "range(1, 10, -1)", "produces no values"} ,
-    {ParityBasicCase::Kind::ErrorContains, "range(10, 0, 2)", "produces no values"} ,
-    {ParityBasicCase::Kind::ErrorContains, "range(0, 0, 2)", "produces no values"} ,
-    {ParityBasicCase::Kind::ErrorContains, "range(1, 1)", "produces no values"} ,
-    {ParityBasicCase::Kind::ErrorContains, "range(5, 1)", "produces no values"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 10, -1)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "range(10, 0, 2)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "range(0, 0, 2)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "range(1, 1)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "range(5, 1)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "sin(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "ln(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "abs(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "hex(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "hex((), ())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "deg(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "()+1", "()"} ,
+    {ParityBasicCase::Kind::Expected, "-()", "()"} ,
+    {ParityBasicCase::Kind::Expected, "+()", "()"} ,
+    {ParityBasicCase::Kind::Expected, "!()", "1"} ,
+    {ParityBasicCase::Kind::Expected, "()==()", "1"} ,
+    {ParityBasicCase::Kind::Expected, "() && 1", "0"} ,
+    {ParityBasicCase::Kind::Expected, "() || 0", "0"} ,
+    {ParityBasicCase::Kind::Expected, "not ()", "1"} ,
+    {ParityBasicCase::Kind::Expected, "sum((), 2, ())", "2"} ,
+    {ParityBasicCase::Kind::Expected, "stddev((),(),())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "fact(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "clamp((), 0, 9)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "f(x)=x+1; f(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "f(x)=max(x); f(())", "()"} ,
+#if SMARTMATH_TIME_VALUES
+    {ParityBasicCase::Kind::Expected, "seconds(())", "()"} ,
+#endif
     {ParityBasicCase::Kind::ErrorContains, "range(1, 2, 1.5)", "expects integer values"} ,
     {ParityBasicCase::Kind::ErrorContains, "range((1,2), 5)", "expects integer values"} ,
 #if SMARTMATH_TIME_VALUES

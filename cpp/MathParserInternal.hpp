@@ -659,7 +659,6 @@ namespace smartmath_internal {
     NonNegativeInteger,
     PositiveInteger,
     RangeStepZero,
-    RangeEmpty,
     TooManyValues,
   };
 

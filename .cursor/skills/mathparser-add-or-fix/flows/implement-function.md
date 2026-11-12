@@ -18,7 +18,7 @@ Each builtin is one id plus one row in each table; all tables are indexed by the
 
 - Route through the handler for the row's `BC_*` category; follow existing helper patterns.
 - Validate arity and type/support rules beyond what the metadata row enforces.
-- Arrays: preserve broadcasting, size checks, and return-shape conventions.
+- Arrays: `()` and return shape follow empty-array-policy. Preserve broadcasting and size checks.
 - Variadic: enforce minimum arity; process extra args deterministically.
 - Decide non-finite handling and follow the other coding-standards rules.
 

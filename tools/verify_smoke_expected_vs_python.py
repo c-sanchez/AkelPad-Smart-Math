@@ -39,6 +39,9 @@ Smart-Math rules plain Python does not model:
   * ``min`` / ``max`` skip ``nan`` once any non-NaN value is present (NaN is absence).
     ``clamp`` uses the same absence rules for a NaN value or a NaN bound.
   * Arrays are flattened as they are built, so a result never contains a nested array.
+  * No scalars left yields ``()`` (``sum(())``, ``prod(())``, ``sin(())``), not Python's
+    ``sum([]) == 0`` or ``math.prod([]) == 1``. An empty ``range`` span is ``()``,
+    matching Python ``range``.
   * A bare trailing formatter is ``name(ans)``; a final ``;`` still yields that result.
 
 Sources parsed (in addition to ``tests(N)`` rows):
@@ -1302,6 +1305,20 @@ def dsl_cmp(op: str, a: Any, b: Any) -> int:
     raise ValueError(op)
 
 
+def dsl_neg(x: Any) -> Any:
+    """Unary ``-``. An empty array stays ``()``; a non-empty array maps element-wise."""
+    if isinstance(x, tuple):
+        return tuple(dsl_neg(item) for item in _flatten_value(x))
+    return -x
+
+
+def dsl_pos(x: Any) -> Any:
+    """Unary ``+``. An empty array stays ``()``; a non-empty array maps element-wise."""
+    if isinstance(x, tuple):
+        return tuple(dsl_pos(item) for item in _flatten_value(x))
+    return +x
+
+
 def dsl_bitinv(x: Any) -> Any:
     if isinstance(x, tuple):
         return tuple(dsl_bitinv(item) for item in _flatten_value(x))
@@ -1417,6 +1434,18 @@ class _SmokeAstTransform(ast.NodeTransformer):
                 args=[self.visit(node.operand)],
                 keywords=[],
             )
+        if isinstance(node.op, ast.USub):
+            return ast.Call(
+                func=ast.Name(id="dsl_neg", ctx=ast.Load()),
+                args=[self.visit(node.operand)],
+                keywords=[],
+            )
+        if isinstance(node.op, ast.UAdd):
+            return ast.Call(
+                func=ast.Name(id="dsl_pos", ctx=ast.Load()),
+                args=[self.visit(node.operand)],
+                keywords=[],
+            )
         return self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
@@ -1444,7 +1473,11 @@ def _preprocess_unary_bang_real(expr: str) -> str:
             s = s[:pos] + f"dsl_lnot({num})" + rest[len(num) :]
             continue
         if rest.startswith("("):
-            s = s[:pos] + "dsl_lnot(" + rest[1:]
+            close = _matching_paren(rest, 0)
+            if close < 0:
+                break
+            operand = rest[: close + 1]
+            s = s[:pos] + f"dsl_lnot({operand})" + rest[close + 1 :]
             continue
         mname = re.match(r"([A-Za-z_][A-Za-z0-9_]*)", rest)
         if mname:
@@ -3678,7 +3711,7 @@ def prod_sm(*args):
     for item in _flatten_args(*args):
         flat.append(item.numeric() if isinstance(item, _FactorPower) else item)
     if not flat:
-        return 1
+        return tuple()
     acc = flat[0]
     for item in flat[1:]:
         if isinstance(acc, (complex, ExactComplex)) or isinstance(item, (complex, ExactComplex)):
@@ -3690,7 +3723,9 @@ def prod_sm(*args):
 
 def mean_sm(*args):
     flat = _flatten_args(*args)
-    if flat and all(isinstance(item, Duration) for item in flat):
+    if not flat:
+        return tuple()
+    if all(isinstance(item, Duration) for item in flat):
         return Duration(sum(item.ms for item in flat) / len(flat))
     return statistics.mean(flat)
 
@@ -3703,10 +3738,10 @@ def _flatten_args_cx(*args: Any) -> list[Any]:
     return _flatten_args(*args)
 
 
-def mean_sm_cx(*args: Any) -> complex:
+def mean_sm_cx(*args: Any):
     flat = _flatten_args_cx(*args)
     if not flat:
-        raise ValueError("empty")
+        return tuple()
     total = complex(0.0, 0.0)
     for item in flat:
         total += _as_complex(item)
@@ -3714,12 +3749,17 @@ def mean_sm_cx(*args: Any) -> complex:
     return complex(total.real / n, total.imag / n)
 
 
-def avg_sm_cx(*args: Any) -> complex:
+def avg_sm_cx(*args: Any):
     return mean_sm_cx(*args)
 
 
 def fact_sm(n):
-    """Mirror ``TryApplyFactorialScalarInt``: table through 20, then multiply until non-finite."""
+    """Mirror ``TryApplyFactorialScalarInt``: table through 20, then multiply until non-finite.
+
+    An array maps element-wise. Nothing left yields ``()``.
+    """
+    if isinstance(n, tuple):
+        return tuple(fact_sm(item) for item in _flatten_value(n))
     if not float(n).is_integer() or n < 0:
         raise ValueError("fact")
     n = int(n)
@@ -4215,7 +4255,10 @@ def lcm_sm(a, b):
 
 
 def median_sm(*args):
-    return statistics.median(_flatten_args(*args))
+    flat = _flatten_args(*args)
+    if not flat:
+        return tuple()
+    return statistics.median(flat)
 
 
 def _finite_stats(*args):
@@ -4230,6 +4273,8 @@ def variance_sm(*args):
     flat = _finite_stats(*args)
     if flat is None:
         return math.nan
+    if not flat:
+        return tuple()
     return statistics.pvariance(flat)
 
 
@@ -4237,6 +4282,8 @@ def stddev_sm(*args):
     flat = _finite_stats(*args)
     if flat is None:
         return math.nan
+    if not flat:
+        return tuple()
     return statistics.pstdev(flat)
 
 
@@ -4244,7 +4291,7 @@ def _minmax_sm(want_min: bool, *args: Any) -> Any:
     """NaN is absent: kept only while every value seen so far is NaN."""
     flat = _flatten_args(*args)
     if not flat:
-        raise ValueError("empty")
+        return tuple()
     winner: Any = None
     winner_v = 0.0
     has_winner = False
@@ -4276,7 +4323,10 @@ def max_sm(*args):
 
 
 def sum_sm(*args):
-    return sum(_flatten_args(*args))
+    flat = _flatten_args(*args)
+    if not flat:
+        return tuple()
+    return sum(flat)
 
 
 def random_sm(lo, hi):
@@ -4486,7 +4536,7 @@ def range_sm(start: Any, stop: Any, step: Any = 1) -> tuple:
     if p == 0:
         raise ValueError("range() step must not be zero")
     if (p > 0 and s >= t) or (p < 0 and s <= t):
-        raise ValueError("range() produces no values")
+        return tuple()
     count = len(range(s, t, p))
     if count > _MAX_PRODUCED:
         raise ValueError("range() produces too many values")
@@ -4635,6 +4685,8 @@ def build_ns(ans: Any) -> dict:
         "dsl_and": dsl_and,
         "dsl_or": dsl_or,
         "dsl_bitinv": dsl_bitinv,
+        "dsl_neg": dsl_neg,
+        "dsl_pos": dsl_pos,
         "hex_val_sm": hex_val_sm,
         "base_val_sm": base_val_sm,
         "div_sm_real": div_sm_real,

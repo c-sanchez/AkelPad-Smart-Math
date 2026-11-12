@@ -40,6 +40,7 @@ Ask concise clarifying questions if ambiguous.
 |---|---|
 | Edits any source file or script (parser, test, generated test data, `.bat`, `.py`); not docs | `.cursor/skills/internal-mathparser-protect-workspace/SKILL.md` **before first edit** |
 | Adds/changes a builtin **function** or an **operator** | `.cursor/skills/mathparser-add-or-fix/flows/implement-function.md` |
+| Adds/changes a function or operator, or changes array / `()` results, errors, tests, or docs | `.cursor/skills/mathparser-add-or-fix/flows/empty-array-policy.md` |
 | Adds a builtin **constant** | `.cursor/skills/mathparser-add-or-fix/flows/implement-constant.md` |
 | Fixes a defect / changes existing results or errors | `.cursor/skills/mathparser-add-or-fix/flows/fix-behavior.md` |
 | Edits Basic/C++ parser **implementation** | `.cursor/skills/mathparser-add-or-fix/flows/coding-standards.md` |
@@ -70,6 +71,7 @@ Follow in order. Skip a step only when its trigger does not apply.
 - Complex work is gated and its tests are isolated (complex-support flow).
 - Expected values come from references, not parser output; every mismatch was handled per smoke-tests "Handling a test mismatch".
 - Integer metadata, helpers, string constants, and non-finite handling follow coding-standards.
+- Array and `()` results follow empty-array-policy; implementation, tests, and docs agree with it.
 - No unrelated behavior changes; C++ artifacts under `cpp/` only.
 - C++ additions follow cpp-class-design; Basic structure is unchanged.
 
