@@ -5018,6 +5018,13 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "1:00 * 1e300", "incompatible operands"} ,
     {ParityBasicCase::Kind::Expected, "1:00 < 1e300", "1"} ,
     {ParityBasicCase::Kind::ErrorContains, "1:00 < inf", "incompatible operands"} ,
+    {ParityBasicCase::Kind::Expected, "b=(2,3); b[0]**b[1]", "8"} ,
+    {ParityBasicCase::Kind::Expected, "b=(2,3); -b[0]**b[1]", "-8"} ,
+    {ParityBasicCase::Kind::Expected, "b=(2,3); 2**b[1]", "8"} ,
+    {ParityBasicCase::Kind::Expected, "a=(1,2,3,4,5); a[1:4][0]**2", "4"} ,
+    {ParityBasicCase::Kind::ErrorContains, "(2,3)%", "percentage requires scalar value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "()%", "percentage requires scalar value"} ,
+    {ParityBasicCase::Kind::Expected, "b=(2,3); b[0]%*b[1]", "0.06"} ,
 #include "../tools/smoke_parity_append_generated.cpp.inc"
 };
 
@@ -5546,6 +5553,17 @@ std::vector<TestCase> buildOperatorPrecedenceDocCases() {
       {"!!3", "1"},
       {"5+(2*3)%", "5.3"},
       {"200+15%", "230"},
+      {"(2,3)[0]**(2,3)[1]", "8"},
+      {"(2,3)[0]**2", "4"},
+      {"(1,2,3,4)[1:3]**2", "(4, 9)"},
+      {"sort((3,1))[0]**2", "1"},
+      {"2**3%", "0.08"},
+      {"2%**3", "0.000008"},
+      {"5%*2", "0.1"},
+      {"10+2**3%", "10.8"},
+      {"~2%", "-0.03"},
+      {"pow((2,3)[0],(2,3)[1])", "8"},
+      {"sin((0,1)[0])", "0"},
   };
   std::vector<TestCase> t;
   for (const Row& row : kRows) {
@@ -5811,6 +5829,10 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"cart(2**3i)", "-0.4869944179657813+0.8734050817748715i"},
                      {"cart(7**20i)", "0.3444991159598805+0.9387866419495224i"},
                      {"cart(7**2i)", "-0.7315336785874539-0.681805307321898i"},
+                     {"(2,3)i", "(2i, 3i)"},
+                     {"()i", "()"},
+                     {"(2,3)[0]i", "2i"},
+                     {"b=(2,3); b[0]i", "2i"},
                  };
                  for (const auto& row : kRows) {
                    if (!expectEval(p, row.expr, row.expect, why)) {

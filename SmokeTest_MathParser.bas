@@ -677,8 +677,8 @@ private sub RunOperatorPrecedenceDocTests()
   print "=== Operator precedence (USAGE_AND_SYNTAX.md) ==="
   dim subPass as Integer = 0
   dim subFail as Integer = 0
-  dim precOk(1 to 24) as String
-  dim precExpect(1 to 24) as String
+  dim precOk(1 to 35) as String
+  dim precExpect(1 to 35) as String
   precOk(1) = "-2**2": precExpect(1) = "-4"
   precOk(2) = "-(2**2)": precExpect(2) = "-4"
   precOk(3) = "2**-2": precExpect(3) = "0.25"
@@ -703,11 +703,22 @@ private sub RunOperatorPrecedenceDocTests()
   precOk(22) = "!!3": precExpect(22) = "1"
   precOk(23) = "5+(2*3)%": precExpect(23) = "5.3"
   precOk(24) = "200+15%": precExpect(24) = "230"
+  precOk(25) = "(2,3)[0]**(2,3)[1]": precExpect(25) = "8"
+  precOk(26) = "(2,3)[0]**2": precExpect(26) = "4"
+  precOk(27) = "(1,2,3,4)[1:3]**2": precExpect(27) = "(4, 9)"
+  precOk(28) = "sort((3,1))[0]**2": precExpect(28) = "1"
+  precOk(29) = "2**3%": precExpect(29) = "0.08"
+  precOk(30) = "2%**3": precExpect(30) = "0.000008"
+  precOk(31) = "5%*2": precExpect(31) = "0.1"
+  precOk(32) = "10+2**3%": precExpect(32) = "10.8"
+  precOk(33) = "~2%": precExpect(33) = "-0.03"
+  precOk(34) = "pow((2,3)[0],(2,3)[1])": precExpect(34) = "8"
+  precOk(35) = "sin((0,1)[0])": precExpect(35) = "0"
   dim r as Double
   dim rt as String
   dim ia as Boolean
   dim pi as Integer
-  for pi = 1 to 24
+  for pi = 1 to 35
     if Parser_TryEvaluateEx(precOk(pi), r, rt, ia) = FALSE orelse ResultCloseEnough(rt, precExpect(pi)) = FALSE then
       print "[precedence-doc] FAIL: """ & precOk(pi) & """ -> """ & rt & """ want """ & precExpect(pi) & """ err=" & Parser_GetLastError()
       subFail += 1
@@ -975,6 +986,23 @@ private sub RunComplexNumberSupportOptionTests()
       subPass += 1
     end if
   next si
+
+  dim cxIndexImag(1 to 4) as String
+  dim cxIndexImagExpect(1 to 4) as String
+  cxIndexImag(1) = "(2,3)i": cxIndexImagExpect(1) = "(2i, 3i)"
+  cxIndexImag(2) = "()i": cxIndexImagExpect(2) = "()"
+  cxIndexImag(3) = "(2,3)[0]i": cxIndexImagExpect(3) = "2i"
+  cxIndexImag(4) = "b=(2,3); b[0]i": cxIndexImagExpect(4) = "2i"
+  dim xii as Integer
+  for xii = 1 to 4
+    if Parser_TryEvaluateEx(cxIndexImag(xii), r, rt, ia) = FALSE orelse ResultCloseEnough(rt, cxIndexImagExpect(xii)) = FALSE then
+      print "[complex-opt] FAIL: """ & cxIndexImag(xii) & """ -> """ & rt & """ want """ & cxIndexImagExpect(xii) & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      print "[complex-opt] PASS: """ & cxIndexImag(xii) & """ -> """ & rt & """"
+      subPass += 1
+    end if
+  next xii
 
   dim se as Integer
   for se = 1 to 2
@@ -3136,7 +3164,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1599) as SmokeCase
+  dim tests(1 to 1606) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4806,6 +4834,13 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1597).expr = "ncr(1020,510)": tests(1597).expected = "2.806267768299623e+305"
   tests(1598).expr = "ncr(1030,515)": tests(1598).expected = "inf"
   tests(1599).expr = "ncr(1021,510)": tests(1599).expected = "5.607043818853062e+305"
+  tests(1600).expr = "b=(2,3); b[0]**b[1]": tests(1600).expected = "8" ' indexed elements are the base of **
+  tests(1601).expr = "b=(2,3); -b[0]**b[1]": tests(1601).expected = "-8"
+  tests(1602).expr = "b=(2,3); 2**b[1]": tests(1602).expected = "8"
+  tests(1603).expr = "a=(1,2,3,4,5); a[1:4][0]**2": tests(1603).expected = "4"
+  tests(1604).expr = "(2,3)%": tests(1604).expectedErrContains = "percentage requires scalar value"
+  tests(1605).expr = "()%": tests(1605).expectedErrContains = "percentage requires scalar value"
+  tests(1606).expr = "b=(2,3); b[0]%*b[1]": tests(1606).expected = "0.06"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

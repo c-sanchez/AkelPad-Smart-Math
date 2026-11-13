@@ -165,7 +165,7 @@ private:
       EvalContext& ctx,
       std::vector<std::unique_ptr<Expr>>& outValues);
   std::unique_ptr<Expr> parsePrimaryParenthesized(EvalContext& ctx);
-  std::unique_ptr<Expr> parsePrimaryNumericLiteral(EvalContext& ctx);
+  std::unique_ptr<Expr> parsePrimaryNumericLiteral(EvalContext& ctx, bool& allowTightImag);
 #if SMARTMATH_TIME_VALUES
   bool tryParseScalarTimeLiteral(EvalContext& ctx, EvalValue& out) const;
   bool tryParseCompactSuffixTimeLiteral(EvalContext& ctx, EvalValue& out) const;
@@ -377,7 +377,9 @@ private:
   std::unique_ptr<Expr> parseAddSub(EvalContext& ctx);
   std::unique_ptr<Expr> parseMulDivMod(EvalContext& ctx);
   std::unique_ptr<Expr> parsePower(EvalContext& ctx);
+  std::unique_ptr<Expr> parsePostfixPercent(EvalContext& ctx);
   std::unique_ptr<Expr> parseUnary(EvalContext& ctx);
+  std::unique_ptr<Expr> parseTrailingIndexes(EvalContext& ctx, std::unique_ptr<Expr> prim);
   std::unique_ptr<Expr> parsePrimary(EvalContext& ctx);
 #if SMARTMATH_COMPLEX_NUMBERS
   std::unique_ptr<Expr> wrapExprWithTightImagSuffixIfPresent(EvalContext& ctx, std::unique_ptr<Expr> expr);

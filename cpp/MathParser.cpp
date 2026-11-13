@@ -2818,6 +2818,13 @@ std::unique_ptr<Expr> makeBinaryExpr(
   return out;
 }
 
+std::unique_ptr<Expr> makePostfixPercentExpr(std::unique_ptr<Expr> child) {
+  auto w = std::make_unique<Expr>();
+  w->tag = Expr::Tag::PostfixPercent;
+  w->child = std::move(child);
+  return w;
+}
+
 bool isComparisonBinaryOp(Expr::BinaryOp op) {
   return op == Expr::BinaryOp::CmpLt || op == Expr::BinaryOp::CmpGt ||
          op == Expr::BinaryOp::CmpLe || op == Expr::BinaryOp::CmpGe ||
@@ -4006,11 +4013,22 @@ bool isPercentPostfixContext(const char* p) {
     ++q;
   }
   if (*q == '\0') return true;
-  if (*q == ')' || *q == ',' || *q == ';') return true;
+  if (*q == ')' || *q == ']' || *q == '}' || *q == ',' || *q == ';') return true;
   if (*q == '+' || *q == '-' || *q == '*' || *q == '/' || *q == '^') return true;
   if (*q == '<' || *q == '>' || *q == '=' || *q == '!') return true;
   if (*q == '&' || *q == '|') return true;
   return false;
+}
+
+bool percentTailStartsPower(const char* percentPtr) {
+  if (!isPercentPostfixContext(percentPtr)) {
+    return false;
+  }
+  const char* q = percentPtr + 1;
+  while (*q && std::isspace(static_cast<unsigned char>(*q))) {
+    ++q;
+  }
+  return q[0] == '*' && q[1] == '*';
 }
 
 }  // namespace
@@ -7576,7 +7594,7 @@ bool MathParser::tryConsumeAddSubOp(EvalContext& ctx, Expr::BinaryOp& outOp) {
 
 bool MathParser::tryConsumeMulDivModOp(EvalContext& ctx, Expr::BinaryOp& outOp) {
   skipSpaces(ctx.p);
-  if (*ctx.p == '*') {
+  if (*ctx.p == '*' && ctx.p[1] != '*') {
     ++ctx.p;
     outOp = Expr::BinaryOp::Mul;
     return true;
@@ -8866,10 +8884,11 @@ std::unique_ptr<MathParser::Expr> MathParser::wrapExprWithTightImagSuffixIfPrese
 std::unique_ptr<MathParser::Expr> MathParser::parsePrimary(EvalContext& ctx) {
   skipSpaces(ctx.p);
   std::unique_ptr<Expr> prim;
+  bool allowTightImag = true;
   if (*ctx.p == '(') {
     prim = parsePrimaryParenthesized(ctx);
   } else if (isNumericLiteralStart(*ctx.p)) {
-    return parsePrimaryNumericLiteral(ctx);
+    prim = parsePrimaryNumericLiteral(ctx, allowTightImag);
   } else if (localIsIdentStart(*ctx.p)) {
     prim = parsePrimaryIdentifierOrCall(ctx);
   } else {
@@ -8879,11 +8898,18 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimary(EvalContext& ctx) {
   if (ctx.parseError || !prim) {
     return nullptr;
   }
+  prim = parseTrailingIndexes(ctx, std::move(prim));
+  if (ctx.parseError || !prim) {
+    return nullptr;
+  }
 #if SMARTMATH_COMPLEX_NUMBERS
-  return wrapExprWithTightImagSuffixIfPresent(ctx, std::move(prim));
+  if (allowTightImag) {
+    return wrapExprWithTightImagSuffixIfPresent(ctx, std::move(prim));
+  }
 #else
-  return prim;
+  (void)allowTightImag;
 #endif
+  return prim;
 }
 
 std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryParenthesized(EvalContext& ctx) {
@@ -9058,7 +9084,8 @@ bool MathParser::tryParseCompactSuffixTimeLiteral(EvalContext& ctx, EvalValue& o
 }
 #endif
 
-std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryNumericLiteral(EvalContext& ctx) {
+std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryNumericLiteral(EvalContext& ctx, bool& allowTightImag) {
+  allowTightImag = true;
   auto emitNumericLiteral = [&](EvalValue litV) -> std::unique_ptr<Expr> {
     auto lit = std::make_unique<Expr>();
     lit->tag = Expr::Tag::Literal;
@@ -9066,11 +9093,7 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryNumericLiteral(EvalCon
     return lit;
   };
   auto finishNumericLiteral = [&](std::unique_ptr<Expr> lit) -> std::unique_ptr<Expr> {
-#if SMARTMATH_COMPLEX_NUMBERS
-    return wrapExprWithTightImagSuffixIfPresent(ctx, std::move(lit));
-#else
     return lit;
-#endif
   };
 
   const char* parsedEnd = nullptr;
@@ -9106,6 +9129,7 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryNumericLiteral(EvalCon
           auto lit = std::make_unique<Expr>();
           lit->tag = Expr::Tag::Literal;
           lit->literalValue = std::move(timeLit);
+          allowTightImag = false;
           return lit;
         }
         if (ctx.parseError) {
@@ -9119,6 +9143,7 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryNumericLiteral(EvalCon
           auto lit = std::make_unique<Expr>();
           lit->tag = Expr::Tag::Literal;
           lit->literalValue = std::move(compactLit);
+          allowTightImag = false;
           return lit;
         }
         if (ctx.parseError) {
@@ -9293,14 +9318,18 @@ std::unique_ptr<MathParser::Expr> MathParser::parseUnary(EvalContext& ctx) {
     u->child = std::move(inner);
     return u;
   }
-  auto prim = parsePower(ctx);
-  if (hasExprParseFailure(ctx, prim)) {
-    return nullptr;
-  }
+  return parsePower(ctx);
+}
+
+std::unique_ptr<MathParser::Expr> MathParser::parseTrailingIndexes(EvalContext& ctx, std::unique_ptr<Expr> prim) {
   while (true) {
+    const char* const saved = ctx.p;
     skipSpaces(ctx.p);
-    if (*ctx.p == '[') {
-      ++ctx.p;
+    if (*ctx.p != '[') {
+      ctx.p = saved;
+      break;
+    }
+    ++ctx.p;
       ++ctx.arrayIndexBracketDepth;
       skipSpaces(ctx.p);
       if (*ctx.p == ']') {
@@ -9415,17 +9444,6 @@ std::unique_ptr<MathParser::Expr> MathParser::parseUnary(EvalContext& ctx) {
         w->elements[2] = std::move(stepExpr);
       }
       prim = std::move(w);
-      continue;
-    }
-    if (isPercentPostfixContext(ctx.p)) {
-      ++ctx.p;
-      auto w = std::make_unique<Expr>();
-      w->tag = Expr::Tag::PostfixPercent;
-      w->child = std::move(prim);
-      prim = std::move(w);
-      continue;
-    }
-    break;
   }
   return prim;
 }
@@ -9436,27 +9454,44 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePower(EvalContext& ctx) {
     return nullptr;
   }
   skipSpaces(ctx.p);
-  std::unique_ptr<Expr> out;
-  // AST parser uses '**' for exponentiation.
-  if (ctx.p[0] == '*' && ctx.p[1] == '*') {
-    ctx.p += 2;
-    auto right = parseUnary(ctx);
-    if (ctx.parseError || !right) {
-      return nullptr;
-    }
-    out = std::make_unique<Expr>();
-    out->tag = Expr::Tag::Binary;
-    out->binaryOp = Expr::BinaryOp::Pow;
-    out->left = std::move(left);
-    out->right = std::move(right);
-  } else {
-    out = std::move(left);
+  // `%` immediately before `**` is the base: `2%**3` is `(2%)**3`.
+  // A trailing `%` stays for parsePostfixPercent: `2**3%` is `(2**3)%`.
+  if (percentTailStartsPower(ctx.p)) {
+    ++ctx.p;
+    left = makePostfixPercentExpr(std::move(left));
+    skipSpaces(ctx.p);
   }
+  if (!(ctx.p[0] == '*' && ctx.p[1] == '*')) {
+    return left;
+  }
+  ctx.p += 2;
+  auto right = parseUnary(ctx);
+  if (ctx.parseError || !right) {
+    return nullptr;
+  }
+  auto out = std::make_unique<Expr>();
+  out->tag = Expr::Tag::Binary;
+  out->binaryOp = Expr::BinaryOp::Pow;
+  out->left = std::move(left);
+  out->right = std::move(right);
   return out;
 }
 
+std::unique_ptr<MathParser::Expr> MathParser::parsePostfixPercent(EvalContext& ctx) {
+  auto prim = parseUnary(ctx);
+  if (hasExprParseFailure(ctx, prim)) {
+    return nullptr;
+  }
+  skipSpaces(ctx.p);
+  if (!isPercentPostfixContext(ctx.p)) {
+    return prim;
+  }
+  ++ctx.p;
+  return makePostfixPercentExpr(std::move(prim));
+}
+
 std::unique_ptr<MathParser::Expr> MathParser::parseMulDivMod(EvalContext& ctx) {
-  return parseLeftAssocBinary(ctx, &MathParser::parseUnary, &MathParser::tryConsumeMulDivModOp);
+  return parseLeftAssocBinary(ctx, &MathParser::parsePostfixPercent, &MathParser::tryConsumeMulDivModOp);
 }
 
 std::unique_ptr<MathParser::Expr> MathParser::parseShift(EvalContext& ctx) {
