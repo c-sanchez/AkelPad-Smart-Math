@@ -38,6 +38,7 @@ Ask concise clarifying questions if ambiguous.
 
 | If the task… | Read now |
 |---|---|
+| Plans or implements parser behavior, or investigates results, errors, or limits | `.cursor/skills/mathparser-add-or-fix/flows/raise-concerns.md` |
 | Edits any source file or script (parser, test, generated test data, `.bat`, `.py`); not docs | `.cursor/skills/internal-mathparser-protect-workspace/SKILL.md` **before first edit** |
 | Adds/changes a builtin **function** or an **operator** | `.cursor/skills/mathparser-add-or-fix/flows/implement-function.md` |
 | Adds/changes a function or operator, or changes array / `()` results, errors, tests, or docs | `.cursor/skills/mathparser-add-or-fix/flows/empty-array-policy.md` |
@@ -55,16 +56,17 @@ Ask concise clarifying questions if ambiguous.
 
 Follow in order. Skip a step only when its trigger does not apply.
 
-1. **Protect** — before the first source/script edit.
-2. **Implement** — every table row that applies to the edit.
-3. **Tests** — for any new or changed function, operator, constant, or behavior, mirrored in C++.
-4. **Docs** — when documented behavior is added or changes.
-5. **Gates** — before finishing any change; build-gates decides which apply (a docs-only change that touches the Quick index still runs the docs index check).
-6. **Reflect** — when either parser or its tests changed: parity skill reflection gate (it owns the gate-rerun rule).
+1. **Concerns** — throughout planning and implementation, raise-concerns. A rejection, limit, or mathematical mismatch found in reasoning is raised with a proposed fix and before/after examples, and waited on before the plan or the edit treats it as settled.
+2. **Protect** — before the first source/script edit.
+3. **Implement** — every table row that applies to the edit.
+4. **Tests** — for any new or changed function, operator, constant, or behavior, mirrored in C++.
+5. **Docs** — when documented behavior is added or changes.
+6. **Gates** — before finishing any change; build-gates decides which apply (a docs-only change that touches the Quick index still runs the docs index check).
+7. **Reflect** — when either parser or its tests changed: parity skill reflection gate (it owns the gate-rerun rule).
 
 ## Validation Checklist
 
-- Implementation, metadata rows, hints, tests, and docs agree.
+- Concerns found in reasoning were raised per raise-concerns, each with a proposed fix and before/after examples, and the user decided each one before it was treated as settled.
 - Required gates from build-gates ran; Basic passed before any required C++.
 - Parity complete (parity skill reflection gate).
 - `FunctionNames`, `OperatorNames`, and `ConstNames` stay the only Basic name tables; C++ name lists follow implement-function / implement-constant.
@@ -83,4 +85,5 @@ Report:
 - concise behavior summary;
 - test coverage added, and any existing expectations corrected (with the reference that justified each correction);
 - one pass/fail line for each gate that ran (gate names as in build-gates "Invocation");
-- remaining Basic/C++ or Python differences (noting which are allowed floating-point inaccuracy) and assumptions from missing requirements.
+- concerns raised to the user, and the decision for each; or that none were identified
+- remaining Basic/C++ or Python differences (noting which are allowed floating-point inaccuracy) and assumptions from missing requirements. A rejection or limit appears here only after the user has decided to keep it.

@@ -1207,9 +1207,9 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                 MathParser p;
                 return expectEval(p, "npr(5,2)", "20", why);
               }});
-  t.push_back({"edge/ncr invalid domain", [](std::string& why) {
+  t.push_back({"edge/ncr r greater than n is zero", [](std::string& why) {
                 MathParser p;
-                return expectEvalErrorContains(p, "ncr(5,7)", "numeric error in ncr()", why);
+                return expectEval(p, "ncr(5,7)", "0", why);
               }});
   t.push_back({"edge/npr rejects inf integer-only", [](std::string& why) {
                 MathParser p;
@@ -3313,7 +3313,7 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEval(p, "2**64/(1/2)", "3.68934881474191e+019", why)) return false;
                 if (!expectEval(p, "1317624576693539401*(1/11)", "1.197840524266854e+017", why)) return false;
                 if (!expectEval(p, "0x7FFFFFFFFFFFFFFF*(-1/8)", "-1.152921504606847e+018", why)) return false;
-                return expectEvalErrorContains(p, "ncr((5,6),(2,7))", "numeric error in ncr()", why);
+                return expectEval(p, "ncr((5,6),(2,7))", "(10,0)", why);
               }});
 #if SMARTMATH_FACTORINT
   t.push_back({"regression/factorint prime decomposition", [](std::string& why) {
@@ -4614,6 +4614,45 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "stddev((),(),())", "()"} ,
     {ParityBasicCase::Kind::Expected, "fact(())", "()"} ,
     {ParityBasicCase::Kind::Expected, "clamp((), 0, 9)", "()"} ,
+    {ParityBasicCase::Kind::ErrorContains, "(2,3)**()", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "()**flat(5)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::Expected, "~(2,7)", "(-3,-8)"} ,
+    {ParityBasicCase::Kind::Expected, "~()", "()"} ,
+    {ParityBasicCase::Kind::Expected, "1^18446744073709551615", "18446744073709551614"} ,
+    {ParityBasicCase::Kind::Expected, "1&18446744073709551615", "1"} ,
+    {ParityBasicCase::Kind::Expected, "1|18446744073709551615", "18446744073709551615"} ,
+    {ParityBasicCase::Kind::Expected, "9223372036854775808^64", "9223372036854775872"} ,
+    {ParityBasicCase::Kind::ErrorContains, "18446744073709551615>>64", "incompatible operands"} ,
+    {ParityBasicCase::Kind::Expected, "(-1)**(1/65)", "-1"} ,
+    {ParityBasicCase::Kind::Expected, "(-32)**(1/65)", "-1.054766076481647"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(5,8)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "npr(5,8)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(5,7)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "npr(5,7)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(-1,0)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(100,50)", "1.008913445455642e+029"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(-3,2)", "6"} ,
+    {ParityBasicCase::Kind::Expected, "npr(-3,2)", "12"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(-3,0)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "npr(-3,0)", "1"} ,
+    {ParityBasicCase::Kind::ErrorContains, "gcd(0,0)", "numeric error in gcd()"} ,
+    {ParityBasicCase::Kind::ErrorContains, "lcm(0,0)", "numeric error in lcm()"} ,
+    {ParityBasicCase::Kind::Expected, "gcd(0,5)", "5"} ,
+    {ParityBasicCase::Kind::Expected, "lcm(0,5)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "asin(2)", "nan"} ,
+    {ParityBasicCase::Kind::Expected, "asinh(1e200)", "461.2101657793691"} ,
+    {ParityBasicCase::Kind::Expected, "asinh(1e308)", "709.889355822726"} ,
+    {ParityBasicCase::Kind::Expected, "asinh(-1e308)", "-709.889355822726"} ,
+    {ParityBasicCase::Kind::Expected, "(-2**54)**(1/3)", "-262144"} ,
+    {ParityBasicCase::Kind::Expected, "(-2**60)**(1/3)", "-1048576"} ,
+    {ParityBasicCase::Kind::Expected, "(-9223372036854775808)**(1/3)", "-2097152"} ,
+    {ParityBasicCase::Kind::Expected, "(-2**53)**(1/3)", "-208063.8306835757"} ,
+    {ParityBasicCase::Kind::Expected, "lcm(-9223372036854775808,3)", "2.767011611056433e+019"} ,
+    {ParityBasicCase::Kind::Expected, "lcm(18446744073709551615,2)", "3.68934881474191e+019"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(200,100)", "9.054851465610328e+058"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(1020,510)", "2.806267768299623e+305"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(1030,515)", "inf"} ,
+    {ParityBasicCase::Kind::Expected, "ncr(1021,510)", "5.607043818853062e+305"} ,
     {ParityBasicCase::Kind::Expected, "f(x)=x+1; f(())", "()"} ,
     {ParityBasicCase::Kind::Expected, "f(x)=max(x); f(())", "()"} ,
 #if SMARTMATH_TIME_VALUES
@@ -4951,7 +4990,7 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "gcd(-9223372036854775808,0)", "9223372036854775808"} ,
     {ParityBasicCase::Kind::Expected, "lcm(-9223372036854775808,1)", "9223372036854775808"} ,
     {ParityBasicCase::Kind::Expected, "ncr(67,33)", "14226520737620288370"} ,
-    {ParityBasicCase::Kind::ErrorContains, "npr(21,21)", "numeric error in npr()"} ,
+    {ParityBasicCase::Kind::Expected, "npr(21,21)", "5.109094217170944e+019"} ,
     {ParityBasicCase::Kind::Expected, "factorint(9223372036854775837)", "(9223372036854775837)"} ,
     {ParityBasicCase::Kind::Expected, "factorint(18446744073709551557)", "(18446744073709551557)"} ,
     {ParityBasicCase::Kind::Expected, "factorint(-9223372036854775808)", "(-2**63)"} ,
@@ -6659,6 +6698,28 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                 }
                 return true;
               }});
+  t.push_back({"complex-opt: inverse trig principal values and real-only deg/rad",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 if (!expectEval(p, "asin(2)", "1.570796326794897-1.316957896924817i", why)) return false;
+                 if (!expectEval(p, "acos(2)", "1.316957896924817i", why)) return false;
+                 if (!expectEval(p, "acosh(0.5)", "1.047197551196598i", why)) return false;
+                 if (!expectEval(p, "atanh(2)", "0.5493061443340549+1.570796326794897i", why)) return false;
+                 if (!expectEval(p, "asin(1)", "1.570796326794897", why)) return false;
+                 if (!expectEvalErrorContains(p, "fact(-1)", "fact() expects a non-negative integer", why)) return false;
+                 if (!expectEvalErrorContains(p, "fact(-20)", "expects a non-negative integer", why)) return false;
+                 if (!expectEvalErrorContains(p, "deg(pi+i)", "incompatible operands", why)) return false;
+                 if (!expectEvalErrorContains(p, "rad(180+i)", "incompatible operands", why)) return false;
+                 if (!expectEval(p, "acosh(-2)", "1.316957896924817+3.141592653589793i", why)) return false;
+                 if (!expectEval(p, "acosh(-1e8)", "19.11382792451231+3.141592653589793i", why)) return false;
+                 if (!expectEval(p, "acosh(-1e308)", "709.889355822726+3.141592653589793i", why)) return false;
+                 if (!expectEval(p, "asin(1e308)", "1.570796326794897-709.889355822726i", why)) return false;
+                 if (!expectEval(p, "acos(1e308)", "709.889355822726i", why)) return false;
+                 if (!expectEval(p, "acos(-1e308)", "3.141592653589793-709.889355822726i", why)) return false;
+                 if (!expectEval(p, "asin(1e160+i)", "1.570796326794897-369.1067620596073i", why)) return false;
+                 return expectEval(p, "exp(710+i)", "inf+inf*i", why);
+               }});
   return t;
 }
 

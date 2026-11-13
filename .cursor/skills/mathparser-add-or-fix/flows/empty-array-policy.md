@@ -1,6 +1,6 @@
 # Empty Array Policy
 
-Load when adding or changing a builtin function or operator, or when changing array / `()` results, errors, tests, or docs. Basic and C++ match. Do not add an "empty array is not supported" error.
+Load when adding or changing a builtin function or operator, or when changing array / `()` results, errors, tests, or docs. Basic and C++ match. Do not add an "empty array is not supported" error. This policy is an accepted decision. A new rejection or limit noticed while applying it is still raised per raise-concerns.
 
 ## No scalars left
 

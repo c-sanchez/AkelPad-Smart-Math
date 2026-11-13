@@ -16,7 +16,7 @@ C++ helper placement follows `.cursor/skills/mathparser-add-or-fix/flows/cpp-cla
 
 ## Non-finite values
 
-For a new operator or builtin, or a touched path whose behavior changes: decide whether `inf` / `-inf` / `nan` are accepted or rejected (standard math and typical calculator behavior), keep Basic/C++ parity, and lock the decision with tests (including error text when rejecting).
+For a new operator or builtin, or a touched path whose behavior changes: whether `inf` / `-inf` / `nan` are accepted or rejected is a raise-concerns decision (standard math and typical calculator behavior). After the user decides, keep Basic/C++ parity and lock the decision with tests (including error text when rejecting).
 
 ## Undefined behavior
 

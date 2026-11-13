@@ -2,7 +2,7 @@
 
 Load when introducing a new identifier parsed as a **constant** (like `pi` / `e`), not a function call. Tests, docs, and gates follow the `SKILL.md` workflow.
 
-Collect first: value (and exactness: exact int or float), whether it depends on a feature flag (time values, complex), and case-sensitivity (match `pi` / `e` unless the task says otherwise).
+Collect first: value (and exactness: exact int or float), whether it depends on a feature flag (time values, complex), and case-sensitivity (match `pi` / `e` unless the task says otherwise). If the value cannot represent the mathematical constant exactly, raise that limit per raise-concerns before registering it.
 
 ## Basic: canonical table in `MathParser.bas`
 

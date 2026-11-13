@@ -737,7 +737,6 @@ namespace smartmath_internal {
     std::string sourceExpr;
     bool parseError = false;
     std::string errorText;
-    bool wasPercentage = false;
     int evalDepth = 0;
     /** Nesting depth of ``[...]`` while parsing; suppresses colon-time literals so ``a[1:30]`` is a slice. */
     int arrayIndexBracketDepth = 0;

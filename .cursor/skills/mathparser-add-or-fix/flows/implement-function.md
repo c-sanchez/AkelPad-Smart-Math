@@ -20,7 +20,7 @@ Each builtin is one id plus one row in each table; all tables are indexed by the
 - Validate arity and type/support rules beyond what the metadata row enforces.
 - Arrays: `()` and return shape follow empty-array-policy. Preserve broadcasting and size checks.
 - Variadic: enforce minimum arity; process extra args deterministically.
-- Decide non-finite handling and follow the other coding-standards rules.
+- Decide non-finite handling per raise-concerns and follow the other coding-standards rules.
 
 ## 3) Signature hint
 
@@ -41,4 +41,5 @@ Collect before editing: token spelling, precedence and associativity relative to
 
 - Register keyword operators (`and`, `or`, `not`, `mod`) only in `OperatorNames` with an `OP_*` index. Symbol operators have no name table; find how a neighbor at the same precedence level is lexed and parsed, and extend that code.
 - Place the operator at the same precedence level in both parsers, and test it against each neighboring level and against both associativity directions.
-- Follow the real ↔ complex parity rules (complex-support flow) when the operator accepts complex operands.
+- Follow the real ↔ complex parity rules (complex-support flow) when the operator accepts complex operands. `deg` and `rad` stay real-only even when complex support is on; a nonzero imaginary part is `incompatible operands`.
+- A domain the operator rejects, or a result that breaks ordinary arithmetic, is raised per raise-concerns before it is implemented or tested.

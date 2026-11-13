@@ -13,7 +13,7 @@ description: >-
 
 Behavior-preserving, efficiency-safe cleanup/refactor of `MathParser.bas` (and the modules it includes), `cpp/MathParser.cpp`, `cpp/MathParser.hpp`, and `cpp/MathParserInternal.hpp`.
 
-Maintenance only. For new builtins/constants or behavior fixes, use `mathparser-add-or-fix`. If a review finds a correctness defect, report it; fix it only when asked, through that skill's fix-behavior flow.
+Maintenance only. For new builtins/constants or behavior fixes, use `mathparser-add-or-fix`. If thinking finds a rejection, a limit, or a mathematical mismatch, raise it per raise-concerns and fix it only when asked, through that skill's fix-behavior flow.
 
 ## Agent loading rules
 
@@ -22,6 +22,7 @@ Read on demand:
 | When | Read |
 |---|---|
 | Before first edit | `.cursor/skills/internal-mathparser-protect-workspace/SKILL.md` |
+| Planning or reviewing behavior, including a defect found during the refactor | `.cursor/skills/mathparser-add-or-fix/flows/raise-concerns.md` |
 | Editing helpers / int metadata / string constants / non-finite handling | `.cursor/skills/mathparser-add-or-fix/flows/coding-standards.md` |
 | Editing `cpp/MathParser.hpp` / `.cpp`, or moving C++ functions off `MathParser` | `.cursor/skills/mathparser-add-or-fix/flows/cpp-class-design.md` |
 | Changing real/complex operator or builtin paths | `.cursor/skills/mathparser-add-or-fix/flows/complex-support.md` |
@@ -71,4 +72,4 @@ Record a short justification per removal.
 
 ## Completion report format
 
-Report: files changed; duplicates eliminated; helper reuse/extraction; dead code removed + reason; dead-code candidates kept (and why); efficiency notes (why no slowdown, with perf baseline numbers when measured); one pass/fail line per gate that ran; defects found but not fixed.
+Report: files changed; duplicates eliminated; helper reuse/extraction; dead code removed + reason; dead-code candidates kept (and why); efficiency notes (why no slowdown, with perf baseline numbers when measured); concerns raised to the user, and the decision for each, or that none were identified; one pass/fail line per gate that ran; defects found but not fixed.

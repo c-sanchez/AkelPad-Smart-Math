@@ -436,6 +436,23 @@ private:
       const std::string& fnName,
       BuiltinFunctionId id,
       const std::vector<EvalValue>& args) const;
+  bool prepareUnaryCallableScalars(
+      EvalContext& ctx,
+      const std::string& fnName,
+      const EvalValue& dataArg,
+      const EvalValue& fnArg,
+      const char* expectsOneFunction,
+      const char* expectsUnaryFunction,
+      std::vector<EvalValue::ScalarValue>& vals,
+      bool& isLambda,
+      bool& emptyArray) const;
+  EvalValue evalUnaryCallableOnScalar(
+      EvalContext& ctx,
+      const EvalValue& fnArg,
+      bool isLambda,
+      const EvalValue::ScalarValue& elem,
+      const std::unordered_map<std::string, EvalValue>* scopedVars,
+      const char* expectsUnaryFunction);
   EvalValue builtinSortby(
       EvalContext& ctx,
       const std::string& fnName,

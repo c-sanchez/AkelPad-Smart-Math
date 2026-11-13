@@ -63,7 +63,7 @@ Both test suites include generated tables: `tools/*_generated*.bas` in `SmokeTes
 
 ### Errors
 
-Prefer substrings from `USAGE_AND_SYNTAX.md` or documented error policy; do not copy ad-hoc parser text unchecked. C++ lowercases identifiers in unknown-name errors; use lowercase names in tests shared by both sides.
+Prefer substrings from `USAGE_AND_SYNTAX.md` or documented error policy; do not copy ad-hoc parser text unchecked. C++ lowercases identifiers in unknown-name errors; use lowercase names in tests shared by both sides. Do not add an expected error for a rejection or limit that raise-concerns has not yet had the user decide.
 
 ## Handling a test mismatch (Required)
 

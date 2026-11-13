@@ -1,6 +1,6 @@
 # Complex Number Support And Real/Complex Parity
 
-Load when the task mentions complex numbers, the parser-wide complex support flag, Cartesian builtins, or changes that touch real-only and complex-enabled operator/function paths.
+Load when the task mentions complex numbers, the parser-wide complex support flag, Cartesian builtins, or changes that touch real-only and complex-enabled operator/function paths. A new rejection of a real or complex value, beyond the historical real-only behavior stated below, is raised per raise-concerns.
 
 ## Parser-wide option
 
@@ -32,6 +32,7 @@ Treat real-only and complex-enabled behavior as one design surface. Apply both d
 
 - **Real → complex:** fixes, policies, and helpers on a real-only path (exact-int verification after `sqr`, float vs int64 export, non-finite handling, domain errors such as `log(0, b)`) are reused or mirrored on the complex path when complex mode can hit the same case. Prefer one shared helper; complex-only wrappers must not weaken rules the real path enforces.
 - **Complex → real:** fixes on a complex path are checked on the real-only path for purely real operands (imag = 0). Do not leave real-only code on an older divergent branch.
+- **`deg` and `rad` stay real-only** when complex support is on. Do not scale both components. A nonzero imaginary part is `incompatible operands`. `deg(pi)` stays `180` and `rad(180)` stays `pi`.
 
 ### Before finishing
 

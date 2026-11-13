@@ -510,11 +510,12 @@ bool fractionalPowerIsOddUnitRoot(double p, long long& outN) {
     return false;
   }
   const double inv = 1.0 / p;
-  if (inv < 2.0 || inv > 63.0) {
+  // Any odd n whose reciprocal is still the closest double. 2^53 is the last exact integer double.
+  if (inv < 2.0 || inv > 9007199254740992.0) {
     return false;
   }
   outN = static_cast<long long>(std::llround(inv));
-  if (outN < 2 || outN > 63) {
+  if (outN < 2) {
     return false;
   }
   // Only the double nearest 1/n qualifies; 0.33333334 is not a cube root.
@@ -1997,10 +1998,6 @@ bool parseTimeLiteralStringToMs(const char* litStart, const char* litEnd, long l
   return true;
 }
 
-bool parseTimeLiteralStringToMs(const std::string& lit, long long& outMs, const char*& err) {
-  return parseTimeLiteralStringToMs(lit.data(), lit.data() + lit.size(), outMs, err);
-}
-
 std::string formatTimeCanonicalFromMs(long long totalMs) {
   const bool neg = (totalMs < 0);
   std::uint64_t rU = 0;
@@ -2989,13 +2986,18 @@ int tryApplyGcdLcmScalars(
   std::uint64_t aU = 0;
   std::uint64_t bU = 0;
   if (tryGetExactNonNegativeUInt64FromScalar(a, aU) && tryGetExactNonNegativeUInt64FromScalar(b, bU)) {
+    if (aU == 0u && bU == 0u) {
+      return 2;
+    }
     if (!doLcm) {
       outV = makeScalarUInt(gcdUInt64(aU, bU));
       return 0;
     }
     std::uint64_t lU = 0;
     if (!tryLcmUInt64(aU, bU, lU)) {
-      return 2;
+      const std::uint64_t g = gcdUInt64(aU, bU);
+      outV = makeScalar(static_cast<double>(aU / g) * static_cast<double>(bU));
+      return 0;
     }
     outV = makeScalarUInt(lU);
     return 0;
@@ -3005,13 +3007,18 @@ int tryApplyGcdLcmScalars(
   if (!tryGetExactSignMagnitudeFromScalar(a, aNeg, aU) || !tryGetExactSignMagnitudeFromScalar(b, bNeg, bU)) {
     return 1;
   }
+  if (aU == 0u && bU == 0u) {
+    return 2;
+  }
   if (!doLcm) {
     outV = makeScalarUIntPreferInt(gcdUInt64(aU, bU));
     return 0;
   }
   std::uint64_t lU = 0;
   if (!tryLcmUInt64(aU, bU, lU)) {
-    return 2;
+    const std::uint64_t g = gcdUInt64(aU, bU);
+    outV = makeScalar(static_cast<double>(aU / g) * static_cast<double>(bU));
+    return 0;
   }
   outV = makeScalarUIntPreferInt(lU);
   return 0;
@@ -3089,6 +3096,253 @@ EvalValue applyGcdLcmEvalValues(const EvalValue& a, const EvalValue& b, bool doL
   return result;
 }
 
+void ddTwoSum(double a, double b, double& hi, double& lo) {
+  hi = a + b;
+  const double bb = hi - a;
+  lo = (a - (hi - bb)) + (b - bb);
+}
+
+void ddMulExact(double a, double b, double& hi, double& lo) {
+  if (a == 0.0 || b == 0.0 || !std::isfinite(a) || !std::isfinite(b)) {
+    hi = a * b;
+    lo = 0.0;
+    return;
+  }
+  const double sign = ((a < 0.0) != (b < 0.0)) ? -1.0 : 1.0;
+  int ea = 0;
+  int eb = 0;
+  const double af = std::frexp(std::fabs(a), &ea);
+  const double bf = std::frexp(std::fabs(b), &eb);
+  const std::uint64_t ai = static_cast<std::uint64_t>(std::ldexp(af, 53));
+  const std::uint64_t bi = static_cast<std::uint64_t>(std::ldexp(bf, 53));
+  const std::uint64_t a0 = ai & 0xffffffffu;
+  const std::uint64_t a1 = ai >> 32;
+  const std::uint64_t b0 = bi & 0xffffffffu;
+  const std::uint64_t b1 = bi >> 32;
+  const std::uint64_t p00 = a0 * b0;
+  const std::uint64_t p01 = a0 * b1;
+  const std::uint64_t p10 = a1 * b0;
+  const std::uint64_t p11 = a1 * b1;
+  const std::uint64_t mid = (p00 >> 32) + (p01 & 0xffffffffu) + (p10 & 0xffffffffu);
+  const std::uint64_t plo = (p00 & 0xffffffffu) | ((mid & 0xffffffffu) << 32);
+  const std::uint64_t phi = p11 + (p01 >> 32) + (p10 >> 32) + (mid >> 32);
+  auto bitLength64 = [](std::uint64_t x) {
+    int n = 0;
+    if ((x >> 32) != 0u) { n += 32; x >>= 32; }
+    if ((x >> 16) != 0u) { n += 16; x >>= 16; }
+    if ((x >> 8) != 0u) { n += 8; x >>= 8; }
+    if ((x >> 4) != 0u) { n += 4; x >>= 4; }
+    if ((x >> 2) != 0u) { n += 2; x >>= 2; }
+    if ((x >> 1) != 0u) { n += 2; }
+    else if (x != 0u) { n += 1; }
+    return n;
+  };
+  const int bits = (phi != 0u) ? bitLength64(phi) + 64 : bitLength64(plo);
+  int shift = bits > 53 ? bits - 53 : 0;
+  std::uint64_t top = (shift == 0) ? plo : ((plo >> shift) | (phi << (64 - shift)));
+  if (shift > 0) {
+    const bool roundBit = ((plo >> (shift - 1)) & 1ull) != 0ull;
+    const bool sticky = shift > 1 && (plo & ((1ull << (shift - 1)) - 1ull)) != 0ull;
+    if (roundBit && (sticky || (top & 1ull) != 0ull)) {
+      top += 1ull;
+      if (top == (1ull << 53)) {
+        top >>= 1;
+        shift += 1;
+      }
+    }
+  }
+  const std::uint64_t subLo = top << shift;
+  const std::uint64_t subHi = (shift == 0) ? 0ull : (top >> (64 - shift));
+  const std::uint64_t remLo = plo - subLo;
+  const std::uint64_t borrow = (plo < subLo) ? 1ull : 0ull;
+  const std::uint64_t remHi = phi - subHi - borrow;
+  long long remS = 0;
+  if (remHi == 0ull) {
+    remS = static_cast<long long>(remLo);
+  } else if (remLo != 0ull) {
+    remS = -static_cast<long long>((~remLo) + 1ull);
+  }
+  const int exp = ea + eb - 106 + shift;
+  hi = std::ldexp(sign * static_cast<double>(top), exp);
+  lo = (remS == 0) ? 0.0 : std::ldexp(sign * static_cast<double>(remS), exp - shift);
+}
+
+void ddScale(double& hi, double& lo, double b) {
+  double p1 = 0.0;
+  double p0 = 0.0;
+  ddMulExact(hi, b, p1, p0);
+  if (!std::isfinite(p1)) {
+    hi = p1;
+    lo = 0.0;
+    return;
+  }
+  double q1 = 0.0;
+  double q0 = 0.0;
+  ddMulExact(lo, b, q1, q0);
+  double s1 = 0.0;
+  double s0 = 0.0;
+  ddTwoSum(p0, q1, s1, s0);
+  double t1 = 0.0;
+  double t0 = 0.0;
+  ddTwoSum(s1, q0, t1, t0);
+  s0 += t0;
+  double r1 = 0.0;
+  double r0 = 0.0;
+  ddTwoSum(p1, t1, r1, r0);
+  r0 += s0;
+  ddTwoSum(r1, r0, hi, lo);
+}
+
+void ddDiv(double& hi, double& lo, double b) {
+  const double qhi = hi / b;
+  double p1 = 0.0;
+  double p0 = 0.0;
+  ddMulExact(qhi, b, p1, p0);
+  const double rem = ((hi - p1) - p0) + lo;
+  ddTwoSum(qhi, rem / b, hi, lo);
+}
+
+double nprProductFloat(double n, std::uint64_t r) {
+  double hi = 1.0;
+  double lo = 0.0;
+  for (std::uint64_t i = 0; i < r; ++i) {
+    ddScale(hi, lo, n - static_cast<double>(i));
+    if (!std::isfinite(hi)) {
+      break;
+    }
+  }
+  return hi;
+}
+
+double ncrProductFloat(double n, std::uint64_t r) {
+  double hi = 1.0;
+  double lo = 0.0;
+  const double rd = static_cast<double>(r);
+  for (std::uint64_t i = 1; i <= r; ++i) {
+    const double factor = n - rd + static_cast<double>(i);
+    int eh = 0;
+    int ef = 0;
+    (void)std::frexp(hi, &eh);
+    (void)std::frexp(factor, &ef);
+    int scale = 0;
+    if (eh + ef > 980) {
+      scale = eh + ef - 900;
+      hi = std::ldexp(hi, -scale);
+      lo = std::ldexp(lo, -scale);
+    }
+    ddScale(hi, lo, factor);
+    if (!std::isfinite(hi)) {
+      break;
+    }
+    ddDiv(hi, lo, static_cast<double>(i));
+    if (scale != 0) {
+      hi = std::ldexp(hi, scale);
+      lo = std::ldexp(lo, scale);
+    }
+    if (!std::isfinite(hi)) {
+      break;
+    }
+  }
+  return hi;
+}
+
+bool tryApplyNcrNprScalar(
+    const EvalValue::ScalarValue& nS,
+    const EvalValue::ScalarValue& rS,
+    bool doPerm,
+    EvalValue& outS,
+    int& status) {
+  bool nNeg = false;
+  bool rNeg = false;
+  std::uint64_t nU = 0;
+  std::uint64_t rU = 0;
+  if (!tryGetExactSignMagnitudeFromScalar(nS, nNeg, nU) || !tryGetExactSignMagnitudeFromScalar(rS, rNeg, rU)) {
+    status = 1;
+    return false;
+  }
+  if (rNeg) {
+    status = 2;
+    return false;
+  }
+  if (rU == 0u) {
+    status = 0;
+    outS = makeScalarInt(1);
+    return true;
+  }
+  if (!nNeg && rU > nU) {
+    status = 0;
+    outS = makeScalarInt(0);
+    return true;
+  }
+  if (!nNeg) {
+    std::uint64_t exact = 0;
+    if (doPerm ? tryComputeNprUInt64(nU, rU, exact) : tryComputeNcrUInt64(nU, rU, exact)) {
+      status = 0;
+      outS = makeScalarUIntPreferInt(exact);
+      return true;
+    }
+    status = 0;
+    const double nD = static_cast<double>(nU);
+    if (doPerm) {
+      outS = makeScalar(nprProductFloat(nD, rU));
+    } else {
+      std::uint64_t rEff = rU;
+      if ((nU - rU) < rEff) {
+        rEff = nU - rU;
+      }
+      outS = makeScalar(ncrProductFloat(nD, rEff));
+    }
+    return true;
+  }
+  if (doPerm) {
+    if (nU <= static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
+      long long acc = 1;
+      long long term = -static_cast<long long>(nU);
+      bool exact = true;
+      for (std::uint64_t i = 0; i < rU; ++i) {
+        if (!tryMulInt64Checked(acc, term, acc)) {
+          exact = false;
+          break;
+        }
+        if (i + 1u == rU) {
+          break;
+        }
+        if (term == (std::numeric_limits<long long>::min)()) {
+          exact = false;
+          break;
+        }
+        --term;
+      }
+      if (exact) {
+        status = 0;
+        outS = makeScalarInt(acc);
+        return true;
+      }
+    }
+    status = 0;
+    outS = makeScalar(nprProductFloat(-static_cast<double>(nU), rU));
+    return true;
+  }
+  if (rU <= (std::numeric_limits<std::uint64_t>::max)() - nU) {
+    const std::uint64_t top = nU + rU - 1u;
+    std::uint64_t comb = 0;
+    if (tryComputeNcrUInt64(top, rU, comb)) {
+      status = 0;
+      if ((rU & 1u) == 0u) {
+        outS = makeScalarUIntPreferInt(comb);
+      } else if (comb <= static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
+        outS = makeScalarInt(-static_cast<long long>(comb));
+      } else {
+        outS = makeScalar(-static_cast<double>(comb));
+      }
+      return true;
+    }
+  }
+  status = 0;
+  outS = makeScalar(ncrProductFloat(-static_cast<double>(nU), rU));
+  return true;
+}
+
 EvalValue applyNcrNprEvalValues(
     const EvalValue& n,
     const EvalValue& r,
@@ -3097,22 +3351,7 @@ EvalValue applyNcrNprEvalValues(
   bool ok = true;
   const auto applyPair = [&](const EvalValue::ScalarValue& nS, const EvalValue::ScalarValue& rS,
                              EvalValue& outS) -> bool {
-    bool nNeg = false;
-    bool rNeg = false;
-    std::uint64_t nU = 0;
-    std::uint64_t rU = 0;
-    std::uint64_t out = 0;
-    if (!tryGetExactSignMagnitudeFromScalar(nS, nNeg, nU) || !tryGetExactSignMagnitudeFromScalar(rS, rNeg, rU)) {
-      status = 1;
-      return false;
-    }
-    if (nNeg || rNeg || !(doPerm ? tryComputeNprUInt64(nU, rU, out) : tryComputeNcrUInt64(nU, rU, out))) {
-      status = 2;
-      return false;
-    }
-    status = 0;
-    outS = makeScalarUIntPreferInt(out);
-    return true;
+    return tryApplyNcrNprScalar(nS, rS, doPerm, outS, status);
   };
   EvalValue result = mapBinaryBroadcast(n, r, applyPair, ok);
   if (!ok && status == 0) {
@@ -3329,7 +3568,7 @@ bool identMayBeBareBuiltinName(const std::string& ident) {
 }
 
 bool tryPowVerifyRootExactValue(long long valueInt, long long rootCand, long long rootDeg) {
-  if (rootDeg < 2 || rootDeg > 63) {
+  if (rootDeg < 2) {
     return false;
   }
   if (valueInt < 0 && (rootDeg % 2) == 0) {
@@ -3779,6 +4018,15 @@ bool isPercentPostfixContext(const char* p) {
 namespace smartmath_internal {
 
 #if SMARTMATH_COMPLEX_NUMBERS
+void lnOfTwice(double ar, double ai, double& outR, double& outI) {
+  scalarPrincipalLnCartesian(ar, ai, outR, outI);
+  outR += std::log(2.0);
+}
+
+bool magnitudeAtLeast(double ar, double ai, double limit) {
+  return std::fabs(ar) >= limit || std::fabs(ai) >= limit;
+}
+
 bool complexUnaryTrigCartesian(BuiltinFunctionId id, double ar, double ai, double& outR, double& outI) {
   const double nanv = std::numeric_limits<double>::quiet_NaN();
   if (id == BuiltinFunctionId::Sin || id == BuiltinFunctionId::Cos || id == BuiltinFunctionId::Tan ||
@@ -3838,12 +4086,31 @@ bool complexUnaryTrigCartesian(BuiltinFunctionId id, double ar, double ai, doubl
       break;
     }
     case BuiltinFunctionId::Acosh: {
-      const double z2r = ar * ar - ai * ai;
-      const double z2i = 2.0 * ar * ai;
-      double sqrR = 0.0;
-      double sqrI = 0.0;
-      complexPrincipalSqrt(z2r - 1.0, z2i, sqrR, sqrI);
-      scalarPrincipalLnCartesian(ar + sqrR, ai + sqrI, outR, outI);
+      if (ai == 0.0 && std::isfinite(ar)) {
+        if (ar <= -1.0) {
+          outR = std::acosh(-ar);
+          outI = kPi;
+          break;
+        }
+        if (ar >= 1.0) {
+          outR = std::acosh(ar);
+          outI = 0.0;
+          break;
+        }
+      }
+      if (std::isfinite(ar) && std::isfinite(ai) && magnitudeAtLeast(ar, ai, 1e8)) {
+        lnOfTwice(ar, ai, outR, outI);
+        break;
+      }
+      double s1r = 0.0;
+      double s1i = 0.0;
+      double s2r = 0.0;
+      double s2i = 0.0;
+      complexPrincipalSqrt(ar - 1.0, ai, s1r, s1i);
+      complexPrincipalSqrt(ar + 1.0, ai, s2r, s2i);
+      const double wr = s1r * s2r - s1i * s2i;
+      const double wi = s1r * s2i + s1i * s2r;
+      scalarPrincipalLnCartesian(ar + wr, ai + wi, outR, outI);
       break;
     }
     case BuiltinFunctionId::Atanh: {
@@ -3858,6 +4125,28 @@ bool complexUnaryTrigCartesian(BuiltinFunctionId id, double ar, double ai, doubl
       break;
     }
     case BuiltinFunctionId::Asin: {
+      if (ai == 0.0 && std::isfinite(ar) && std::fabs(ar) > 1.0) {
+        const double ah = std::acosh(std::fabs(ar));
+        const double sgn = (ar < 0.0) ? -1.0 : 1.0;
+        outR = sgn * (kPi * 0.5);
+        outI = -sgn * ah;
+        break;
+      }
+      if (std::isfinite(ar) && std::isfinite(ai) && magnitudeAtLeast(ar, ai, 1e150)) {
+        const bool neg = ar < 0.0;
+        const double br = neg ? -ar : ar;
+        const double bi = neg ? -ai : ai;
+        double lr = 0.0;
+        double li = 0.0;
+        lnOfTwice(br, bi, lr, li);
+        outR = kPi * 0.5 + li;
+        outI = -lr;
+        if (neg) {
+          outR = -outR;
+          outI = -outI;
+        }
+        break;
+      }
       const double izR = -ai;
       const double izI = ar;
       const double z2r = ar * ar - ai * ai;
@@ -4224,6 +4513,42 @@ bool tryApplyPowExactScalarsByKind(
   return false;
 }
 
+bool tryRecoverLargeSignedOddRoot(long long valueInt, double p, EvalValue& outV, bool& decided) {
+  decided = false;
+  if (!std::isfinite(p) || !(p > 0.0 && p < 1.0)) {
+    return false;
+  }
+  long long nRoot = 0;
+  if (!fractionalPowerIsOddUnitRoot(p, nRoot)) {
+    return false;
+  }
+  const bool isMin = valueInt == (std::numeric_limits<long long>::min)();
+  const bool neg = valueInt < 0;
+  const std::uint64_t mag = isMin ? (1ull << 63) : static_cast<std::uint64_t>(neg ? -valueInt : valueInt);
+  if (!isMin && mag < static_cast<std::uint64_t>(K_MAX_EXACT_INT_FROM_DOUBLE)) {
+    return false;
+  }
+  decided = true;
+  const double magD = isMin ? 9223372036854775808.0 : static_cast<double>(mag);
+  const double rootMag = std::pow(magD, p);
+  std::uint64_t rU = 0;
+  std::uint64_t recon = 0;
+  if (!std::isfinite(rootMag) || rootMag < 0.0 || !tryRoundDoubleToUInt64(rootMag, rU) ||
+      !tryPowUInt64Checked(rU, static_cast<std::uint64_t>(nRoot), recon) || recon != mag) {
+    return false;
+  }
+  if (neg) {
+    if (rU <= static_cast<std::uint64_t>((std::numeric_limits<long long>::max)())) {
+      outV = makeScalarInt(-static_cast<long long>(rU));
+    } else {
+      outV = makeScalar(-static_cast<double>(rU));
+    }
+  } else {
+    outV = makeScalarUIntPreferInt(rU);
+  }
+  return true;
+}
+
 bool tryApplyPowExactScalars(
     const EvalValue::ScalarValue& leftS,
     const EvalValue::ScalarValue& rightS,
@@ -4238,6 +4563,13 @@ bool tryApplyPowExactScalars(
   }
   long long valueInt = 0;
   if (tryGetExactSignedInt64NoUIntWrapScalarStrict(leftS, valueInt)) {
+    bool oddRootDecided = false;
+    if (tryRecoverLargeSignedOddRoot(valueInt, rightS.scalar, outV, oddRootDecided)) {
+      return true;
+    }
+    if (oddRootDecided) {
+      return false;
+    }
     if (valueInt == (std::numeric_limits<long long>::min)()) {
       return false;
     }
@@ -7902,6 +8234,69 @@ bool MathParser::tryApplyTimeBinaryScalars(
 }
 #endif
 
+inline bool tryApplyCheckedAddSubMulOrSignedUIntPromote(
+    char op,
+    long long li,
+    long long ri,
+    EvalValue& outS) {
+  if (op != '+' && op != '-' && op != '*') {
+    return false;
+  }
+  long long outI = 0;
+  const bool okInt =
+      (op == '*') ? checkedMulLL(li, ri, outI) :
+      (op == '+') ? checkedAddLL(li, ri, outI) :
+                    checkedSubLL(li, ri, outI);
+  if (okInt) {
+    outS = makeScalarInt(outI);
+    return true;
+  }
+  if (li >= 0 && ri >= 0) {
+    const std::uint64_t lu = static_cast<std::uint64_t>(li);
+    const std::uint64_t ru = static_cast<std::uint64_t>(ri);
+    if (op == '+') {
+      std::uint64_t outU = 0;
+      if (tryAddUInt64Checked(lu, ru, outU)) {
+        outS = makeScalarUInt(outU);
+        return true;
+      }
+    } else if (op == '*') {
+      std::uint64_t outU = 0;
+      if (tryMulUInt64Checked(lu, ru, outU)) {
+        outS = makeScalarUInt(outU);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+inline bool tryApplyUInt64AddOrMul(char op, std::uint64_t lu, std::uint64_t ru, EvalValue& outS) {
+  if (op != '+' && op != '*') {
+    return false;
+  }
+  std::uint64_t outU = 0;
+  const bool ok = (op == '+') ? tryAddUInt64Checked(lu, ru, outU) : tryMulUInt64Checked(lu, ru, outU);
+  if (!ok) {
+    return false;
+  }
+  outS = makeScalarUInt(outU);
+  return true;
+}
+
+inline bool tryApplyExactNonNegUIntAddOrMul(
+    char op,
+    const EvalValue::ScalarValue& lv,
+    const EvalValue::ScalarValue& rv,
+    EvalValue& outS) {
+  std::uint64_t lu = 0;
+  std::uint64_t ru = 0;
+  if (!tryGetBothExactNonNegativeUInt64FromScalars(lv, rv, lu, ru)) {
+    return false;
+  }
+  return tryApplyUInt64AddOrMul(op, lu, ru, outS);
+}
+
 bool MathParser::tryCombineBinaryScalars(
     EvalContext& ctx,
     char op,
@@ -7988,19 +8383,10 @@ bool MathParser::tryCombineBinaryScalars(
         outS = makeScalar(-std::ldexp(1.0, 63)); outS.scalarValue.setDecScientificPow63High(true);
         return true;
       }
+      if (tryApplyCheckedAddSubMulOrSignedUIntPromote(op, li, ri, outS)) {
+        return true;
+      }
       long long outI = 0;
-      if (op == '+' && checkedAddLL(li, ri, outI)) {
-        outS = makeScalarInt(outI);
-        return true;
-      }
-      if (op == '-' && checkedSubLL(li, ri, outI)) {
-        outS = makeScalarInt(outI);
-        return true;
-      }
-      if (op == '*' && checkedMulLL(li, ri, outI)) {
-        outS = makeScalarInt(outI);
-        return true;
-      }
       if (op == '^' && tryPowInt64Checked(li, ri, outI)) {
         outS = makeScalarInt(outI);
         return true;
@@ -8013,29 +8399,15 @@ bool MathParser::tryCombineBinaryScalars(
         outS = makeScalarUInt(1ull << 63);
         return true;
       }
-      if (li >= 0 && ri >= 0) {
-        lu = static_cast<std::uint64_t>(li);
-        ru = static_cast<std::uint64_t>(ri);
-        if (op == '+') {
-          std::uint64_t outU = 0;
-          if (tryAddUInt64Checked(lu, ru, outU)) {
-            outS = makeScalarUInt(outU);
-            return true;
-          }
-        } else if (op == '*') {
-          std::uint64_t outU = 0;
-          if (tryMulUInt64Checked(lu, ru, outU)) {
-            outS = makeScalarUInt(outU);
-            return true;
-          }
-        }
-      }
     }
 
-    lu = 0;
-    ru = 0;
-    if (tryGetBothExactNonNegativeUInt64FromScalars(lv, rv, lu, ru)) {
-      if ((op == '+' || op == '*' || op == '/') &&
+    if (tryApplyExactNonNegUIntAddOrMul(op, lv, rv, outS)) {
+      return true;
+    }
+    if (op == '/') {
+      lu = 0;
+      ru = 0;
+      if (tryGetBothExactNonNegativeUInt64FromScalars(lv, rv, lu, ru) &&
           tryApplyExactUInt64BinaryScalarOp(op, lu, ru, outS)) {
         return true;
       }
@@ -9403,16 +9775,7 @@ MathParser::EvalValue MathParser::evalUnaryExpr(
       return makeScalar(0);
     }
 #endif
-    if (!scalarOnlyMode && v.kind != ValueKind::Scalar) {
-      ctx.fail(ParseErrorId::BitwiseIntegerOperands);
-      return makeScalar(0);
-    }
-    long long iv = 0;
-    if (!tryGetSignedInt64FromScalar(v.scalarValue, iv)) {
-      ctx.fail(ParseErrorId::BitwiseIntegerOperands);
-      return makeScalar(0);
-    }
-    return makeScalarInt(~iv);
+    return evalInt64BinaryOp(ctx, v, makeScalarInt(-1), Expr::BinaryOp::BitXor);
   }
 
   ctx.fail(ParseErrorId::InternalUnaryOp);
@@ -9443,14 +9806,122 @@ MathParser::EvalValue MathParser::evalMappedBinaryOp(
     return makeScalar(0);
   }
 
-  if (op == Expr::BinaryOp::Pow) {
-    ctx.fail(ParseErrorId::NumericErrorInPowerOperation);
-  } else if (left.kind == ValueKind::Array && right.kind == ValueKind::Array && left.arr.size() != right.arr.size()) {
+  if (left.kind == ValueKind::Array && right.kind == ValueKind::Array && left.arr.size() != right.arr.size()) {
     ctx.fail(ParseErrorId::IncompatibleOperands);
+  } else if (op == Expr::BinaryOp::Pow) {
+    ctx.fail(ParseErrorId::NumericErrorInPowerOperation);
   } else {
     ctx.fail(ParseErrorId::NumericErrorInExpression);
   }
   return makeScalar(0);
+}
+
+enum class ExactUIntBitwiseGate {
+  OnlyWhenNotBothExactInt64,
+  WheneverBothExactUInt64
+};
+
+inline bool applyIntBitwiseOrModulo(
+    EvalContext& ctx,
+    Expr::BinaryOp op,
+    const EvalValue::ScalarValue& lv,
+    const EvalValue::ScalarValue& rv,
+    ExactUIntBitwiseGate gate,
+    bool reportIntegerOperandError,
+    EvalValue& outS) {
+  const bool isModulo = (op == Expr::BinaryOp::Modulo);
+  if (op == Expr::BinaryOp::ShiftLeft) {
+    std::uint64_t aU = 0;
+    std::uint64_t bU = 0;
+    if (tryGetBothExactNonNegativeUInt64FromScalars(lv, rv, aU, bU)) {
+      if (!tryShiftLeftU64ExactOrMaybe(aU, bU, outS)) {
+        ctx.fail(ParseErrorId::IncompatibleOperands);
+        return false;
+      }
+      return true;
+    }
+  }
+
+  const bool uintGateOpen =
+      (gate == ExactUIntBitwiseGate::WheneverBothExactUInt64) ||
+      (!lv.hasExactInt64() || !rv.hasExactInt64());
+  if (lv.hasExactUInt64() && rv.hasExactUInt64() && uintGateOpen) {
+    const std::uint64_t aU = lv.exactUInt64;
+    const std::uint64_t bU = rv.exactUInt64;
+    if (isModulo) {
+      if (bU == 0) {
+        ctx.fail(ParseErrorId::IncompatibleOperands);
+        return false;
+      }
+      outS = makeScalarUInt(aU % bU);
+      return true;
+    }
+    if ((op == Expr::BinaryOp::ShiftLeft || op == Expr::BinaryOp::ShiftRight) && bU > 63u) {
+      ctx.fail(ParseErrorId::IncompatibleOperands);
+      return false;
+    }
+    if (op == Expr::BinaryOp::ShiftLeft) {
+      if (!tryShiftLeftU64ExactOrMaybe(aU, bU, outS)) {
+        ctx.fail(ParseErrorId::IncompatibleOperands);
+        return false;
+      }
+      return true;
+    }
+    if (op == Expr::BinaryOp::ShiftRight) {
+      outS = makeScalarUInt(aU >> bU);
+      return true;
+    }
+    if (op == Expr::BinaryOp::BitAnd) {
+      outS = makeScalarUInt(aU & bU);
+      return true;
+    }
+    if (op == Expr::BinaryOp::BitOr) {
+      outS = makeScalarUInt(aU | bU);
+      return true;
+    }
+    if (op == Expr::BinaryOp::BitXor) {
+      outS = makeScalarUInt(aU ^ bU);
+      return true;
+    }
+  }
+
+  if (isModulo) {
+    bool aNeg = false, bNeg = false;
+    std::uint64_t aMag = 0, bMag = 0;
+    if (!tryGetExactSignMagnitudeFromScalar(lv, aNeg, aMag) || !tryGetExactSignMagnitudeFromScalar(rv, bNeg, bMag)) {
+      if (reportIntegerOperandError) {
+        ctx.fail(ParseErrorId::ModuloIntegerOperands);
+      }
+      return false;
+    }
+    if (bMag == 0u) {
+      ctx.fail(ParseErrorId::IncompatibleOperands);
+      return false;
+    }
+    outS = makeScalarFromSignMagnitude(aNeg, aMag % bMag);
+    return true;
+  }
+  long long a = 0, b = 0;
+  if (!tryGetSignedInt64FromScalar(lv, a) || !tryGetSignedInt64FromScalar(rv, b)) {
+    if (reportIntegerOperandError) {
+      ctx.fail(ParseErrorId::BitwiseIntegerOperands);
+    }
+    return false;
+  }
+  if ((op == Expr::BinaryOp::ShiftLeft || op == Expr::BinaryOp::ShiftRight) && (b < 0 || b > 63)) {
+    ctx.fail(ParseErrorId::IncompatibleOperands);
+    return false;
+  }
+  if (op == Expr::BinaryOp::ShiftLeft) {
+    outS = makeScalarShiftLeftInt64(a, static_cast<unsigned int>(b));
+    return true;
+  }
+  const long long out = (op == Expr::BinaryOp::BitAnd) ? (a & b) :
+                        (op == Expr::BinaryOp::BitOr) ? (a | b) :
+                        (op == Expr::BinaryOp::BitXor) ? (a ^ b) :
+                                                         bitwiseShiftRightDefined(a, static_cast<unsigned int>(b));
+  outS = makeScalarInt(out);
+  return true;
 }
 
 MathParser::EvalValue MathParser::evalInt64BinaryOp(
@@ -9467,87 +9938,8 @@ MathParser::EvalValue MathParser::evalInt64BinaryOp(
     else ctx.fail(ParseErrorId::BitwiseIntegerOperands);
   };
   const auto applyOp = [&](const EvalValue::ScalarValue& lv, const EvalValue::ScalarValue& rv, EvalValue& outS) -> bool {
-    if (op == Expr::BinaryOp::ShiftLeft) {
-      std::uint64_t aU = 0;
-      std::uint64_t bU = 0;
-      if (tryGetBothExactNonNegativeUInt64FromScalars(lv, rv, aU, bU)) {
-        if (!tryShiftLeftU64ExactOrMaybe(aU, bU, outS)) {
-          ctx.fail(ParseErrorId::IncompatibleOperands);
-          return false;
-        }
-        return true;
-      }
-    }
-
-    if (lv.hasExactUInt64() && rv.hasExactUInt64()) {
-      const std::uint64_t aU = lv.exactUInt64;
-      const std::uint64_t bU = rv.exactUInt64;
-      if (isModulo) {
-        if (bU == 0) {
-          ctx.fail(ParseErrorId::IncompatibleOperands);
-          return false;
-        }
-        outS = makeScalarUInt(aU % bU);
-        return true;
-      }
-      if ((op == Expr::BinaryOp::ShiftLeft || op == Expr::BinaryOp::ShiftRight) && bU > 63u) {
-        ctx.fail(ParseErrorId::IncompatibleOperands);
-        return false;
-      }
-      if (op == Expr::BinaryOp::ShiftLeft) {
-        if (!tryShiftLeftU64ExactOrMaybe(aU, bU, outS)) {
-          ctx.fail(ParseErrorId::IncompatibleOperands);
-          return false;
-        }
-        return true;
-      }
-      if (op == Expr::BinaryOp::ShiftRight) {
-        outS = makeScalarUInt(aU >> bU);
-        return true;
-      }
-      if (op == Expr::BinaryOp::BitAnd) {
-        outS = makeScalarUInt(aU & bU);
-        return true;
-      }
-      if (op == Expr::BinaryOp::BitOr) {
-        outS = makeScalarUInt(aU | bU);
-        return true;
-      }
-      if (op == Expr::BinaryOp::BitXor) {
-        outS = makeScalarUInt(aU ^ bU);
-        return true;
-      }
-    }
-
-    if (isModulo) {
-      bool aNeg = false, bNeg = false;
-      std::uint64_t aMag = 0, bMag = 0;
-      if (!tryGetExactSignMagnitudeFromScalar(lv, aNeg, aMag) || !tryGetExactSignMagnitudeFromScalar(rv, bNeg, bMag)) {
-        return false;
-      }
-      if (bMag == 0u) {
-        ctx.fail(ParseErrorId::IncompatibleOperands);
-        return false;
-      }
-      outS = makeScalarFromSignMagnitude(aNeg, aMag % bMag);
-      return true;
-    }
-    long long a = 0, b = 0;
-    if (!tryGetSignedInt64FromScalar(lv, a) || !tryGetSignedInt64FromScalar(rv, b)) return false;
-    if ((op == Expr::BinaryOp::ShiftLeft || op == Expr::BinaryOp::ShiftRight) && (b < 0 || b > 63)) {
-      ctx.fail(ParseErrorId::IncompatibleOperands);
-      return false;
-    }
-    if (op == Expr::BinaryOp::ShiftLeft) {
-      outS = makeScalarShiftLeftInt64(a, static_cast<unsigned int>(b));
-      return true;
-    }
-    const long long out = (op == Expr::BinaryOp::BitAnd) ? (a & b) :
-                          (op == Expr::BinaryOp::BitOr) ? (a | b) :
-                          (op == Expr::BinaryOp::BitXor) ? (a ^ b) :
-                                                           bitwiseShiftRightDefined(a, static_cast<unsigned int>(b));
-    outS = makeScalarInt(out);
-    return true;
+    return applyIntBitwiseOrModulo(
+        ctx, op, lv, rv, ExactUIntBitwiseGate::WheneverBothExactUInt64, false, outS);
   };
   if (left.kind == ValueKind::Array && right.kind == ValueKind::Array && left.arr.size() != right.arr.size()) {
     ctx.fail(ParseErrorId::IncompatibleOperands);
@@ -9665,35 +10057,7 @@ MathParser::EvalValue MathParser::evalExprScalar(
           return makeScalarInt((isTruthy(l) || isTruthy(r)) ? 1LL : 0LL);
         case Expr::BinaryOp::LogicalAnd:
           return makeScalarInt((isTruthy(l) && isTruthy(r)) ? 1LL : 0LL);
-        case Expr::BinaryOp::Modulo: {
-#if SMARTMATH_COMPLEX_NUMBERS
-          if (getSupportComplexNumbers() &&
-              (evalValueHasNonzeroImaginary(l) || evalValueHasNonzeroImaginary(r))) {
-            ctx.fail(ParseErrorId::IncompatibleOperands);
-            return makeScalar(0);
-          }
-#endif
-          if (l.scalarValue.hasExactUInt64() && r.scalarValue.hasExactUInt64() &&
-              (!l.scalarValue.hasExactInt64() || !r.scalarValue.hasExactInt64())) {
-            if (r.scalarValue.exactUInt64 == 0u) {
-              ctx.fail(ParseErrorId::IncompatibleOperands);
-              return makeScalar(0);
-            }
-            return makeScalarUInt(l.scalarValue.exactUInt64 % r.scalarValue.exactUInt64);
-          }
-          bool aNeg = false, bNeg = false;
-          std::uint64_t aMag = 0, bMag = 0;
-          if (!tryGetExactSignMagnitudeFromScalar(l.scalarValue, aNeg, aMag) ||
-              !tryGetExactSignMagnitudeFromScalar(r.scalarValue, bNeg, bMag)) {
-            ctx.fail(ParseErrorId::ModuloIntegerOperands);
-            return makeScalar(0);
-          }
-          if (bMag == 0u) {
-            ctx.fail(ParseErrorId::IncompatibleOperands);
-            return makeScalar(0);
-          }
-          return makeScalarFromSignMagnitude(aNeg, aMag % bMag);
-        }
+        case Expr::BinaryOp::Modulo:
         case Expr::BinaryOp::BitAnd:
         case Expr::BinaryOp::BitOr:
         case Expr::BinaryOp::BitXor:
@@ -9706,54 +10070,13 @@ MathParser::EvalValue MathParser::evalExprScalar(
             return makeScalar(0);
           }
 #endif
-          if (e.binaryOp == Expr::BinaryOp::ShiftLeft) {
-            std::uint64_t aU = 0;
-            std::uint64_t bU = 0;
-            if (tryGetBothExactNonNegativeUInt64FromScalars(l.scalarValue, r.scalarValue, aU, bU)) {
-              EvalValue outS;
-              if (!tryShiftLeftU64ExactOrMaybe(aU, bU, outS)) {
-                ctx.fail(ParseErrorId::IncompatibleOperands);
-                return makeScalar(0);
-              }
-              return outS;
-            }
-          }
-          if (l.scalarValue.hasExactUInt64() && r.scalarValue.hasExactUInt64() &&
-              (!l.scalarValue.hasExactInt64() || !r.scalarValue.hasExactInt64())) {
-            const std::uint64_t aU = l.scalarValue.exactUInt64;
-            const std::uint64_t bU = r.scalarValue.exactUInt64;
-            if (bU > 63u) {
-              ctx.fail(ParseErrorId::IncompatibleOperands);
-              return makeScalar(0);
-            }
-            if (e.binaryOp == Expr::BinaryOp::BitAnd) return makeScalarUInt(aU & bU);
-            if (e.binaryOp == Expr::BinaryOp::BitOr) return makeScalarUInt(aU | bU);
-            if (e.binaryOp == Expr::BinaryOp::BitXor) return makeScalarUInt(aU ^ bU);
-            if (e.binaryOp == Expr::BinaryOp::ShiftLeft) {
-              EvalValue outS;
-              if (!tryShiftLeftU64ExactOrMaybe(aU, bU, outS)) {
-                ctx.fail(ParseErrorId::IncompatibleOperands);
-                return makeScalar(0);
-              }
-              return outS;
-            }
-            return makeScalarUInt(aU >> bU);
-          }
-          long long a = 0, b = 0;
-          if (!tryGetSignedInt64FromScalar(l.scalarValue, a) || !tryGetSignedInt64FromScalar(r.scalarValue, b)) {
-            ctx.fail(ParseErrorId::BitwiseIntegerOperands);
+          EvalValue outS;
+          if (!applyIntBitwiseOrModulo(
+                  ctx, e.binaryOp, l.scalarValue, r.scalarValue,
+                  ExactUIntBitwiseGate::OnlyWhenNotBothExactInt64, true, outS)) {
             return makeScalar(0);
           }
-          if ((e.binaryOp == Expr::BinaryOp::ShiftLeft || e.binaryOp == Expr::BinaryOp::ShiftRight) &&
-              (b < 0 || b > 63)) {
-            ctx.fail(ParseErrorId::IncompatibleOperands);
-            return makeScalar(0);
-          }
-          if (e.binaryOp == Expr::BinaryOp::BitAnd) return makeScalarInt(a & b);
-          if (e.binaryOp == Expr::BinaryOp::BitOr) return makeScalarInt(a | b);
-          if (e.binaryOp == Expr::BinaryOp::BitXor) return makeScalarInt(a ^ b);
-          if (e.binaryOp == Expr::BinaryOp::ShiftLeft) return makeScalarShiftLeftInt64(a, static_cast<unsigned int>(b));
-          return makeScalarInt(bitwiseShiftRightDefined(a, static_cast<unsigned int>(b)));
+          return outS;
         }
         case Expr::BinaryOp::CmpLt:
         case Expr::BinaryOp::CmpGt:
@@ -9823,45 +10146,22 @@ MathParser::EvalValue MathParser::evalExprScalar(
           if (!e.rhsIsDirectPostfixPercent &&
               (e.binaryOp == Expr::BinaryOp::Mul || e.binaryOp == Expr::BinaryOp::Add ||
                e.binaryOp == Expr::BinaryOp::Sub)) {
-            long long li = 0, ri = 0;
+            const char opCh = (e.binaryOp == Expr::BinaryOp::Mul) ? '*' :
+                              (e.binaryOp == Expr::BinaryOp::Add) ? '+' : '-';
+            long long li = 0;
+            long long ri = 0;
             if (tryGetBothExactSignedInt64NoUIntWrapFromScalars(l.scalarValue, r.scalarValue, li, ri)) {
-              long long outI = 0;
-              const bool okInt =
-                  (e.binaryOp == Expr::BinaryOp::Mul) ? checkedMulLL(li, ri, outI) :
-                  (e.binaryOp == Expr::BinaryOp::Add) ? checkedAddLL(li, ri, outI) :
-                                                         checkedSubLL(li, ri, outI);
-              if (okInt) {
-                return makeScalarInt(outI);
-              }
-              if (li >= 0 && ri >= 0) {
-                const std::uint64_t lu = static_cast<std::uint64_t>(li);
-                const std::uint64_t ru = static_cast<std::uint64_t>(ri);
-                if (e.binaryOp == Expr::BinaryOp::Add) {
-                  std::uint64_t outU = 0;
-                  if (tryAddUInt64Checked(lu, ru, outU)) {
-                    return makeScalarUInt(outU);
-                  }
-                } else if (e.binaryOp == Expr::BinaryOp::Mul) {
-                  std::uint64_t outU = 0;
-                  if (tryMulUInt64Checked(lu, ru, outU)) {
-                    return makeScalarUInt(outU);
-                  }
-                }
+              EvalValue exactOut;
+              if (tryApplyCheckedAddSubMulOrSignedUIntPromote(opCh, li, ri, exactOut)) {
+                return exactOut;
               }
             }
             std::uint64_t lu = 0;
             std::uint64_t ru = 0;
             if (tryGetBothExactNonNegativeUInt64FromScalars(l.scalarValue, r.scalarValue, lu, ru)) {
-              if (e.binaryOp == Expr::BinaryOp::Add) {
-                std::uint64_t outU = 0;
-                if (tryAddUInt64Checked(lu, ru, outU)) {
-                  return makeScalarUInt(outU);
-                }
-              } else if (e.binaryOp == Expr::BinaryOp::Mul) {
-                std::uint64_t outU = 0;
-                if (tryMulUInt64Checked(lu, ru, outU)) {
-                  return makeScalarUInt(outU);
-                }
+              EvalValue exactOut;
+              if (tryApplyUInt64AddOrMul(opCh, lu, ru, exactOut)) {
+                return exactOut;
               }
             }
           }
@@ -10583,6 +10883,41 @@ std::size_t MathParser::countAggregateArgScalarItems(const std::vector<EvalValue
   return itemCount;
 }
 
+template <typename IntT, typename ReadFn, typename AddFn, typename MakeFn>
+bool tryFoldExactSumMinMax(
+    BuiltinFunctionId id,
+    const std::vector<EvalValue>& args,
+    ReadFn read,
+    AddFn add,
+    MakeFn make,
+    EvalValue& out) {
+  bool ok = true;
+  IntT acc = 0;
+  bool hasMm = false;
+  IntT mm = 0;
+  const bool wantMin = (id == BuiltinFunctionId::Min);
+  const bool isSum = (id == BuiltinFunctionId::Sum);
+  forEachCallArgScalarValues(args, [&](const EvalValue::ScalarValue& s) {
+    IntT v = 0;
+    (void)read(s, v);
+    if (isSum) {
+      IntT next = 0;
+      if (!add(acc, v, next)) {
+        ok = false;
+      }
+      acc = next;
+    } else if (!hasMm || (wantMin ? (v < mm) : (v > mm))) {
+      mm = v;
+      hasMm = true;
+    }
+  });
+  if (!ok) {
+    return false;
+  }
+  out = isSum ? make(acc) : make(mm);
+  return true;
+}
+
 MathParser::EvalValue MathParser::aggregateFoldByMode(
     EvalContext& ctx,
     const std::string& fnName,
@@ -10816,56 +11151,32 @@ MathParser::EvalValue MathParser::aggregateFoldByMode(
           }
         }
       } else if (!anyNonInteger && allNnU) {
-        bool ok = true;
-        std::uint64_t accU = 0;
-        bool hasMm = false;
-        std::uint64_t mmU = 0;
-        const bool wantMin = (id == BuiltinFunctionId::Min);
-        forEachArgScalarValue([&](const EvalValue::ScalarValue& s) {
-          std::uint64_t u = 0;
-          (void)tryGetExactNonNegativeUInt64FromScalar(s, u);
-          if (id == BuiltinFunctionId::Sum) {
-            std::uint64_t next = 0;
-            if (!tryAddUInt64Checked(accU, u, next)) {
-              ok = false;
-            }
-            accU = next;
-          } else if (!hasMm || (wantMin ? u < mmU : u > mmU)) {
-            mmU = u;
-            hasMm = true;
-          }
-        });
-        if (ok) {
-          if (id == BuiltinFunctionId::Sum) {
-            return makeScalarUInt(accU);
-          }
-          return makeScalarUInt(mmU);
+        EvalValue folded;
+        if (tryFoldExactSumMinMax<std::uint64_t>(
+                id, args,
+                [](const EvalValue::ScalarValue& s, std::uint64_t& u) {
+                  return tryGetExactNonNegativeUInt64FromScalar(s, u);
+                },
+                [](std::uint64_t a, std::uint64_t b, std::uint64_t& o) {
+                  return tryAddUInt64Checked(a, b, o);
+                },
+                [](std::uint64_t u) { return makeScalarUInt(u); },
+                folded)) {
+          return folded;
         }
       } else if (!anyNonInteger && allSwI) {
-        bool ok = true;
-        long long accI = 0;
-        bool hasMm = false;
-        long long mmI = 0;
-        const bool wantMin = (id == BuiltinFunctionId::Min);
-        forEachArgScalarValue([&](const EvalValue::ScalarValue& s) {
-          long long i = 0;
-          (void)tryGetExactSignedInt64NoUIntWrapFromScalar(s, i);
-          if (id == BuiltinFunctionId::Sum) {
-            long long next = 0;
-            if (!tryAddInt64Checked(accI, i, next)) {
-              ok = false;
-            }
-            accI = next;
-          } else if (!hasMm || (wantMin ? i < mmI : i > mmI)) {
-            mmI = i;
-            hasMm = true;
-          }
-        });
-        if (ok) {
-          if (id == BuiltinFunctionId::Sum) {
-            return makeScalarInt(accI);
-          }
-          return makeScalarInt(mmI);
+        EvalValue folded;
+        if (tryFoldExactSumMinMax<long long>(
+                id, args,
+                [](const EvalValue::ScalarValue& s, long long& i) {
+                  return tryGetExactSignedInt64NoUIntWrapFromScalar(s, i);
+                },
+                [](long long a, long long b, long long& o) {
+                  return tryAddInt64Checked(a, b, o);
+                },
+                [](long long i) { return makeScalarInt(i); },
+                folded)) {
+          return folded;
         }
       }
     }
@@ -11001,9 +11312,6 @@ MathParser::EvalValue MathParser::aggregateFoldByMode(
   return makeScalar(0);
   }
   }
-  //unreachable code:
-  //ctx.fail(ParseErrorId::InternalAggregateBuiltin);
-  //return makeScalar(0);
 }
 
 MathParser::EvalValue MathParser::builtinAggregateFamily(
@@ -11361,56 +11669,92 @@ MathParser::EvalValue MathParser::invokeUnaryFunctionOnElement(
   return makeScalar(0);
 }
 
+bool MathParser::prepareUnaryCallableScalars(
+    EvalContext& ctx,
+    const std::string& fnName,
+    const EvalValue& dataArg,
+    const EvalValue& fnArg,
+    const char* expectsOneFunction,
+    const char* expectsUnaryFunction,
+    std::vector<EvalValue::ScalarValue>& vals,
+    bool& isLambda,
+    bool& emptyArray) const {
+  emptyArray = false;
+  isLambda = (fnArg.kind == ValueKind::InlineLambda);
+  const bool isRef = (fnArg.kind == ValueKind::FunctionRef);
+  if (!isLambda && !isRef) {
+    if (fnArg.kind == ValueKind::Array) {
+      ctx.fail(expectsOneFunction);
+    } else {
+      ctx.fail(expectsUnaryFunction);
+    }
+    return false;
+  }
+  if (isRef) {
+    std::string errText;
+    if (!isEligibleUnaryFunctionName(fnArg.funcRefName, errText, expectsUnaryFunction)) {
+      ctx.fail(errText.c_str());
+      return false;
+    }
+  }
+  std::vector<EvalValue> flat;
+  if (!flattenArgsToScalars({dataArg}, flat)) {
+    if (dataArg.kind == ValueKind::Array) {
+      emptyArray = true;
+      return false;
+    }
+    ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
+    return false;
+  }
+  vals.clear();
+  vals.reserve(flat.size());
+  for (const auto& item : flat) {
+    vals.push_back(item.scalarValue);
+  }
+  return true;
+}
+
+MathParser::EvalValue MathParser::evalUnaryCallableOnScalar(
+    EvalContext& ctx,
+    const EvalValue& fnArg,
+    bool isLambda,
+    const EvalValue::ScalarValue& elem,
+    const std::unordered_map<std::string, EvalValue>* scopedVars,
+    const char* expectsUnaryFunction) {
+#if SMARTMATH_LAMBDA_FUNCTIONS
+  if (isLambda) {
+    std::vector<EvalValue> lamArgs;
+    lamArgs.push_back(scalarFromScalarValue(elem));
+    return evalInlineLambdaCall(ctx, fnArg.lambdaParams, fnArg.lambdaBody, std::move(lamArgs));
+  }
+#else
+  (void)isLambda;
+#endif
+  return invokeUnaryFunctionOnElement(ctx, fnArg.funcRefName, elem, scopedVars, expectsUnaryFunction);
+}
+
 MathParser::EvalValue MathParser::builtinSortby(
     EvalContext& ctx,
     const std::string& fnName,
     const std::vector<EvalValue>& args,
     const std::unordered_map<std::string, EvalValue>* scopedVars) {
-  const bool keyIsLambda = (args[1].kind == ValueKind::InlineLambda);
-  const bool keyIsRef = (args[1].kind == ValueKind::FunctionRef);
-  if (!keyIsLambda && !keyIsRef) {
-    if (args[1].kind == ValueKind::Array) {
-      ctx.fail(STR_SORTBY_EXPECTS_ONE_FUNCTION);
-    } else {
-      ctx.fail(STR_SORTBY_EXPECTS_UNARY_FUNCTION);
-    }
-    return makeScalar(0);
-  }
-  if (keyIsRef) {
-    std::string errText;
-    if (!isEligibleUnaryFunctionName(args[1].funcRefName, errText, STR_SORTBY_EXPECTS_UNARY_FUNCTION)) {
-      ctx.fail(errText.c_str());
-      return makeScalar(0);
-    }
-  }
-  std::vector<EvalValue> flat;
-  if (!flattenArgsToScalars({args[0]}, flat)) {
-    if (args[0].kind == ValueKind::Array) {
+  bool isLambda = false;
+  bool emptyArray = false;
+  std::vector<EvalValue::ScalarValue> vals;
+  if (!prepareUnaryCallableScalars(
+          ctx, fnName, args[0], args[1],
+          STR_SORTBY_EXPECTS_ONE_FUNCTION, STR_SORTBY_EXPECTS_UNARY_FUNCTION,
+          vals, isLambda, emptyArray)) {
+    if (emptyArray) {
       return makeArrayFromScalars({});
     }
-    ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
     return makeScalar(0);
-  }
-  std::vector<EvalValue::ScalarValue> vals;
-  vals.reserve(flat.size());
-  for (const auto& item : flat) {
-    vals.push_back(item.scalarValue);
   }
   std::vector<EvalValue> keys;
   keys.reserve(vals.size());
   for (std::size_t i = 0; i < vals.size(); ++i) {
-    EvalValue keyV;
-#if SMARTMATH_LAMBDA_FUNCTIONS
-    if (keyIsLambda) {
-      std::vector<EvalValue> lamArgs;
-      lamArgs.push_back(scalarFromScalarValue(vals[i]));
-      keyV = evalInlineLambdaCall(ctx, args[1].lambdaParams, args[1].lambdaBody, std::move(lamArgs));
-    } else
-#endif
-    {
-      keyV = invokeUnaryFunctionOnElement(
-          ctx, args[1].funcRefName, vals[i], scopedVars, STR_SORTBY_EXPECTS_UNARY_FUNCTION);
-    }
+    const EvalValue keyV = evalUnaryCallableOnScalar(
+        ctx, args[1], isLambda, vals[i], scopedVars, STR_SORTBY_EXPECTS_UNARY_FUNCTION);
     if (ctx.parseError) {
       return makeScalar(0);
     }
@@ -11528,46 +11872,23 @@ MathParser::EvalValue MathParser::builtinFilter(
     const std::string& fnName,
     const std::vector<EvalValue>& args,
     const std::unordered_map<std::string, EvalValue>* scopedVars) {
-  const bool predIsLambda = (args[1].kind == ValueKind::InlineLambda);
-  const bool predIsRef = (args[1].kind == ValueKind::FunctionRef);
-  if (!predIsLambda && !predIsRef) {
-    if (args[1].kind == ValueKind::Array) {
-      ctx.fail(STR_FILTER_EXPECTS_ONE_FUNCTION);
-    } else {
-      ctx.fail(STR_FILTER_EXPECTS_UNARY_FUNCTION);
-    }
-    return makeScalar(0);
-  }
-  if (predIsRef) {
-    std::string errText;
-    if (!isEligibleUnaryFunctionName(args[1].funcRefName, errText, STR_FILTER_EXPECTS_UNARY_FUNCTION)) {
-      ctx.fail(errText.c_str());
-      return makeScalar(0);
-    }
-  }
-  std::vector<EvalValue> flat;
-  if (!flattenArgsToScalars({args[0]}, flat)) {
-    if (args[0].kind == ValueKind::Array) {
+  bool isLambda = false;
+  bool emptyArray = false;
+  std::vector<EvalValue::ScalarValue> vals;
+  if (!prepareUnaryCallableScalars(
+          ctx, fnName, args[0], args[1],
+          STR_FILTER_EXPECTS_ONE_FUNCTION, STR_FILTER_EXPECTS_UNARY_FUNCTION,
+          vals, isLambda, emptyArray)) {
+    if (emptyArray) {
       return makeArrayFromScalars({});
     }
-    ctx.failCall(CallErrorId::AtLeastN, fnName, 1);
     return makeScalar(0);
   }
   std::vector<EvalValue> kept;
-  kept.reserve(flat.size());
-  for (const auto& item : flat) {
-    EvalValue predV;
-#if SMARTMATH_LAMBDA_FUNCTIONS
-    if (predIsLambda) {
-      std::vector<EvalValue> lamArgs;
-      lamArgs.push_back(scalarFromScalarValue(item.scalarValue));
-      predV = evalInlineLambdaCall(ctx, args[1].lambdaParams, args[1].lambdaBody, std::move(lamArgs));
-    } else
-#endif
-    {
-      predV = invokeUnaryFunctionOnElement(
-          ctx, args[1].funcRefName, item.scalarValue, scopedVars, STR_FILTER_EXPECTS_UNARY_FUNCTION);
-    }
+  kept.reserve(vals.size());
+  for (const auto& elem : vals) {
+    const EvalValue predV = evalUnaryCallableOnScalar(
+        ctx, args[1], isLambda, elem, scopedVars, STR_FILTER_EXPECTS_UNARY_FUNCTION);
     if (ctx.parseError) {
       return makeScalar(0);
     }
@@ -11576,7 +11897,7 @@ MathParser::EvalValue MathParser::builtinFilter(
       return makeScalar(0);
     }
     if (isTruthy(predV)) {
-      kept.push_back(scalarFromScalarValue(item.scalarValue));
+      kept.push_back(scalarFromScalarValue(elem));
     }
   }
   return makeArrayFromScalars(kept);
@@ -11927,6 +12248,31 @@ MathParser::EvalValue MathParser::builtinFactorial(
     const std::vector<EvalValue>& args) const {
 #if SMARTMATH_COMPLEX_NUMBERS
   if (getSupportComplexNumbers()) {
+    const auto isNegativeIntegerFact = [](const EvalValue::ScalarValue& s) {
+      if (scalarHasNonzeroImaginaryPart(s)) {
+        return false;
+      }
+      if (s.hasExactInt64() && s.exactInt64 < 0) {
+        return true;
+      }
+      long long n = 0;
+      return nearlyInt(s.scalar, n) && n < 0;
+    };
+    bool negativeInteger = false;
+    if (args[0].kind == ValueKind::Array) {
+      for (const auto& elem : args[0].arr) {
+        if (isNegativeIntegerFact(elem)) {
+          negativeInteger = true;
+          break;
+        }
+      }
+    } else if (args[0].kind == ValueKind::Scalar) {
+      negativeInteger = isNegativeIntegerFact(args[0].scalarValue);
+    }
+    if (negativeInteger) {
+      ctx.failCall(CallErrorId::NonNegativeInteger, fnName);
+      return makeScalar(0);
+    }
     return builtinUnaryMath(ctx, fnName, BuiltinFunctionId::Fact, args);
   }
 #endif
@@ -12171,7 +12517,14 @@ bool MathParser::tryUnaryComplexBuiltinSupport(
     case BuiltinFunctionId::Fact: {
       if (ai == 0.0 && !scalarHasNonzeroImaginaryPart(sv)) {
         long long n = 0;
-        if (nearlyInt(sv.scalar, n) && n >= 0) {
+        const bool exactNeg = sv.hasExactInt64() && sv.exactInt64 < 0;
+        if (exactNeg || (nearlyInt(sv.scalar, n) && n < 0)) {
+          return false;
+        }
+        if (sv.hasExactInt64()) {
+          n = sv.exactInt64;
+        }
+        if ((sv.hasExactInt64() || nearlyInt(sv.scalar, n)) && n >= 0) {
           if (n <= 20) {
             out = makeScalarInt(kFactorialTable21[n]);
             return true;
@@ -12377,6 +12730,22 @@ bool MathParser::applyUnaryComplexMathOverlay(
       return true;
     }
   }
+  if (std::isfinite(x)) {
+    const bool outOfRealDomain =
+        ((id == BuiltinFunctionId::Asin || id == BuiltinFunctionId::Acos || id == BuiltinFunctionId::Atanh) &&
+         std::fabs(x) > 1.0) ||
+        (id == BuiltinFunctionId::Acosh && x < 1.0);
+    if (outOfRealDomain) {
+      double or_ = 0.0;
+      double oi = 0.0;
+      if (!complexUnaryTrigCartesian(id, x, 0.0, or_, oi)) {
+        return false;
+      }
+      snapComplexNearZeroAxis(or_, oi);
+      outV = makeScalarComplexFromDoubles(or_, oi);
+      return true;
+    }
+  }
   return false;
 }
 #endif
@@ -12433,6 +12802,9 @@ MathParser::EvalValue MathParser::applyUnaryBuiltin(
         return makeScalar(std::acosh(x));
       }
       if (id == BuiltinFunctionId::Asinh) {
+        if (std::fabs(x) > 1e150 && std::isfinite(x)) {
+          return makeScalar(std::copysign(std::log(std::fabs(x)) + std::log(2.0), x));
+        }
         return makeScalar(std::asinh(x));
       }
       return makeScalar(std::atanh(x));

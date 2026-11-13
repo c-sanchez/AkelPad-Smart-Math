@@ -35,7 +35,7 @@ Language-specific workarounds are not mirrored when the other side has no such d
 
 ## Known intentional differences
 
-Do not "fix" these unless the user asks, and do not write shared tests that require them to match; record new ones here when a task leaves a non-floating-point difference in place. Floating-point inaccuracy needs no entry; smoke-tests "Handling a test mismatch" covers it.
+Do not "fix" these unless the user asks, and do not write shared tests that require them to match. A new entry is allowed only after the user has decided to keep that rejection or limit (raise-concerns flow). Floating-point inaccuracy needs no entry; smoke-tests "Handling a test mismatch" covers it.
 
 - Unknown-name errors: C++ lowercases identifiers and lists every unknown name in the input; Basic keeps case and stops at the first.
 - Float formatting: C++ prints correctly rounded `%.16g`; Basic uses FreeBASIC `str()`, which can differ on exact decimal ties (`1e15+0.5`: Basic `1000000000000001.0`, C++ `1000000000000000.0`). Both append `.0` when that general form has no fraction and no exponent, and both use scientific form for a non-exact value with magnitude above `2^53`. The plugin auto formatter uses the same rule and then strips leading zeros in the exponent (`9.907919180215092e+15`).

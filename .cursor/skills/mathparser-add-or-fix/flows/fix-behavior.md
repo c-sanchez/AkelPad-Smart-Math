@@ -1,6 +1,6 @@
 # Fix Parser Behavior (Defects and Intentional Semantics Changes)
 
-Load when fixing a reported defect or otherwise changing existing results or error text.
+Load when fixing a reported defect or otherwise changing existing results or error text. A rejection, limit, or mathematical mismatch found while reproducing — including one that is not the reported defect — is raised per raise-concerns before a behavior is chosen.
 
 ## 1) Reproduce on every side
 
@@ -12,7 +12,7 @@ Load when fixing a reported defect or otherwise changing existing results or err
 
 - Fix the root cause in both parsers (parity skill), following coding-standards. Prefer one shared helper for the same rule used at several call sites.
 - Keep each site's existing error ids and texts unless the error text is the defect.
-- When a fix makes a previously ignored case reachable (overflow, non-finite, `INT64_MIN`), decide its accepted/rejected behavior per coding-standards and lock it with tests.
+- When a fix makes a previously ignored case reachable (overflow, non-finite, `INT64_MIN`), raise the accept-or-reject choice per raise-concerns. Lock it with tests only after the user decides.
 
 ## 3) Re-verify
 
@@ -26,4 +26,4 @@ Load when fixing a reported defect or otherwise changing existing results or err
 
 ## 5) Report what stays different
 
-List intentional or out-of-scope differences that remain (Basic vs C++, or parser vs Python), so they are not rediscovered as defects. When the user accepts a difference instead of a fix, record it per smoke-tests "Handling a test mismatch" step 5; known ones live in the parity skill.
+List differences that remain (Basic vs C++, or parser vs Python), so they are not rediscovered as defects. A rejection or limit is listed here only after the user has decided to keep it (raise-concerns). Record that decision per smoke-tests "Handling a test mismatch" step 5; known ones live in the parity skill.

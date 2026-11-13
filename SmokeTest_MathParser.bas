@@ -283,7 +283,6 @@ sub RunCase(byref c as SmokeCase)
     if setupOk = FALSE then
       g_failed += 1
       print "          FAIL : setup """ & c.setup & """ failed: """ & Parser_GetLastError() & """"
-      print ""
       exit sub
     end if
   end if
@@ -331,7 +330,6 @@ sub RunCase(byref c as SmokeCase)
       print "                 expected """ & c.expected & """"
     end if
   end if
-  print ""
 end sub
 
 private sub RunRawResultApiTests()
@@ -1763,6 +1761,126 @@ private sub RunComplexNumberSupportOptionTests()
     end if
   next cxi
 
+  if Parser_TryEvaluateEx("asin(2)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.570796326794897-1.316957896924817i") = FALSE then
+    print "[complex-opt] FAIL: asin(2) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: asin(2) principal value"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acos(2)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.316957896924817i") = FALSE then
+    print "[complex-opt] FAIL: acos(2) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acos(2) principal value"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acosh(0.5)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.047197551196598i") = FALSE then
+    print "[complex-opt] FAIL: acosh(0.5) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acosh(0.5) principal value"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("atanh(2)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "0.5493061443340549+1.570796326794897i") = FALSE then
+    print "[complex-opt] FAIL: atanh(2) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: atanh(2) principal value"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("asin(1)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.570796326794897") = FALSE then
+    print "[complex-opt] FAIL: asin(1) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: asin(1) stays real"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("fact(-1)", r, rt, ia) <> FALSE orelse instr(lcase(Parser_GetLastError()), "fact() expects a non-negative integer") = 0 then
+    print "[complex-opt] FAIL: fact(-1) err=" & Parser_GetLastError() & " val=" & rt
+    subFail += 1
+  else
+    print "[complex-opt] PASS: fact(-1) non-negative integer error"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("fact(-20)", r, rt, ia) <> FALSE orelse instr(lcase(Parser_GetLastError()), "expects a non-negative integer") = 0 then
+    print "[complex-opt] FAIL: fact(-20) err=" & Parser_GetLastError() & " val=" & rt
+    subFail += 1
+  else
+    print "[complex-opt] PASS: fact(-20) non-negative integer error"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("deg(pi+i)", r, rt, ia) <> FALSE orelse instr(lcase(Parser_GetLastError()), "incompatible operands") = 0 then
+    print "[complex-opt] FAIL: deg(pi+i) err=" & Parser_GetLastError() & " val=" & rt
+    subFail += 1
+  else
+    print "[complex-opt] PASS: deg stays real-only"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("rad(180+i)", r, rt, ia) <> FALSE orelse instr(lcase(Parser_GetLastError()), "incompatible operands") = 0 then
+    print "[complex-opt] FAIL: rad(180+i) err=" & Parser_GetLastError() & " val=" & rt
+    subFail += 1
+  else
+    print "[complex-opt] PASS: rad stays real-only"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acosh(-2)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.316957896924817+3.141592653589793i") = FALSE then
+    print "[complex-opt] FAIL: acosh(-2) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acosh(-2) principal value"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acosh(-1e8)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "19.11382792451231+3.141592653589793i") = FALSE then
+    print "[complex-opt] FAIL: acosh(-1e8) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acosh(-1e8) stays finite"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acosh(-1e308)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "709.889355822726+3.141592653589793i") = FALSE then
+    print "[complex-opt] FAIL: acosh(-1e308) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acosh(-1e308) stays finite"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("asin(1e308)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.570796326794897-709.889355822726i") = FALSE then
+    print "[complex-opt] FAIL: asin(1e308) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: asin(1e308) stays finite"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acos(1e308)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "709.889355822726i") = FALSE then
+    print "[complex-opt] FAIL: acos(1e308) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acos(1e308) stays finite"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("acos(-1e308)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "3.141592653589793-709.889355822726i") = FALSE then
+    print "[complex-opt] FAIL: acos(-1e308) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: acos(-1e308) stays finite"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("asin(1e160+i)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "1.570796326794897-369.1067620596073i") = FALSE then
+    print "[complex-opt] FAIL: asin(1e160+i) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: asin(1e160+i) stays finite"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("exp(710+i)", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "inf+inf*i") = FALSE then
+    print "[complex-opt] FAIL: exp(710+i) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: exp(710+i) keeps both infinite parts"
+    subPass += 1
+  end if
+
   Parser_SetSupportComplexNumbers(FALSE)
   if Parser_GetSupportComplexNumbers() <> FALSE then
     print "[complex-opt] FAIL: expected support flag OFF after disable"
@@ -2220,14 +2338,11 @@ private sub RunGcdLcmNcrNprArrayBroadcastTests()
     subPass += 1
   end if
 
-  if Parser_TryEvaluateEx("ncr((5,6),(2,7))", r, rt, ia) then
-    print "[gcd-ncr-array] FAIL: ncr domain error expected failure"
-    subFail += 1
-  elseif instr(lcase(Parser_GetLastError()), "numeric error in ncr()") = 0 then
-    print "[gcd-ncr-array] FAIL: ncr domain got """ & Parser_GetLastError() & """"
+  if Parser_TryEvaluateEx("ncr((5,6),(2,7))", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "(10,0)") = FALSE then
+    print "[gcd-ncr-array] FAIL: ncr((5,6),(2,7)) -> """ & rt & """ err=" & Parser_GetLastError()
     subFail += 1
   else
-    print "[gcd-ncr-array] PASS: ncr((5,6),(2,7)) -> numeric error"
+    print "[gcd-ncr-array] PASS: ncr((5,6),(2,7)) -> (10,0)"
     subPass += 1
   end if
 
@@ -3021,7 +3136,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1563) as SmokeCase
+  dim tests(1 to 1599) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -3865,9 +3980,9 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(793).expr = "npr(5,2)": tests(793).expected = "20"
   tests(794).expr = "ncr(10,0)": tests(794).expected = "1"
   tests(795).expr = "npr(10,0)": tests(795).expected = "1"
-  tests(796).expr = "ncr(5,7)": tests(796).expectedErrContains = "numeric error in ncr()"
-  tests(797).expr = "npr(5,7)": tests(797).expectedErrContains = "numeric error in npr()"
-  tests(798).expr = "ncr(-1,0)": tests(798).expectedErrContains = "numeric error in ncr()"
+  tests(796).expr = "ncr(5,7)": tests(796).expected = "0" ' non-negative r > n
+  tests(797).expr = "npr(5,7)": tests(797).expected = "0"
+  tests(798).expr = "ncr(-1,0)": tests(798).expected = "1" ' C(n, 0) = 1
   tests(799).expr = "npr(5,-1)": tests(799).expectedErrContains = "numeric error in npr()"
   tests(800).expr = "ncr(5.5,2)": tests(800).expectedErrContains = "ncr() expects integer values"
   tests(801).expr = "npr(inf,2)": tests(801).expectedErrContains = "npr() expects integer values"
@@ -4529,7 +4644,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1443).expr = "gcd(-9223372036854775808,0)": tests(1443).expected = "9223372036854775808" ' [gcd] |INT64_MIN|
   tests(1444).expr = "lcm(-9223372036854775808,1)": tests(1444).expected = "9223372036854775808" ' [lcm] |INT64_MIN|
   tests(1445).expr = "ncr(67,33)": tests(1445).expected = "14226520737620288370" ' [ncr] uint64 result (math.comb)
-  tests(1446).expr = "npr(21,21)": tests(1446).expectedErrContains = "numeric error in npr()" ' [npr] 21! > 2**64
+  tests(1446).expr = "npr(21,21)": tests(1446).expected = "5.109094217170944e+019" ' 21! does not fit in uint64; same float as fact(21)
   tests(1447).expr = "factorint(9223372036854775837)": tests(1447).expected = "(9223372036854775837)" ' [factorint] prime > 2**63
   tests(1448).expr = "factorint(18446744073709551557)": tests(1448).expected = "(18446744073709551557)" ' [factorint] largest uint64 prime
   tests(1449).expr = "factorint(-9223372036854775808)": tests(1449).expected = "(-2**63)" ' [factorint] INT64_MIN
@@ -4655,6 +4770,42 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1560).expr = "f(x)=max(x); f(())": tests(1560).expected = "()"
   tests(1561).expr = "seconds(())": tests(1561).expected = "()"
   tests(1563).expr = "clamp((), 0, 9)": tests(1563).expected = "()" ' empty value maps to empty; bounds stay scalar
+  tests(1564).expr = "(2,3)**()": tests(1564).expectedErrContains = "incompatible operands" ' length 2 vs empty
+  tests(1565).expr = "()**flat(5)": tests(1565).expectedErrContains = "incompatible operands" ' empty vs length 1
+  tests(1566).expr = "~(2,7)": tests(1566).expected = "(-3,-8)" ' element-wise xor -1
+  tests(1567).expr = "~()": tests(1567).expected = "()" ' empty bitwise NOT stays empty
+  tests(1568).expr = "1^18446744073709551615": tests(1568).expected = "18446744073709551614" ' uint64 xor, right operand above 2^63
+  tests(1569).expr = "1&18446744073709551615": tests(1569).expected = "1" ' uint64 and
+  tests(1570).expr = "1|18446744073709551615": tests(1570).expected = "18446744073709551615" ' uint64 or
+  tests(1571).expr = "9223372036854775808^64": tests(1571).expected = "9223372036854775872" ' uint64 left, signed right above 63
+  tests(1572).expr = "18446744073709551615>>64": tests(1572).expectedErrContains = "incompatible operands" ' shift count still rejected
+  tests(1573).expr = "(-1)**(1/65)": tests(1573).expected = "-1" ' odd unit root past degree 63; Python (-1)
+  tests(1574).expr = "(-32)**(1/65)": tests(1574).expected = "-1.054766076481647" ' -(32**(1/65)); Python %.16g
+  tests(1575).expr = "ncr(5,8)": tests(1575).expected = "0" ' non-negative r > n
+  tests(1576).expr = "npr(5,8)": tests(1576).expected = "0"
+  tests(1577).expr = "ncr(100,50)": tests(1577).expected = "1.008913445455642e+029" ' exact 100891344545564193334812497256
+  tests(1578).expr = "ncr(-3,2)": tests(1578).expected = "6" ' generalized binomial
+  tests(1579).expr = "npr(-3,2)": tests(1579).expected = "12" ' falling factorial
+  tests(1580).expr = "ncr(-3,0)": tests(1580).expected = "1"
+  tests(1581).expr = "npr(-3,0)": tests(1581).expected = "1"
+  tests(1582).expr = "gcd(0,0)": tests(1582).expectedErrContains = "numeric error in gcd()"
+  tests(1583).expr = "lcm(0,0)": tests(1583).expectedErrContains = "numeric error in lcm()"
+  tests(1584).expr = "gcd(0,5)": tests(1584).expected = "5"
+  tests(1585).expr = "lcm(0,5)": tests(1585).expected = "0"
+  tests(1586).expr = "asin(2)": tests(1586).expected = "nan" ' real-only inverse stays nan
+  tests(1587).expr = "asinh(1e200)": tests(1587).expected = "461.2101657793691"
+  tests(1588).expr = "asinh(1e308)": tests(1588).expected = "709.889355822726"
+  tests(1589).expr = "asinh(-1e308)": tests(1589).expected = "-709.889355822726"
+  tests(1590).expr = "(-2**54)**(1/3)": tests(1590).expected = "-262144"
+  tests(1591).expr = "(-2**60)**(1/3)": tests(1591).expected = "-1048576"
+  tests(1592).expr = "(-9223372036854775808)**(1/3)": tests(1592).expected = "-2097152"
+  tests(1593).expr = "(-2**53)**(1/3)": tests(1593).expected = "-208063.8306835757"
+  tests(1594).expr = "lcm(-9223372036854775808,3)": tests(1594).expected = "2.767011611056433e+019"
+  tests(1595).expr = "lcm(18446744073709551615,2)": tests(1595).expected = "3.68934881474191e+019"
+  tests(1596).expr = "ncr(200,100)": tests(1596).expected = "9.054851465610328e+058"
+  tests(1597).expr = "ncr(1020,510)": tests(1597).expected = "2.806267768299623e+305"
+  tests(1598).expr = "ncr(1030,515)": tests(1598).expected = "inf"
+  tests(1599).expr = "ncr(1021,510)": tests(1599).expected = "5.607043818853062e+305"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer
