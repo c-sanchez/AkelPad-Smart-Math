@@ -219,7 +219,8 @@ private:
       EvalContext& ctx,
       const std::vector<std::string>& paramNames,
       const std::string& bodyExpr,
-      std::vector<EvalValue>&& args);
+      std::vector<EvalValue>&& args,
+      const std::unordered_map<std::string, EvalValue>* parentScopedVars);
 #endif
   std::unique_ptr<Expr> parseUnaryFunctionArg(
       EvalContext& ctx,
@@ -297,6 +298,7 @@ private:
       const Expr& e,
       const std::unordered_map<std::string, EvalValue>* scopedVars,
       EvalValue& out) const;
+  EvalValue formalValidationProbeScalar(long long missingFallback) const;
   const char* validateUserFunctionDefinitionNames(
       const std::string& fnName,
       const std::vector<std::string>& fnParams) const;

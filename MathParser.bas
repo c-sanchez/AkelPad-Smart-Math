@@ -389,6 +389,7 @@ enum EvalFlags
   EVF_EXPAND_ARGS = &h01
   EVF_RENDER_UNSIGNED = &h02
   EVF_RENDER_RATIONAL = &h04
+  EVF_FORMAL_PROBE = &h08
   EVF_RENDER_BASE_SHIFT = 8
   EVF_RENDER_BASE_MASK = &h0000FF00
 end enum
@@ -3495,6 +3496,34 @@ private function FindVariableIndex(byref n as String) as Integer
   return -1
 end function
 
+private function EvalValueHasFormalProbeTaint(byref v as EvalValue) as Boolean
+  return (v.flags and EVF_FORMAL_PROBE) <> 0
+end function
+
+private sub EvalValueSetFormalProbeTaint(byref v as EvalValue, byval enabled as Boolean)
+  if enabled then
+    v.flags = v.flags or EVF_FORMAL_PROBE
+  else
+    v.flags = v.flags and not CUInt(EVF_FORMAL_PROBE)
+  end if
+end sub
+
+private sub PropagateFormalProbeTaint2(byref outV as EvalValue, byref a as EvalValue, byref b as EvalValue)
+  if EvalValueHasFormalProbeTaint(a) orelse EvalValueHasFormalProbeTaint(b) then
+    EvalValueSetFormalProbeTaint(outV, TRUE)
+  end if
+end sub
+
+private sub LoadCleanFormalProbe(byref outValue as EvalValue)
+  dim probeIdx as Integer = FindVariableIndex(FB_STR_FORMAL_VALIDATION_PROBE)
+  if probeIdx >= 0 andalso variables(probeIdx).value.kind = VK_SCALAR then
+    outValue = variables(probeIdx).value
+  else
+    ValueSetInt64(outValue, 1)
+  end if
+  EvalValueSetFormalProbeTaint(outValue, FALSE)
+end sub
+
 #ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
 private function TryGetFunctionVariableOverride(byref n as String, byref v as EvalValue) as Boolean
   dim i as Integer
@@ -3506,6 +3535,7 @@ private function TryGetFunctionVariableOverride(byref n as String, byref v as Ev
       else
         ValueSetInt64(v, 1)
       end if
+      EvalValueSetFormalProbeTaint(v, TRUE)
       return TRUE
     end if
   next i
@@ -4550,15 +4580,15 @@ private function TryValidateAssignmentTargetName(byref varName as String, byref 
   return TryValidateIdentifierIsNotReserved(varName, errText)
 end function
 
-private function TryGetArrayIndexIntFromEvalValue(byref idxValue as EvalValue, byref outIdx as LongInt) as Boolean
+private function TryGetArrayIndexIntFromEvalValue(byref idxValue as EvalValue, byref outIdx as LongInt, byval setError as Boolean = TRUE) as Boolean
   if idxValue.kind <> VK_SCALAR then
-    SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
+    if setError then SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
     return FALSE
   end if
   dim sv as ScalarValue = idxValue.scalarValue
   ScalarRepairExactMetadata(sv)
   if ScalarHasNonzeroImaginaryPart(sv) then
-    SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
+    if setError then SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
     return FALSE
   end if
   select case sv.scalarStorageKind
@@ -4567,13 +4597,13 @@ private function TryGetArrayIndexIntFromEvalValue(byref idxValue as EvalValue, b
     return TRUE
   case SSK_UINT64
     if sv.exactUInt64 > FB_I64_MAX_U then
-      SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
+      if setError then SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
       return FALSE
     end if
     outIdx = CLngInt(sv.exactUInt64)
     return TRUE
   case else
-    SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
+    if setError then SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
     return FALSE
   end select
 end function
@@ -4635,21 +4665,23 @@ private function EstimateSliceItemCount(byval startV as LongInt, byval stopV as 
 end function
 
 private function TryApplyArrayIndex(byref baseValue as EvalValue, byref idxValue as EvalValue, byref outValue as EvalValue) as Boolean
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  if functionVariableCount > 0 andalso baseValue.kind = VK_SCALAR then
-    '' UDF body syntax validation: formal parameters are scalar probes; bounds checked at call time.
-    dim probeIdx as Integer = FindVariableIndex(FB_STR_FORMAL_VALIDATION_PROBE)
-    if probeIdx >= 0 andalso variables(probeIdx).value.kind = VK_SCALAR then
-      outValue = variables(probeIdx).value
-    else
-      ValueSetInt64(outValue, 1)
+  dim baseTainted as Boolean = EvalValueHasFormalProbeTaint(baseValue)
+  dim idxTainted as Boolean = EvalValueHasFormalProbeTaint(idxValue)
+  dim idxInt as LongInt
+  if TryGetArrayIndexIntFromEvalValue(idxValue, idxInt, FALSE) = FALSE then
+    if idxTainted andalso idxValue.kind = VK_SCALAR then
+      '' Probe sample is not an integer. Bounds are checked at the call.
+      LoadCleanFormalProbe(outValue)
+      return TRUE
     end if
+    TryGetArrayIndexIntFromEvalValue(idxValue, idxInt, TRUE)
+    return FALSE
+  end if
+  if baseTainted then
+    '' UDF body validation: a parameter-derived value has unknown length.
+    LoadCleanFormalProbe(outValue)
     return TRUE
   end if
-#endif
-
-  dim idxInt as LongInt
-  if TryGetArrayIndexIntFromEvalValue(idxValue, idxInt) = FALSE then return FALSE
 
   if baseValue.kind <> VK_ARRAY then
     SetParseErrorById(PARSE_ERR_INDEXING_REQUIRES_ARRAY)
@@ -4676,22 +4708,49 @@ private function TryApplyArraySlice( _
   byval hasStep as Boolean, byref stepValue as EvalValue, _
   byref outValue as EvalValue _
 ) as Boolean
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  if functionVariableCount > 0 andalso baseValue.kind = VK_SCALAR then
-    '' UDF body validation: return a 1-element probe array so chained indexing still parses.
-    dim probe as EvalValue
-    dim probeIdx as Integer = FindVariableIndex(FB_STR_FORMAL_VALIDATION_PROBE)
-    if probeIdx >= 0 andalso variables(probeIdx).value.kind = VK_SCALAR then
-      probe = variables(probeIdx).value
-    else
-      ValueSetInt64(probe, 1)
+  if EvalValueHasFormalProbeTaint(baseValue) then
+    if hasStart then
+      if startValue.kind <> VK_SCALAR then
+        SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
+        return FALSE
+      end if
+      if EvalValueHasFormalProbeTaint(startValue) = FALSE then
+        dim startIdxCheck as LongInt
+        if TryGetArrayIndexIntFromEvalValue(startValue, startIdxCheck) = FALSE then return FALSE
+      end if
     end if
+    if hasStop then
+      if stopValue.kind <> VK_SCALAR then
+        SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
+        return FALSE
+      end if
+      if EvalValueHasFormalProbeTaint(stopValue) = FALSE then
+        dim stopIdxCheck as LongInt
+        if TryGetArrayIndexIntFromEvalValue(stopValue, stopIdxCheck) = FALSE then return FALSE
+      end if
+    end if
+    if hasStep then
+      if stepValue.kind <> VK_SCALAR then
+        SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
+        return FALSE
+      end if
+      if EvalValueHasFormalProbeTaint(stepValue) = FALSE then
+        dim stepIdxCheck as LongInt
+        if TryGetArrayIndexIntFromEvalValue(stepValue, stepIdxCheck) = FALSE then return FALSE
+        if stepIdxCheck = 0 then
+          SetParseError(FB_STR_SLICE_STEP_MUST_NOT_BE_ZERO)
+          return FALSE
+        end if
+      end if
+    end if
+    '' UDF body validation: 1-element probe array so chained indexing still parses.
+    dim probe as EvalValue
+    LoadCleanFormalProbe(probe)
     dim probeVals(0 to 0) as ScalarValue
     probeVals(0) = ScalarValueFromEvalScalar(probe)
     ValueSetArrayFromScalarValues(outValue, probeVals())
     return TRUE
   end if
-#endif
 
   dim startIdx as LongInt = 0
   dim stopIdx as LongInt = 0
@@ -8336,6 +8395,7 @@ private function ApplyInt64ParserOp(byref leftV as EvalValue, byref rightV as Ev
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return FALSE
   end if
+  PropagateFormalProbeTaint2(outV, leftV, rightV)
   return TRUE
 end function
 
@@ -8344,6 +8404,7 @@ private function ApplyBinaryParserOp(byref leftV as EvalValue, byref rightV as E
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return FALSE
   end if
+  PropagateFormalProbeTaint2(outV, leftV, rightV)
   return TRUE
 end function
 
@@ -8362,6 +8423,7 @@ private sub ApplyComparisonParserOpInPlace(byref leftV as EvalValue, byref right
   if ApplyComparison(leftV, rightV, op, outV) = FALSE then
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
   else
+    PropagateFormalProbeTaint2(outV, leftV, rightV)
     leftV = outV
   end if
 end sub
@@ -10903,29 +10965,41 @@ private function ParseFunctionCall(byref fnName as String) as EvalValue
     redim preserve args(0 to argsCount - 1)
   end if
 
+  dim argsTainted as Boolean = FALSE
+  if argsCount > 0 then
+    dim argI as Integer
+    for argI = 0 to argsCount - 1
+      if EvalValueHasFormalProbeTaint(args(argI)) then
+        argsTainted = TRUE
+        exit for
+      end if
+    next argI
+  end if
+
   dim fn as String = fnLower
   dim fnId as Integer = TryFindBuiltinFunctionId(fn)
   if GetBuiltinCategory(fnId) = BC_SORTBY then
-    if TryBuiltinSortby(fnName, args(), outV) then return outV
-    return outV
+    TryBuiltinSortby(fnName, args(), outV)
+  elseif GetBuiltinCategory(fnId) = BC_FILTER then
+    TryBuiltinFilter(fnName, args(), outV)
+  elseif GetBuiltinCategory(fnId) = BC_RATIO then
+    TryBuiltinRatio(fnName, args(), outV)
+  else
+    NormalizeCallArgs(args())
+    if ValidateBuiltinCallArgs(fnId, fnName, args()) <> FALSE then
+      if ValidateBuiltinCallArity(fnId, fnName, args()) <> FALSE then
+        if TryDispatchBuiltinCall(fnId, fnName, args(), outV) = FALSE then
+          if EvaluateUserFunction(fnName, args(), outV) = FALSE then
+            AppendUniqueName(unknownFuncsText, fnName)
+            ValueSetInt64(outV, 0)
+          end if
+        end if
+      end if
+    end if
   end if
-  if GetBuiltinCategory(fnId) = BC_FILTER then
-    if TryBuiltinFilter(fnName, args(), outV) then return outV
-    return outV
+  if argsTainted andalso parseError = 0 then
+    EvalValueSetFormalProbeTaint(outV, TRUE)
   end if
-  if GetBuiltinCategory(fnId) = BC_RATIO then
-    if TryBuiltinRatio(fnName, args(), outV) then return outV
-    return outV
-  end if
-  NormalizeCallArgs(args())
-  if ValidateBuiltinCallArgs(fnId, fnName, args()) = FALSE then return outV
-  if ValidateBuiltinCallArity(fnId, fnName, args()) = FALSE then return outV
-  if TryDispatchBuiltinCall(fnId, fnName, args(), outV) then return outV
-
-  if EvaluateUserFunction(fnName, args(), outV) then return outV
-
-  AppendUniqueName(unknownFuncsText, fnName)
-  ValueSetInt64(outV, 0)
   return outV
 end function
 
@@ -11271,10 +11345,16 @@ private function ParseFactor() as EvalValue
         end if
       loop while hasComma
       if TryConsumeClosingParenOrSetError() = FALSE then return n
+      dim elemsTainted as Boolean = FALSE
+      dim elemI as Integer
+      for elemI = lbound(elems) to ubound(elems)
+        if EvalValueHasFormalProbeTaint(elems(elemI)) then elemsTainted = TRUE
+      next elemI
       dim vals() as ScalarValue
       dim flatCount as Integer = CollectArgsAsScalarValues(elems(), vals())
       if flatCount <= 0 then
         ValueInitArrayLike(n, 0, -1)
+        if elemsTainted then EvalValueSetFormalProbeTaint(n, TRUE)
       else
         dim sawTime as Boolean = FALSE
         dim sawNonTime as Boolean = FALSE
@@ -11291,6 +11371,7 @@ private function ParseFactor() as EvalValue
           return n
         end if
         ValueSetArrayFromScalarValues(n, vals())
+        if elemsTainted then EvalValueSetFormalProbeTaint(n, TRUE)
       end if
     else
       if TryConsumeClosingParenOrSetError() = FALSE then return n
@@ -11329,6 +11410,7 @@ private function TryConsumePostfixPercent(byref n as EvalValue) as Boolean
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return TRUE
   end if
+  if EvalValueHasFormalProbeTaint(n) then EvalValueSetFormalProbeTaint(outV, TRUE)
   n = outV
   wasPercentage = TRUE
   return TRUE
@@ -11422,7 +11504,10 @@ private function ParseUnary() as EvalValue
     v = ParseUnary()
     if parseError then return v
     dim outV as EvalValue
-    if TryNegateEvalScalarUnary(v, outV) then return outV
+    if TryNegateEvalScalarUnary(v, outV) then
+      if EvalValueHasFormalProbeTaint(v) then EvalValueSetFormalProbeTaint(outV, TRUE)
+      return outV
+    end if
     if Parser_SupportComplexNumbers andalso v.kind = VK_SCALAR then
       ' Unary '-' on a complex-capable scalar must negate both components directly.
       ' This avoids NaN/Inf component loss in the generic *(-1) fallback.
@@ -11431,6 +11516,7 @@ private function ParseUnary() as EvalValue
       dim outI as Double = -ai
       if IsNaNValue(ai) then outI = MakeNaN()
       ValueSetScalarComplexFromDoubles(outV, -ar, outI)
+      if EvalValueHasFormalProbeTaint(v) then EvalValueSetFormalProbeTaint(outV, TRUE)
       return outV
     end if
     dim minusOne as EvalValue
@@ -11456,12 +11542,16 @@ private function ParseUnary() as EvalValue
     dim v as EvalValue
     v = ParseUnary()
     if parseError then return v
+    dim keepTaint as Boolean = EvalValueHasFormalProbeTaint(v)
     ValueSetBoolResult(not EvalValueIsTruthy(v), v)
+    if keepTaint then EvalValueSetFormalProbeTaint(v, TRUE)
     return v
   elseif MatchKeywordOperator(OpName(OP_NOT)) then
     dim v as EvalValue = ParseLogicalNot()
     if parseError then return v
+    dim keepNotTaint as Boolean = EvalValueHasFormalProbeTaint(v)
     ValueSetBoolResult(not EvalValueIsTruthy(v), v)
+    if keepNotTaint then EvalValueSetFormalProbeTaint(v, TRUE)
     return v
   end if
 
@@ -11499,7 +11589,10 @@ private sub ApplyPercentageRhsByContext(byref lhs as EvalValue, byref rhs as Eva
   SkipSpaces()
   if IsAdditiveTermBoundary() then
     dim pctV as EvalValue
-    if ApplyBinaryParserOp(lhs, rhs, CHAR_ASTERISK, pctV) then rhs = pctV
+    if ApplyBinaryParserOp(lhs, rhs, CHAR_ASTERISK, pctV) then
+      PropagateFormalProbeTaint2(pctV, lhs, rhs)
+      rhs = pctV
+    end if
   end if
 end sub
 
@@ -11687,7 +11780,9 @@ private function ParseLogicalNot() as EvalValue
   if MatchKeywordOperator(OpName(OP_NOT)) then
     SkipSpaces()
     dim rhs as EvalValue = ParseLogicalNot()
+    dim keepNotTaint as Boolean = EvalValueHasFormalProbeTaint(rhs)
     ValueSetBoolResult(not EvalValueIsTruthy(rhs), rhs)
+    if keepNotTaint then EvalValueSetFormalProbeTaint(rhs, TRUE)
     return rhs
   end if
   return ParseComparison()
@@ -11722,11 +11817,13 @@ private function ParseLeftAssocLogical(byval keywordId as OperatorNameId, byval 
     else
       n2 = ParseLogicalNot()
     end if
+    dim keepLogicTaint as Boolean = EvalValueHasFormalProbeTaint(n) orelse EvalValueHasFormalProbeTaint(n2)
     if useOr then
       ValueSetBoolResult(EvalValueIsTruthy(n) orelse EvalValueIsTruthy(n2), n)
     else
       ValueSetBoolResult(EvalValueIsTruthy(n) andalso EvalValueIsTruthy(n2), n)
     end if
+    if keepLogicTaint then EvalValueSetFormalProbeTaint(n, TRUE)
     SkipSpaces()
   wend
   return n

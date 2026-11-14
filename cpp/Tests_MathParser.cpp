@@ -4913,7 +4913,30 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "uhex(((18446744073709551615,2),3)[0])", "0xFFFFFFFFFFFFFFFF"} ,
     {ParityBasicCase::Kind::Expected, "((ratio(1),ratio(1/2)),3)", "(1,1/2,3)"} ,
     {ParityBasicCase::Kind::Expected, "((1,2),(3,4))+1", "(2,3,4,5)"} ,
-    {ParityBasicCase::Kind::Expected, "((1,2))", "(1,2)"}
+    {ParityBasicCase::Kind::Expected, "((1,2))", "(1,2)"} ,
+#if SMARTMATH_LAMBDA_FUNCTIONS
+    {ParityBasicCase::Kind::Expected, "f(v,n)=filter(n, t: t>=0 && t<len(v))[0]", "defined f(v, n)"} ,
+    {ParityBasicCase::Kind::Expected, "f(v,n)=filter(n, t: t>=0 && t<len(v))[0]; f((10,-1,3),(0,2))", "0"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(v,n)=filter(n, t: t>=0 && t<len(v))[0]; f((10,-1,3),(5))", "array index is out of range"} ,
+    {ParityBasicCase::Kind::Expected, "f(v)=filter(v, t: t<len(v)); f((0,1,2))", "(0,1,2)"} ,
+#endif
+    {ParityBasicCase::Kind::Expected, "f(a)=a[0]; f((10,20))", "10"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(a)=a[0]; f(())", "array index is out of range"} ,
+    {ParityBasicCase::Kind::Expected, "f(a)=a[1:4]; f((1,2,3,4,5,6))", "(2, 3, 4)"} ,
+    {ParityBasicCase::Kind::Expected, "f(a,b)=range(a,b)[0]; f(0,3)", "0"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(a,b)=range(a,b)[0]; f(2,2)", "array index is out of range"} ,
+#if SMARTMATH_LAMBDA_FUNCTIONS
+    {ParityBasicCase::Kind::Expected, "f(a,b)=filter(a, t: t>b)[0]; f((1,5,3),2)", "5"} ,
+#endif
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=1[0]", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(a)=a[0][0]", "indexing requires an array value"} ,
+#if SMARTMATH_LAMBDA_FUNCTIONS
+    {ParityBasicCase::Kind::ErrorContains, "f(v)=filter(v, t: t>=0)[0][0]", "indexing requires an array value"} ,
+#endif
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=(1,2)[5]", "array index is out of range"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x%(y-x)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=1%(x-1)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=(x/2)<<2", "bitwise operands must be integer values"}
 };
 
 static const ParityBasicCase kParityTimeFromSmokeCases[] = {

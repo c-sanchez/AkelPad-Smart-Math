@@ -3214,7 +3214,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1617) as SmokeCase
+  dim tests(1 to 1634) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4902,6 +4902,23 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1615).expr = "200+10%+5": tests(1615).expected = "225" ' 220 + 5; the percent flag does not stick
   tests(1616).expr = "1:10+10%": tests(1616).expected = "01:17"
   tests(1617).expr = "1:00%": tests(1617).expectedErrContains = "incompatible operands"
+  tests(1618).expr = "f(v,n)=filter(n, t: t>=0 && t<len(v))[0]": tests(1618).expected = "defined f(v, n)" ' [udf] probe index of filter
+  tests(1619).expr = "f(v,n)=filter(n, t: t>=0 && t<len(v))[0]; f((10,-1,3),(0,2))": tests(1619).expected = "0"
+  tests(1620).expr = "f(v,n)=filter(n, t: t>=0 && t<len(v))[0]; f((10,-1,3),(5))": tests(1620).expectedErrContains = "array index is out of range"
+  tests(1621).expr = "f(v)=filter(v, t: t<len(v)); f((0,1,2))": tests(1621).expected = "(0,1,2)" ' [udf] lambda sees formal
+  tests(1622).expr = "f(a)=a[0]; f((10,20))": tests(1622).expected = "10"
+  tests(1623).expr = "f(a)=a[0]; f(())": tests(1623).expectedErrContains = "array index is out of range"
+  tests(1624).expr = "f(a)=a[1:4]; f((1,2,3,4,5,6))": tests(1624).expected = "(2, 3, 4)"
+  tests(1625).expr = "f(a,b)=range(a,b)[0]; f(0,3)": tests(1625).expected = "0"
+  tests(1626).expr = "f(a,b)=range(a,b)[0]; f(2,2)": tests(1626).expectedErrContains = "array index is out of range"
+  tests(1627).expr = "f(a,b)=filter(a, t: t>b)[0]; f((1,5,3),2)": tests(1627).expected = "5"
+  tests(1628).expr = "f(x)=1[0]": tests(1628).expectedErrContains = "indexing requires an array value"
+  tests(1629).expr = "f(a)=a[0][0]": tests(1629).expectedErrContains = "indexing requires an array value"
+  tests(1630).expr = "f(v)=filter(v, t: t>=0)[0][0]": tests(1630).expectedErrContains = "indexing requires an array value"
+  tests(1631).expr = "f(x)=(1,2)[5]": tests(1631).expectedErrContains = "array index is out of range"
+  tests(1632).expr = "f(x,y)=x%(y-x)": tests(1632).expectedErrContains = "incompatible operands"
+  tests(1633).expr = "f(x)=1%(x-1)": tests(1633).expectedErrContains = "incompatible operands"
+  tests(1634).expr = "f(x)=(x/2)<<2": tests(1634).expectedErrContains = "bitwise operands must be integer values"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

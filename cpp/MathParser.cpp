@@ -7141,6 +7141,7 @@ bool MathParser::tryResolveVariableValue(
         } else {
           out = makeScalarInt(1);
         }
+        out.setFormalProbeTaint(true);
       } else {
         out = it->second;
       }
@@ -7157,6 +7158,16 @@ bool MathParser::tryResolveVariableValue(
     return true;
   }
   return false;
+}
+
+MathParser::EvalValue MathParser::formalValidationProbeScalar(long long missingFallback) const {
+  auto pit = variables_.find(STR_FORMAL_VALIDATION_PROBE);
+  if (pit != variables_.end() && pit->second.kind == ValueKind::Scalar) {
+    EvalValue out = pit->second;
+    out.setFormalProbeTaint(false);
+    return out;
+  }
+  return makeScalarInt(missingFallback);
 }
 
 const char* MathParser::validateUserFunctionDefinitionNames(
@@ -8794,7 +8805,8 @@ MathParser::EvalValue MathParser::evalInlineLambdaCall(
     EvalContext& ctx,
     const std::vector<std::string>& paramNames,
     const std::string& bodyExpr,
-    std::vector<EvalValue>&& args) {
+    std::vector<EvalValue>&& args,
+    const std::unordered_map<std::string, EvalValue>* parentScopedVars) {
   static const std::string kLambda = "lambda";
   if (args.size() != paramNames.size()) {
     ctx.failCall(CallErrorId::ExactCount, kLambda, paramNames.size());
@@ -8806,9 +8818,11 @@ MathParser::EvalValue MathParser::evalInlineLambdaCall(
   }
 
   std::unordered_map<std::string, EvalValue> localVars;
-  localVars.reserve(paramNames.size());
+  if (parentScopedVars != nullptr) {
+    localVars = *parentScopedVars;
+  }
   for (std::size_t i = 0; i < paramNames.size(); ++i) {
-    localVars.emplace(paramNames[i], std::move(args[i]));
+    localVars[paramNames[i]] = std::move(args[i]);
   }
 
   const std::string trimmedBody = trim(bodyExpr);
@@ -9797,11 +9811,17 @@ MathParser::EvalValue MathParser::evalUnaryExpr(
     return v;
   }
 
+  const auto finishUnary = [&](EvalValue out) {
+    if (v.hasFormalProbeTaint()) {
+      out.setFormalProbeTaint(true);
+    }
+    return out;
+  };
   if (e.unaryOp == '-') {
-    return negateEvalValue(v);
+    return finishUnary(negateEvalValue(v));
   }
   if (e.unaryOp == 'N') {
-    return makeScalarInt(isTruthy(v) ? 0LL : 1LL);
+    return finishUnary(makeScalarInt(isTruthy(v) ? 0LL : 1LL));
   }
   if (e.unaryOp == '~') {
 #if SMARTMATH_COMPLEX_NUMBERS
@@ -9810,7 +9830,7 @@ MathParser::EvalValue MathParser::evalUnaryExpr(
       return makeScalar(0);
     }
 #endif
-    return evalInt64BinaryOp(ctx, v, makeScalarInt(-1), Expr::BinaryOp::BitXor);
+    return finishUnary(evalInt64BinaryOp(ctx, v, makeScalarInt(-1), Expr::BinaryOp::BitXor));
   }
 
   ctx.fail(ParseErrorId::InternalUnaryOp);
@@ -10271,10 +10291,14 @@ MathParser::EvalValue MathParser::evalExpr(
     case Expr::Tag::ArrayOrParens: {
       std::vector<EvalValue> flatVals;
       flatVals.reserve(e.elements.size());
+      bool anyFormalProbe = false;
       for (const auto& ch : e.elements) {
         EvalValue a = evalExpr(*ch, ctx, scopedVars);
         if (ctx.parseError) {
           return makeScalar(0);
+        }
+        if (a.hasFormalProbeTaint()) {
+          anyFormalProbe = true;
         }
         if (a.kind == ValueKind::Scalar) {
           flatVals.emplace_back(std::move(a));
@@ -10290,7 +10314,11 @@ MathParser::EvalValue MathParser::evalExpr(
         }
       }
       if (flatVals.empty()) {
-        return makeArrayFromScalars({});
+        EvalValue emptyArr = makeArrayFromScalars({});
+        if (anyFormalProbe) {
+          emptyArr.setFormalProbeTaint(true);
+        }
+        return emptyArr;
       }
 #if SMARTMATH_TIME_VALUES
       bool anyTimeArr = false;
@@ -10310,7 +10338,11 @@ MathParser::EvalValue MathParser::evalExpr(
         return makeScalar(0);
       }
 #endif
-      return makeArrayFromScalars(flatVals);
+      EvalValue arr = makeArrayFromScalars(flatVals);
+      if (anyFormalProbe) {
+        arr.setFormalProbeTaint(true);
+      }
+      return arr;
     }
     case Expr::Tag::Call: {
       std::vector<EvalValue> args;
@@ -10321,7 +10353,18 @@ MathParser::EvalValue MathParser::evalExpr(
           return makeScalar(0);
         }
       }
-      return evalFunctionCall(ctx, e.name, std::move(args), e.builtinFunctionId, scopedVars);
+      bool argsTainted = false;
+      for (const auto& arg : args) {
+        if (arg.hasFormalProbeTaint()) {
+          argsTainted = true;
+          break;
+        }
+      }
+      EvalValue called = evalFunctionCall(ctx, e.name, std::move(args), e.builtinFunctionId, scopedVars);
+      if (argsTainted) {
+        called.setFormalProbeTaint(true);
+      }
+      return called;
     }
     case Expr::Tag::Index: {
       EvalValue base = evalExpr(*e.left, ctx, scopedVars);
@@ -10332,24 +10375,21 @@ MathParser::EvalValue MathParser::evalExpr(
         ctx.fail(ParseErrorId::ArrayIndexMustBeScalar);
         return makeScalar(0);
       }
+      const bool baseTainted = base.hasFormalProbeTaint();
+      const bool idxTainted = idxv.hasFormalProbeTaint();
       long long idx = 0;
-      if (!tryGetArrayIndexIntFromScalarValue(idxv.scalarValue, idx)) {
+      const bool idxIsInt = tryGetArrayIndexIntFromScalarValue(idxv.scalarValue, idx);
+      if (!idxIsInt) {
+        if (idxTainted) {
+          // Probe sample is not an integer. Bounds are checked at the call.
+          return formalValidationProbeScalar(0);
+        }
         ctx.fail(ParseErrorId::ArrayIndexMustBeInteger);
         return makeScalar(0);
       }
-      bool formalParamIndexBase = (base.kind == ValueKind::UdfFormalValidationDummy);
-      if (!formalParamIndexBase && scopedVars && e.left && e.left->tag == Expr::Tag::Variable) {
-        const auto sit = scopedVars->find(e.left->name);
-        formalParamIndexBase =
-            (sit != scopedVars->end() && sit->second.kind == ValueKind::UdfFormalValidationDummy);
-      }
-      if (formalParamIndexBase) {
-        // UDF body validation only: argument length is unknown; bounds are checked at call time.
-        auto pit = variables_.find(STR_FORMAL_VALIDATION_PROBE);
-        if (pit != variables_.end() && pit->second.kind == ValueKind::Scalar) {
-          return pit->second;
-        }
-        return makeScalarInt(0);
+      if (baseTainted) {
+        // UDF body validation: a parameter-derived value has unknown length.
+        return formalValidationProbeScalar(0);
       }
       if (base.kind != ValueKind::Array) {
         ctx.fail(ParseErrorId::IndexingRequiresArray);
@@ -10367,21 +10407,29 @@ MathParser::EvalValue MathParser::evalExpr(
       EvalValue base = evalExpr(*e.left, ctx, scopedVars);
       if (ctx.parseError) return base;
 
-      const auto evalOptionalBound = [&](std::size_t slot, bool& hasBound, long long& outBound) -> bool {
+      const bool baseTainted = base.hasFormalProbeTaint();
+      const auto evalOptionalBound = [&](std::size_t slot, bool& hasBound, long long& outBound, bool& boundTainted, bool& boundIsInt) -> bool {
         hasBound = (slot < e.elements.size() && e.elements[slot] != nullptr);
+        boundTainted = false;
+        boundIsInt = true;
         if (!hasBound) {
           outBound = 0;
           return true;
         }
         EvalValue bv = evalExpr(*e.elements[slot], ctx, scopedVars);
         if (ctx.parseError) return false;
+        boundTainted = bv.hasFormalProbeTaint();
         if (bv.kind != ValueKind::Scalar) {
           ctx.fail(ParseErrorId::ArrayIndexMustBeScalar);
           return false;
         }
-        if (!tryGetArrayIndexIntFromScalarValue(bv.scalarValue, outBound)) {
+        boundIsInt = tryGetArrayIndexIntFromScalarValue(bv.scalarValue, outBound);
+        if (!boundIsInt && !(baseTainted && boundTainted)) {
           ctx.fail(ParseErrorId::ArrayIndexMustBeInteger);
           return false;
+        }
+        if (!boundIsInt) {
+          outBound = 0;
         }
         return true;
       };
@@ -10389,32 +10437,33 @@ MathParser::EvalValue MathParser::evalExpr(
       bool hasStart = false;
       bool hasStop = false;
       bool hasStep = false;
+      bool startTainted = false;
+      bool stopTainted = false;
+      bool stepTainted = false;
+      bool startIsInt = true;
+      bool stopIsInt = true;
+      bool stepIsInt = true;
       long long startIdx = 0;
       long long stopIdx = 0;
       long long stepIdx = 1;
-      if (!evalOptionalBound(0, hasStart, startIdx) || ctx.parseError) return makeScalar(0);
-      if (!evalOptionalBound(1, hasStop, stopIdx) || ctx.parseError) return makeScalar(0);
-      if (!evalOptionalBound(2, hasStep, stepIdx) || ctx.parseError) return makeScalar(0);
+      if (!evalOptionalBound(0, hasStart, startIdx, startTainted, startIsInt) || ctx.parseError) return makeScalar(0);
+      if (!evalOptionalBound(1, hasStop, stopIdx, stopTainted, stopIsInt) || ctx.parseError) return makeScalar(0);
+      if (!evalOptionalBound(2, hasStep, stepIdx, stepTainted, stepIsInt) || ctx.parseError) return makeScalar(0);
+      (void)startTainted;
+      (void)stopTainted;
+      (void)startIsInt;
+      (void)stopIsInt;
       if (!hasStep) {
         stepIdx = 1;
+        stepIsInt = true;
       }
-      if (stepIdx == 0) {
+      if (hasStep && stepIsInt && stepIdx == 0 && !(baseTainted && stepTainted)) {
         ctx.fail(STR_SLICE_STEP_MUST_NOT_BE_ZERO);
         return makeScalar(0);
       }
-
-      bool formalParamSliceBase = (base.kind == ValueKind::UdfFormalValidationDummy);
-      if (!formalParamSliceBase && scopedVars && e.left && e.left->tag == Expr::Tag::Variable) {
-        const auto sit = scopedVars->find(e.left->name);
-        formalParamSliceBase =
-            (sit != scopedVars->end() && sit->second.kind == ValueKind::UdfFormalValidationDummy);
-      }
-      if (formalParamSliceBase) {
+      if (baseTainted) {
         // UDF body validation: 1-element probe array so chained indexing still parses.
-        auto pit = variables_.find(STR_FORMAL_VALIDATION_PROBE);
-        EvalValue probe = (pit != variables_.end() && pit->second.kind == ValueKind::Scalar)
-                              ? pit->second
-                              : makeScalarInt(1);
+        EvalValue probe = formalValidationProbeScalar(1);
         return makeArrayFromScalars(std::vector<EvalValue>{probe});
       }
       if (base.kind != ValueKind::Array) {
@@ -10485,13 +10534,19 @@ MathParser::EvalValue MathParser::evalExpr(
         rightOut = evalExpr(*e.right, ctx, scopedVars);
         return ctx.parseError ? BinaryEvalStatus::RightError : BinaryEvalStatus::Ok;
       };
+      const auto finishBinary = [](EvalValue out, const EvalValue& left, const EvalValue& right) {
+        if (left.hasFormalProbeTaint() || right.hasFormalProbeTaint()) {
+          out.setFormalProbeTaint(true);
+        }
+        return out;
+      };
       if (e.binaryOp == Expr::BinaryOp::LogicalOr) {
         EvalValue l = makeScalar(0), r = makeScalar(0);
         const BinaryEvalStatus evalStatus = evalBinaryOperands(l, r);
         if (evalStatus != BinaryEvalStatus::Ok) {
           return (evalStatus == BinaryEvalStatus::LeftError) ? l : r;
         }
-        return makeScalarInt((isTruthy(l) || isTruthy(r)) ? 1LL : 0LL);
+        return finishBinary(makeScalarInt((isTruthy(l) || isTruthy(r)) ? 1LL : 0LL), l, r);
       }
       if (e.binaryOp == Expr::BinaryOp::LogicalAnd) {
         EvalValue l = makeScalar(0), r = makeScalar(0);
@@ -10499,7 +10554,7 @@ MathParser::EvalValue MathParser::evalExpr(
         if (evalStatus != BinaryEvalStatus::Ok) {
           return (evalStatus == BinaryEvalStatus::LeftError) ? l : r;
         }
-        return makeScalarInt((isTruthy(l) && isTruthy(r)) ? 1LL : 0LL);
+        return finishBinary(makeScalarInt((isTruthy(l) && isTruthy(r)) ? 1LL : 0LL), l, r);
       }
       if (e.binaryOp == Expr::BinaryOp::Modulo || e.binaryOp == Expr::BinaryOp::BitAnd ||
           e.binaryOp == Expr::BinaryOp::BitOr || e.binaryOp == Expr::BinaryOp::BitXor ||
@@ -10508,7 +10563,7 @@ MathParser::EvalValue MathParser::evalExpr(
         if (evalBinaryOperands(l, r) != BinaryEvalStatus::Ok) {
           return makeScalar(0);
         }
-        return evalInt64BinaryOp(ctx, l, r, e.binaryOp);
+        return finishBinary(evalInt64BinaryOp(ctx, l, r, e.binaryOp), l, r);
       }
       if (isComparisonBinaryOp(e.binaryOp)) {
         EvalValue l = evalExpr(*e.left, ctx, scopedVars);
@@ -10557,7 +10612,7 @@ MathParser::EvalValue MathParser::evalExpr(
             EvalValue nanCmp;
             if (tryUnorderedNanComparison(e.binaryOp, l.scalarValue, r.scalarValue,
                                           getSupportComplexNumbers(), nanCmp)) {
-              return nanCmp;
+              return finishBinary(std::move(nanCmp), l, r);
             }
           }
         }
@@ -10565,7 +10620,7 @@ MathParser::EvalValue MathParser::evalExpr(
         if (!tryLexicographicCompareEvalValues(ctx, l, r, cmp)) {
           return makeScalar(0);
         }
-        return makeScalarInt(evalComparisonByOp(e.binaryOp, cmp) ? 1LL : 0LL);
+        return finishBinary(makeScalarInt(evalComparisonByOp(e.binaryOp, cmp) ? 1LL : 0LL), l, r);
       }
       EvalValue l = evalExpr(*e.left, ctx, scopedVars);
       if (ctx.parseError) {
@@ -10580,11 +10635,11 @@ MathParser::EvalValue MathParser::evalExpr(
         return makeScalar(0);
       }
       if (e.binaryOp == Expr::BinaryOp::Pow) {
-        return evalMappedBinaryOp(ctx, e.binaryOp, l, r);
+        return finishBinary(evalMappedBinaryOp(ctx, e.binaryOp, l, r), l, r);
       }
       if (e.binaryOp == Expr::BinaryOp::Mul || e.binaryOp == Expr::BinaryOp::Div ||
           e.binaryOp == Expr::BinaryOp::Add || e.binaryOp == Expr::BinaryOp::Sub) {
-        return evalMappedBinaryOp(ctx, e.binaryOp, l, r);
+        return finishBinary(evalMappedBinaryOp(ctx, e.binaryOp, l, r), l, r);
       }
       ctx.fail(ParseErrorId::InternalBinaryOp);
       return makeScalar(0);
@@ -11775,7 +11830,8 @@ MathParser::EvalValue MathParser::evalUnaryCallableOnScalar(
   if (isLambda) {
     std::vector<EvalValue> lamArgs;
     lamArgs.push_back(scalarFromScalarValue(elem));
-    return evalInlineLambdaCall(ctx, fnArg.lambdaParams, fnArg.lambdaBody, std::move(lamArgs));
+    return evalInlineLambdaCall(
+        ctx, fnArg.lambdaParams, fnArg.lambdaBody, std::move(lamArgs), scopedVars);
   }
 #else
   (void)isLambda;
