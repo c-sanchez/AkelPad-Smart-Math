@@ -9817,6 +9817,24 @@ MathParser::EvalValue MathParser::evalUnaryExpr(
   return makeScalar(0);
 }
 
+bool MathParser::tryScaleRhsByDirectPostfixPercent(
+    EvalContext& ctx,
+    Expr::BinaryOp op,
+    bool rhsIsDirectPostfixPercent,
+    const EvalValue& left,
+    EvalValue& right) const {
+  if (!rhsIsDirectPostfixPercent ||
+      (op != Expr::BinaryOp::Add && op != Expr::BinaryOp::Sub)) {
+    return true;
+  }
+  EvalValue scaled = evalMappedBinaryOp(ctx, Expr::BinaryOp::Mul, left, right);
+  if (ctx.parseError) {
+    return false;
+  }
+  right = std::move(scaled);
+  return true;
+}
+
 MathParser::EvalValue MathParser::evalMappedBinaryOp(
     EvalContext& ctx,
     Expr::BinaryOp op,
@@ -10164,10 +10182,9 @@ MathParser::EvalValue MathParser::evalExprScalar(
         case Expr::BinaryOp::Div:
         case Expr::BinaryOp::Add:
         case Expr::BinaryOp::Sub: {
-          if ((e.binaryOp == Expr::BinaryOp::Add || e.binaryOp == Expr::BinaryOp::Sub) &&
-              e.rhsIsDirectPostfixPercent) {
-            r.scalarValue.scalar = l.scalarValue.scalar * r.scalarValue.scalar;
-            scalarMarkInexactFloat(r.scalarValue);
+          if (!tryScaleRhsByDirectPostfixPercent(
+                  ctx, e.binaryOp, e.rhsIsDirectPostfixPercent, l, r)) {
+            return makeScalar(0);
           }
 
 #if SMARTMATH_COMPLEX_NUMBERS
@@ -10558,11 +10575,9 @@ MathParser::EvalValue MathParser::evalExpr(
       if (ctx.parseError) {
         return r;
       }
-      if ((e.binaryOp == Expr::BinaryOp::Add || e.binaryOp == Expr::BinaryOp::Sub) &&
-          e.rhsIsDirectPostfixPercent &&
-          l.kind == ValueKind::Scalar && r.kind == ValueKind::Scalar) {
-        r.scalarValue.scalar = l.scalarValue.scalar * r.scalarValue.scalar;
-        scalarMarkInexactFloat(r.scalarValue);
+      if (!tryScaleRhsByDirectPostfixPercent(
+              ctx, e.binaryOp, e.rhsIsDirectPostfixPercent, l, r)) {
+        return makeScalar(0);
       }
       if (e.binaryOp == Expr::BinaryOp::Pow) {
         return evalMappedBinaryOp(ctx, e.binaryOp, l, r);

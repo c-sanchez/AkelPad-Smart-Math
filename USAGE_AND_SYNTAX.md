@@ -66,6 +66,8 @@ Base-prefixed integer forms:
 - Use postfix percent for percentage math:
   - `200 + 15%` -> `230`
   - `200 - 15%` -> `170`
+  - `(2,3,7) + 10%` -> `(2.2, 3.3, 7.7)`
+  - `1:00 - 20%` -> `00:48`
 
 ### Time Values
 
@@ -122,7 +124,7 @@ A **duration** (time value) is kept in whole milliseconds. Results print with co
 - `(1:45, 2)` -> `time values cannot be mixed with non-time values`.
 
 **Not allowed with durations** (typical errors: `incompatible operands`, or text with `expects a time value`):
-- postfix `%`;
+- postfix `%` (`1:00%` -> `incompatible operands`);
 - `sin`, `hex`, `pow`, and similar on a duration;
 - `1:00*1:00` (a duration multiplied by a duration);
 - `1/1:00` (a number divided by a duration);
@@ -308,7 +310,7 @@ Examples:
 **Not** applicable:
 - Exponent
 - Bitwise operations
-- Postfix percent
+- Postfix percent (`1:00%` -> `incompatible operands`; `1:00 + 10%` -> `01:06`)
 
 #### Complex Number Operators
 
@@ -321,7 +323,7 @@ Examples:
 
 **Not** applicable:
 - Bitwise operations
-- Postfix percent
+- Postfix percent (`(5+7i)%` -> `incompatible operands`; `(5+7i) + 10%` -> `5.5+7.7i`)
 
 ### Precedence (High -> Low)
 

@@ -5025,6 +5025,17 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "(2,3)%", "percentage requires scalar value"} ,
     {ParityBasicCase::Kind::ErrorContains, "()%", "percentage requires scalar value"} ,
     {ParityBasicCase::Kind::Expected, "b=(2,3); b[0]%*b[1]", "0.06"} ,
+    {ParityBasicCase::Kind::Expected, "(2,3,7)+10%", "(2.2, 3.3, 7.7)"} ,
+    {ParityBasicCase::Kind::Expected, "(2,3,7)-10%", "(1.8, 2.7, 6.3)"} ,
+    {ParityBasicCase::Kind::Expected, "()+10%", "()"} ,
+    {ParityBasicCase::Kind::Expected, "1:00+10%", "01:06"} ,
+    {ParityBasicCase::Kind::Expected, "1:00-10%", "00:54"} ,
+    {ParityBasicCase::Kind::Expected, "(1:00,2:00)+10%", "(01:06, 02:12)"} ,
+    {ParityBasicCase::Kind::Expected, "10%+(2,3)", "(2.1, 3.1)"} ,
+    {ParityBasicCase::Kind::Expected, "(2,3)+10%*2", "(2.2, 3.2)"} ,
+    {ParityBasicCase::Kind::Expected, "200+10%+5", "225"} ,
+    {ParityBasicCase::Kind::Expected, "1:10+10%", "01:17"} ,
+    {ParityBasicCase::Kind::ErrorContains, "1:00%", "incompatible operands"} ,
 #include "../tools/smoke_parity_append_generated.cpp.inc"
 };
 
@@ -6741,6 +6752,23 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  if (!expectEval(p, "acos(-1e308)", "3.141592653589793-709.889355822726i", why)) return false;
                  if (!expectEval(p, "asin(1e160+i)", "1.570796326794897-369.1067620596073i", why)) return false;
                  return expectEval(p, "exp(710+i)", "inf+inf*i", why);
+               }});
+  t.push_back({"complex-opt: percent of a complex or complex-array left operand",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 if (!expectEval(p, "(5+7i)+10%", "5.5+7.7i", why)) return false;
+                 if (!expectEval(p, "(5+7i)-10%", "4.5+6.3i", why)) return false;
+                 if (!expectEval(p, "7i-10%", "6.3i", why)) return false;
+                 if (!expectEval(p, "7i+10%", "7.7i", why)) return false;
+                 if (!expectEval(p, "-5i+10%", "-5.5i", why)) return false;
+                 if (!expectEval(p, "3i-20%", "2.4i", why)) return false;
+                 if (!expectEval(p, "(1+2i,3)-10%", "(0.9+1.8i, 2.7)", why)) return false;
+                 if (!expectEvalErrorContains(p, "(5+7i)%", "incompatible operands", why)) return false;
+                 if (!expectEval(p, "pctLeftA=5+7i", "5+7i", why)) return false;
+                 if (!expectEval(p, "pctLeftA+10%", "5.5+7.7i", why)) return false;
+                 if (!expectEval(p, "pctLeftI=-5i", "-5i", why)) return false;
+                 return expectEval(p, "pctLeftI+10%", "-5.5i", why);
                }});
   return t;
 }

@@ -1045,6 +1045,56 @@ private sub RunComplexNumberSupportOptionTests()
     end if
   next ai
 
+  dim pctCxExpr(1 to 7) as String
+  dim pctCxExpect(1 to 7) as String
+  pctCxExpr(1) = "(5+7i)+10%": pctCxExpect(1) = "5.5+7.7i"
+  pctCxExpr(2) = "(5+7i)-10%": pctCxExpect(2) = "4.5+6.3i"
+  pctCxExpr(3) = "7i-10%": pctCxExpect(3) = "6.3i"
+  pctCxExpr(4) = "7i+10%": pctCxExpect(4) = "7.7i"
+  pctCxExpr(5) = "(1+2i,3)-10%": pctCxExpect(5) = "(0.9+1.8i, 2.7)"
+  pctCxExpr(6) = "-5i+10%": pctCxExpect(6) = "-5.5i" ' -5i * 1.1
+  pctCxExpr(7) = "3i-20%": pctCxExpect(7) = "2.4i" ' 3i * 0.8
+  dim pcti as Integer
+  for pcti = 1 to 7
+    if Parser_TryEvaluateEx(pctCxExpr(pcti), r, rt, ia) = FALSE orelse ResultCloseEnough(rt, pctCxExpect(pcti)) = FALSE then
+      print "[complex-opt] FAIL: """ & pctCxExpr(pcti) & """ -> """ & rt & """ err=" & Parser_GetLastError()
+      subFail += 1
+    else
+      print "[complex-opt] PASS: """ & pctCxExpr(pcti) & """ -> """ & rt & """"
+      subPass += 1
+    end if
+  next pcti
+  if Parser_TryEvaluateEx("(5+7i)%", r, rt, ia) then
+    print "[complex-opt] FAIL: (5+7i)% expected incompatible operands, got """ & rt & """"
+    subFail += 1
+  elseif instr(lcase(Parser_GetLastError()), "incompatible operands") = 0 then
+    print "[complex-opt] FAIL: (5+7i)% err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: (5+7i)% -> incompatible operands"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("pctLeftA=5+7i", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "5+7i") = FALSE then
+    print "[complex-opt] FAIL: pctLeftA=5+7i -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  elseif Parser_TryEvaluateEx("pctLeftA+10%", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "5.5+7.7i") = FALSE then
+    print "[complex-opt] FAIL: pctLeftA+10% -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: pctLeftA+10% -> """ & rt & """"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("pctLeftI=-5i", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "-5i") = FALSE then
+    print "[complex-opt] FAIL: pctLeftI=-5i -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  elseif Parser_TryEvaluateEx("pctLeftI+10%", r, rt, ia) = FALSE orelse ResultCloseEnough(rt, "-5.5i") = FALSE then
+    print "[complex-opt] FAIL: pctLeftI+10% -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: pctLeftI+10% -> """ & rt & """"
+    subPass += 1
+  end if
+
   dim powCases(1 to 17) as String
   dim powExpect(1 to 17) as String
   powCases(1) = "(1+i)**2": powExpect(1) = "2i"
@@ -3164,7 +3214,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1606) as SmokeCase
+  dim tests(1 to 1617) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4841,6 +4891,17 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1604).expr = "(2,3)%": tests(1604).expectedErrContains = "percentage requires scalar value"
   tests(1605).expr = "()%": tests(1605).expectedErrContains = "percentage requires scalar value"
   tests(1606).expr = "b=(2,3); b[0]%*b[1]": tests(1606).expected = "0.06"
+  tests(1607).expr = "(2,3,7)+10%": tests(1607).expected = "(2.2, 3.3, 7.7)" ' percent of each element
+  tests(1608).expr = "(2,3,7)-10%": tests(1608).expected = "(1.8, 2.7, 6.3)"
+  tests(1609).expr = "()+10%": tests(1609).expected = "()" ' empty array stays empty
+  tests(1610).expr = "1:00+10%": tests(1610).expected = "01:06" ' 10% of the duration
+  tests(1611).expr = "1:00-10%": tests(1611).expected = "00:54"
+  tests(1612).expr = "(1:00,2:00)+10%": tests(1612).expected = "(01:06, 02:12)"
+  tests(1613).expr = "10%+(2,3)": tests(1613).expected = "(2.1, 3.1)" ' percent is on the left, so this adds 0.1
+  tests(1614).expr = "(2,3)+10%*2": tests(1614).expected = "(2.2, 3.2)" ' % is inside the product
+  tests(1615).expr = "200+10%+5": tests(1615).expected = "225" ' 220 + 5; the percent flag does not stick
+  tests(1616).expr = "1:10+10%": tests(1616).expected = "01:17"
+  tests(1617).expr = "1:00%": tests(1617).expectedErrContains = "incompatible operands"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

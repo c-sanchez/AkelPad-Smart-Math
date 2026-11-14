@@ -397,6 +397,13 @@ private:
       Expr::BinaryOp op,
       const EvalValue& left,
       const EvalValue& right) const;
+  // `lhs + n%` / `lhs - n%`: scale n% by lhs with the same multiply as `*`.
+  bool tryScaleRhsByDirectPostfixPercent(
+      EvalContext& ctx,
+      Expr::BinaryOp op,
+      bool rhsIsDirectPostfixPercent,
+      const EvalValue& left,
+      EvalValue& right) const;
   EvalValue evalInt64BinaryOp(
       EvalContext& ctx,
       const EvalValue& left,

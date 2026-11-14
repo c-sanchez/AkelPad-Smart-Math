@@ -11315,6 +11315,13 @@ private function TryConsumePostfixPercent(byref n as EvalValue) as Boolean
     SetParseErrorById(PARSE_ERR_PERCENTAGE_REQUIRES_SCALAR_VALUE)
     return TRUE
   end if
+  ' A duration or a complex value is not a percent operand. `1:00 + 10%` still
+  ' works: the `%` is on the real 10, and percent-of-the-left scales the duration.
+  if ScalarIsTime(n.scalarValue) orelse _
+     (Parser_SupportComplexNumbers andalso ScalarHasNonzeroImaginaryPart(n.scalarValue)) then
+    SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
+    return TRUE
+  end if
   dim divV as EvalValue
   dim outV as EvalValue
   ValueSetScalar(divV, 100.0)
