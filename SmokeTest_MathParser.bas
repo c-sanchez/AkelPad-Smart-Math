@@ -3214,7 +3214,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1708) as SmokeCase
+  dim tests(1 to 1724) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4993,6 +4993,25 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1706).expr = "a=(1,2,3); a[1)": tests(1706).expectedErrContains = "mismatched closing parenthesis"
   tests(1707).expr = "a=(1,2,3); a[1}": tests(1707).expectedErrContains = "mismatched closing brace"
   tests(1708).expr = "a=(1,2,3,4,5); a[::-9223372036854775808]=1": tests(1708).expectedErrContains = "cannot assign to an array slice"
+
+  ' Mixed duration/number arrays: each pair uses duration arithmetic or numeric arithmetic.
+  ' 1m = 60s. +5 adds 5 seconds to a duration and 5 to a plain number. *5 scales a duration.
+  tests(1709).expr = "uflat=flat((1m,2m,3m),12,13,14); uflat+5": tests(1709).expected = "(01:05, 02:05, 03:05, 17, 18, 19)"
+  tests(1710).expr = "vflat=flat((1m,2m,3m),12,13,14); vflat*5": tests(1710).expected = "(05:00, 10:00, 15:00, 60, 65, 70)"
+  tests(1711).expr = "flat((1m,2m,3m),12,13,14)-5": tests(1711).expected = "(00:55, 01:55, 02:55, 7, 8, 9)"
+  tests(1712).expr = "5-flat((1m,2m,3m),12,13,14)": tests(1712).expected = "(-00:55, -01:55, -02:55, -7, -8, -9)"
+  tests(1713).expr = "flat((1m,2m,3m),12,13,14)/5": tests(1713).expected = "(00:12, 00:24, 00:36, 2.4, 2.6, 2.8)"
+  tests(1714).expr = "5+flat(1m,12)": tests(1714).expected = "(01:05, 17)"
+  tests(1715).expr = "5*flat(1m,12)": tests(1715).expected = "(05:00, 60)"
+  tests(1716).expr = "-flat(1m,12)": tests(1716).expected = "(-01:00, -12)"
+  tests(1717).expr = "flat(1m,12)+(5,5)": tests(1717).expected = "(01:05, 17)"
+  tests(1718).expr = "flat(1m,12)+flat(1m,2)": tests(1718).expected = "(02:00, 14)"
+  tests(1719).expr = "(1m,2m,3m)+5": tests(1719).expected = "(01:05, 02:05, 03:05)" ' homogeneous duration array stays duration arithmetic
+  tests(1720).expr = "(1:00,2:00)/flat(0:30,2)+5": tests(1720).expected = "(7.0, 01:05)" ' ratio is a float, so 2+5 prints 7.0; duration + 5s is 01:05
+  tests(1721).expr = "flat(1m,12)*flat(1m,2)": tests(1721).expectedErrContains = "incompatible operands" ' duration*duration
+  tests(1722).expr = "5/flat(1m,12)": tests(1722).expectedErrContains = "incompatible operands" ' plain/duration
+  tests(1723).expr = "flat(1m,12)**2": tests(1723).expectedErrContains = "incompatible operands" ' power rejects a duration
+  tests(1724).expr = "flat(1m,12)+()": tests(1724).expectedErrContains = "incompatible operands" ' length mismatch
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

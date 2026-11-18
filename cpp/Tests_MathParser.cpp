@@ -5135,6 +5135,22 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "a=(1:00,2:00); a[0]=5", "time values cannot be mixed with non-time values"} ,
     {ParityBasicCase::Kind::ErrorContains, "a=(1,2,3); a[0]=1:00", "time values cannot be mixed with non-time values"} ,
     {ParityBasicCase::Kind::ErrorContains, "a=(1:00,2:00); b=2; a[1]=b=2", "time values cannot be mixed with non-time values"} ,
+    {ParityBasicCase::Kind::Expected, "uflat=flat((1m,2m,3m),12,13,14); uflat+5", "(01:05, 02:05, 03:05, 17, 18, 19)"} ,
+    {ParityBasicCase::Kind::Expected, "vflat=flat((1m,2m,3m),12,13,14); vflat*5", "(05:00, 10:00, 15:00, 60, 65, 70)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((1m,2m,3m),12,13,14)-5", "(00:55, 01:55, 02:55, 7, 8, 9)"} ,
+    {ParityBasicCase::Kind::Expected, "5-flat((1m,2m,3m),12,13,14)", "(-00:55, -01:55, -02:55, -7, -8, -9)"} ,
+    {ParityBasicCase::Kind::Expected, "flat((1m,2m,3m),12,13,14)/5", "(00:12, 00:24, 00:36, 2.4, 2.6, 2.8)"} ,
+    {ParityBasicCase::Kind::Expected, "5+flat(1m,12)", "(01:05, 17)"} ,
+    {ParityBasicCase::Kind::Expected, "5*flat(1m,12)", "(05:00, 60)"} ,
+    {ParityBasicCase::Kind::Expected, "-flat(1m,12)", "(-01:00, -12)"} ,
+    {ParityBasicCase::Kind::Expected, "flat(1m,12)+(5,5)", "(01:05, 17)"} ,
+    {ParityBasicCase::Kind::Expected, "flat(1m,12)+flat(1m,2)", "(02:00, 14)"} ,
+    {ParityBasicCase::Kind::Expected, "(1m,2m,3m)+5", "(01:05, 02:05, 03:05)"} ,
+    {ParityBasicCase::Kind::Expected, "(1:00,2:00)/flat(0:30,2)+5", "(7.0, 01:05)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat(1m,12)*flat(1m,2)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "5/flat(1m,12)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat(1m,12)**2", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flat(1m,12)+()", "incompatible operands"} ,
 #include "../tools/smoke_parity_append_generated.cpp.inc"
 };
 
