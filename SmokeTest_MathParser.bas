@@ -3214,7 +3214,7 @@ private sub RunInexactFloatDisplayTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1634) as SmokeCase
+  dim tests(1 to 1708) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4919,6 +4919,80 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1632).expr = "f(x,y)=x%(y-x)": tests(1632).expectedErrContains = "incompatible operands"
   tests(1633).expr = "f(x)=1%(x-1)": tests(1633).expectedErrContains = "incompatible operands"
   tests(1634).expr = "f(x)=(x/2)<<2": tests(1634).expectedErrContains = "bitwise operands must be integer values"
+  tests(1635).expr = "a=(1,2,3); a[1]=10": tests(1635).expected = "(1, 10, 3)" ' [array-assign]
+  tests(1636).expr = "a=(1,2,3); a[1]=10; ans": tests(1636).expected = "(1, 10, 3)"
+  tests(1637).expr = "a=(1,2,3); a[1]=()": tests(1637).expected = "(1, 3)" ' delete
+  tests(1638).expr = "a=((),1,()); a[0]=()": tests(1638).expected = "()" ' delete the only element
+  tests(1639).expr = "a=(1,2,3); a[1]=(10,20,30,40)": tests(1639).expected = "(1, 10, 20, 30, 40, 3)" ' splice
+  tests(1640).expr = "a=(1,2,3); b=(10,20); a[1]=b": tests(1640).expected = "(1, 10, 20, 3)"
+  tests(1641).expr = "a=(1,2,3); a[1]=(10)": tests(1641).expected = "(1, 10, 3)" ' grouping, not a one-element array
+  tests(1642).expr = "a=(1,2,3); a[1]=((),())": tests(1642).expected = "(1, 3)" ' flattened empty deletes
+  tests(1643).expr = "a=(1,2,3); a[-1]=9": tests(1643).expected = "(1, 2, 9)"
+  tests(1644).expr = "a=(1,2,3); a[-1]=()": tests(1644).expected = "(1, 2)"
+  tests(1645).expr = "a=(1,2,3); a[1+1]=8": tests(1645).expected = "(1, 2, 8)"
+  tests(1646).expr = "a=(1,2,3); b=((),2,()); a[b[0]]=9": tests(1646).expected = "(1, 2, 9)"
+  tests(1647).expr = "a=(1,2,3); a[1]=a": tests(1647).expected = "(1, 1, 2, 3, 3)"
+  tests(1648).expr = "a=(1,2,3); a[0]=a[2]": tests(1648).expected = "(3, 2, 3)"
+  tests(1649).expr = "a=(1,2,3); a [ 1 ] = 10": tests(1649).expected = "(1, 10, 3)"
+  tests(1650).expr = "a=(1,2,3); a[1]==2": tests(1650).expected = "1"
+  tests(1651).expr = "a=(1,2,3); a[1]==10": tests(1651).expected = "0"
+  tests(1652).expr = "a=(1,2,3); b=a[1]=2": tests(1652).expected = "1"
+  tests(1653).expr = "a=(1,2,3); b=a[1]=2; a": tests(1653).expected = "(1, 2, 3)"
+  tests(1654).expr = "a=(1,2,3); b=5; a[1]=b=2": tests(1654).expected = "(1, 0, 3)"
+  tests(1655).expr = "a=(1,2,3); b=5; a[1]=b=2; b": tests(1655).expected = "5"
+  tests(1656).expr = "a=(1,2,3); (a)[1]=10": tests(1656).expected = "0"
+  tests(1657).expr = "a=(1,2,3); (a)[1]=10; a": tests(1657).expected = "(1, 2, 3)"
+  tests(1658).expr = "(1,2,3)[1]=10": tests(1658).expected = "0"
+  tests(1659).expr = "v=(1,2,3); f(a)=a[0]=9; f(v)": tests(1659).expected = "0" ' body stays a comparison
+  tests(1660).expr = "v=(1,2,3); f(a)=a[0]=9; f(v); v": tests(1660).expected = "(1, 2, 3)"
+  tests(1661).expr = "v=(1,2,3); f(a)=a[0]=1; f(v)": tests(1661).expected = "1"
+  tests(1662).expr = "a=(1:00,2:00,3:00); a[1]=4:00": tests(1662).expected = "(01:00, 04:00, 03:00)"
+  tests(1663).expr = "a=(1:00,2:00); a[0]=(3:00,4:00)": tests(1663).expected = "(03:00, 04:00, 02:00)"
+  tests(1664).expr = "a=(1:00,2:00,3:00); a[1]=()": tests(1664).expected = "(01:00, 03:00)"
+  tests(1665).expr = "a=(1,2,3); b=2; a[1]=b=2": tests(1665).expected = "(1, 1, 3)"
+  tests(1666).expr = "a=(1,2); a[2]=10": tests(1666).expectedErrContains = "array index is out of range"
+  tests(1667).expr = "a=(); a[0]=1": tests(1667).expectedErrContains = "array index is out of range"
+  tests(1668).expr = "a=(1,2,3); a[-4]=1": tests(1668).expectedErrContains = "array index is out of range"
+  tests(1669).expr = "a=5; a[0]=10": tests(1669).expectedErrContains = "indexing requires an array value"
+  tests(1670).expr = "5[0]=10": tests(1670).expectedErrContains = "indexing requires an array value"
+  tests(1671).expr = "a=(1,2,3); a[1.5]=1": tests(1671).expectedErrContains = "array index must be an integer"
+  tests(1672).expr = "a=(1,2,3); a[(1,2)]=10": tests(1672).expectedErrContains = "array index must be a scalar integer"
+  tests(1673).expr = "elemassignz[0]=1": tests(1673).expectedErrContains = "unknown variable: elemassignz"
+  tests(1674).expr = "hex[0]=1": tests(1674).expectedErrContains = "reserved function name"
+  tests(1675).expr = "pi[0]=1": tests(1675).expectedErrContains = "reserved constant name"
+  tests(1676).expr = "a=(1,2,3); a[0:1]=10": tests(1676).expectedErrContains = "cannot assign to an array slice"
+  tests(1677).expr = "a=(1,2,3); a[:]=1": tests(1677).expectedErrContains = "cannot assign to an array slice"
+  tests(1678).expr = "a=(1,2,3); a[1:1]=10": tests(1678).expectedErrContains = "cannot assign to an array slice"
+  tests(1679).expr = "a=(1,2,3); a[::0]=10": tests(1679).expectedErrContains = "slice step must not be zero"
+  tests(1680).expr = "a=(1,2,3); a[1.5:2]=10": tests(1680).expectedErrContains = "array index must be an integer"
+  tests(1681).expr = "a=5; a[0:1]=10": tests(1681).expectedErrContains = "indexing requires an array value"
+  tests(1682).expr = "a=(1:00,2:00); a[0]=5": tests(1682).expectedErrContains = "time values cannot be mixed with non-time values"
+  tests(1683).expr = "a=(1,2,3); a[0]=1:00": tests(1683).expectedErrContains = "time values cannot be mixed with non-time values"
+  tests(1684).expr = "a=(1:00,2:00); b=2; a[1]=b=2": tests(1684).expectedErrContains = "time values cannot be mixed with non-time values"
+  tests(1685).expr = "b=0; f()=b=1; f()": tests(1685).expected = "0" ' [udf] body = is a comparison
+  tests(1686).expr = "b=0; f()=b=1; f(); b": tests(1686).expected = "0" ' body does not assign b
+  tests(1687).expr = "f(x)=x=1; f(5)": tests(1687).expected = "0"
+  tests(1688).expr = "f(x)=x=1; f(1)": tests(1688).expected = "1"
+  tests(1689).expr = "filter((1,2,3), t: t=1)": tests(1689).expected = "(1)" ' [lambda] predicate = is a comparison
+  tests(1690).expr = "f=x:x=1; f(5)": tests(1690).expected = "0"
+  tests(1691).expr = "f=x:x=1; f(1)": tests(1691).expected = "1"
+  tests(1692).expr = "a=(1,2,3); a[1]" & chr(10) & "=10": tests(1692).expected = "(1, 10, 3)" ' line break before = still assigns
+  tests(1693).expr = "a=(1,2,3); a" & chr(10) & "[1]=10": tests(1693).expected = "(1, 10, 3)"
+  tests(1694).expr = "a=1; a" & chr(10) & "=10": tests(1694).expected = "10"
+  tests(1695).expr = "a=(1,2,3); a[1]" & chr(10) & "==10": tests(1695).expected = "0" ' line break before == stays a comparison
+  tests(1696).expr = "a=(1,2,3); a[1]" & chr(13) & chr(10) & "=10": tests(1696).expected = "(1, 10, 3)"
+  tests(1697).expr = "f" & chr(10) & "(x)=x+1; f(2)": tests(1697).expected = "3" ' line break before ( is still a definition
+  tests(1698).expr = "a=(1,2,3,4,5); a[::9223372036854775807]": tests(1698).expected = "(1)" ' [slice] step near 2^63 still yields the start
+  tests(1699).expr = "a=(1,2,3,4,5); a[::-9223372036854775808]": tests(1699).expected = "(5)" ' [slice] minimum step yields the end
+  tests(1700).expr = "a=(1,2); a[9223372036854775808]": tests(1700).expectedErrContains = "array index is out of range" ' [slice] uint64 above signed max
+  tests(1701).expr = "a=(1,2); a[::9223372036854775808]": tests(1701).expectedErrContains = "array index is out of range" ' [slice] step above signed max
+  tests(1702).expr = "a=(1,2); a[9223372036854775807]": tests(1702).expectedErrContains = "array index is out of range" ' [slice] signed max is past the end
+  tests(1703).expr = "f(a)=a[0:10][1]; f((1,2,3,4,5,6,7,8,9,10))": tests(1703).expected = "2" ' [udf] slice of a parameter stays unknown-length
+  tests(1704).expr = "f(a)=a[::2][1]; f((10,20,30,40))": tests(1704).expected = "30" ' [udf] chained index after a stepped slice
+  tests(1705).expr = "f(a)=a[0:1][1]; f((1,2,3,4))": tests(1705).expectedErrContains = "array index is out of range" ' [udf] real slice length is checked at the call
+  tests(1706).expr = "a=(1,2,3); a[1)": tests(1706).expectedErrContains = "mismatched closing parenthesis"
+  tests(1707).expr = "a=(1,2,3); a[1}": tests(1707).expectedErrContains = "mismatched closing brace"
+  tests(1708).expr = "a=(1,2,3,4,5); a[::-9223372036854775808]=1": tests(1708).expectedErrContains = "cannot assign to an array slice"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

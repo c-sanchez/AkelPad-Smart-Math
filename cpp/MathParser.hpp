@@ -323,6 +323,27 @@ private:
   bool tryAppendAssignOrExpressionStatement(
       EvalContext& ctx,
       std::vector<AstStatement>& out);
+  struct SliceBoundValues {
+    bool hasStart = false;
+    bool hasStop = false;
+    bool hasStep = false;
+    long long startIdx = 0;
+    long long stopIdx = 0;
+    long long stepIdx = 1;
+    bool startTainted = false;
+    bool stopTainted = false;
+    bool stepTainted = false;
+    bool startIsInt = true;
+    bool stopIsInt = true;
+    bool stepIsInt = true;
+  };
+  bool tryEvalSliceBounds(
+      EvalContext& ctx,
+      const Expr& slice,
+      const std::unordered_map<std::string, EvalValue>* scopedVars,
+      bool baseTainted,
+      SliceBoundValues& bounds);
+  bool tryEvalElementAssign(EvalContext& ctx, const AstStatement& st, EvalValue& out);
   bool consumeProgramStatementSeparator(EvalContext& ctx);
   bool tryAppendTrailingFormatterSugarStatement(
       EvalContext& ctx,
@@ -381,6 +402,7 @@ private:
   std::unique_ptr<Expr> parsePower(EvalContext& ctx);
   std::unique_ptr<Expr> parsePostfixPercent(EvalContext& ctx);
   std::unique_ptr<Expr> parseUnary(EvalContext& ctx);
+  std::unique_ptr<Expr> parseOneBracket(EvalContext& ctx, std::unique_ptr<Expr> base);
   std::unique_ptr<Expr> parseTrailingIndexes(EvalContext& ctx, std::unique_ptr<Expr> prim);
   std::unique_ptr<Expr> parsePrimary(EvalContext& ctx);
 #if SMARTMATH_COMPLEX_NUMBERS

@@ -307,6 +307,83 @@ namespace smartmath_internal {
     return mag == (1ull << 63) ? (std::numeric_limits<long long>::min)() : -static_cast<long long>(mag);
   }
 
+  // CPython slice.indices(length). ``length`` is an array size and is non-negative.
+  inline void normalizePythonSliceBounds(
+      long long length,
+      bool hasStart,
+      long long startIn,
+      bool hasStop,
+      long long stopIn,
+      long long stepIn,
+      long long& outStart,
+      long long& outStop) {
+    const bool stepNeg = (stepIn < 0);
+    long long startIdx;
+    long long stopIdx;
+    if (!hasStart) {
+      startIdx = stepNeg ? (length - 1) : 0;
+    } else {
+      startIdx = startIn;
+      if (startIdx < 0) {
+        startIdx += length;
+      }
+      if (startIdx < 0) {
+        startIdx = stepNeg ? -1 : 0;
+      } else if (startIdx >= length) {
+        startIdx = stepNeg ? (length - 1) : length;
+      }
+    }
+    if (!hasStop) {
+      stopIdx = stepNeg ? -1 : length;
+    } else {
+      stopIdx = stopIn;
+      if (stopIdx < 0) {
+        stopIdx += length;
+      }
+      if (stopIdx < 0) {
+        stopIdx = stepNeg ? -1 : 0;
+      } else if (stopIdx >= length) {
+        stopIdx = stepNeg ? (length - 1) : length;
+      }
+    }
+    outStart = startIdx;
+    outStop = stopIdx;
+  }
+
+  // ``stepV`` is not zero. Start and stop are already normalized into a range that fits in signed 64-bit.
+  inline long long estimateSliceItemCount(long long startV, long long stopV, long long stepV) {
+    if (stepV > 0) {
+      if (startV >= stopV) {
+        return 0;
+      }
+      const long long dist = stopV - startV;
+      return (dist - 1) / stepV + 1;
+    }
+    if (startV <= stopV) {
+      return 0;
+    }
+    const long long dist = startV - stopV;
+    const std::uint64_t mag = uint64MagnitudeOfInt64(stepV);
+    return static_cast<long long>((static_cast<std::uint64_t>(dist - 1) / mag) + 1ull);
+  }
+
+  // Negative indexes wrap. An index that does not land in ``[0, length)`` returns false.
+  // ``length + idx`` runs only when the sum is inside that range, so it cannot overflow.
+  inline bool tryResolveArrayIndex(long long length, long long idx, long long& resolved) {
+    if (idx >= 0) {
+      if (idx >= length) {
+        return false;
+      }
+      resolved = idx;
+      return true;
+    }
+    if (length > 0 && idx >= -length) {
+      resolved = length + idx;
+      return true;
+    }
+    return false;
+  }
+
   bool nearlyInt(double v, long long& out);
   bool parseUInt64FromDouble(double v, std::uint64_t& out);
   bool tryGetExactSignedInt64FromScalarPolicy(
@@ -318,6 +395,8 @@ namespace smartmath_internal {
   bool scalarHasExactIntegerPayload(const EvalValue::ScalarValue& s);
   bool tryMulExactInt64Square(long long i, long long& outSq);
   bool tryGetExactSignedInt64NoUIntWrapScalarStrict(const EvalValue::ScalarValue& s, long long& outI);
+  enum class ArrayIndexIntKind { Ok, NotInteger, OutOfSignedRange };
+  ArrayIndexIntKind classifyArrayIndexInt(const EvalValue::ScalarValue& sIn, long long& outI);
   bool tryGetArrayIndexIntFromScalarValue(const EvalValue::ScalarValue& sIn, long long& outI);
   bool tryGetExactNonNegativeUInt64FromScalar(const EvalValue::ScalarValue& s, std::uint64_t& outU);
   bool tryGetSignedInt64FromScalar(const EvalValue::ScalarValue& s, long long& outI);
@@ -649,6 +728,7 @@ namespace smartmath_internal {
     ParseFailed,
     UnexpectedToken,
     UnexpectedInput,
+    CannotAssignToArraySlice,
     Count,
   };
 
@@ -727,11 +807,13 @@ namespace smartmath_internal {
   };
 
   struct AstStatement {
-    enum class Kind { FunDef, Assign, Expr };
+    enum class Kind { FunDef, Assign, IndexAssign, Expr };
     Kind kind = Kind::Expr;
     UserFunction fun;
     std::string assignName;
     std::unique_ptr<Expr> expr;
+    /// Bracket of an ``IndexAssign``: ``Index`` (right is the index) or ``Slice``.
+    std::unique_ptr<Expr> indexExpr;
   };
 
   struct EvalContext {
@@ -766,6 +848,7 @@ namespace smartmath_internal {
     void failPrefixedLiteral(char prefixChar);
     void failRecursiveUserFunction(const std::string& fnName);
     void failMissingClosingParenLike();
+    void failMissingClosingBracketAfterIndex();
   };
 
   struct CompiledProgramState {
