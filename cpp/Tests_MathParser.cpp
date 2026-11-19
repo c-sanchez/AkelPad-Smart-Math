@@ -3198,6 +3198,12 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEvalErrorContains(p, "f(2)", "unknown function: newfn", why)) return false;
                 return expectEval(p, "newfn(x)=x**(1/3); f(8)", "16", why);
               }});
+  t.push_back({"regression/parameter name shadows builtin and user function", [](std::string& why) {
+                MathParser p;
+                if (!expectEval(p, "f(sin)=sin+1; f(2)", "3", why)) return false;
+                if (!expectEval(p, "f(x)=x; g(f)=f+1; g(2)", "3", why)) return false;
+                return expectEval(p, "f(sin)=sin(1); f(2)", "0.8414709848078965", why);
+              }});
   t.push_back({"regression/function definition result is not a number", [](std::string& why) {
                 MathParser p;
                 p.parseAndEvaluate("21+4");
@@ -7256,6 +7262,18 @@ std::vector<TestCase> buildFilterCases() {
                    return false;
                  if (!expectEvalErrorContains(p, "filter((1,2), x:)", "function body is empty", why)) return false;
                  return expectEvalErrorContains(p, "filter((1,2,3),x:x", "missing closing parenthesis", why);
+               }});
+  t.push_back({"regression/lambda parameter shadows builtin and user function", [](std::string& why) {
+                 MathParser p;
+                 if (!expectEval(p, "f=sin:sin+1; f(2)", "3", why)) return false;
+                 if (!expectEval(p, "f(x)=x; g=f:f+1; g(2)", "3", why)) return false;
+                 if (!expectEval(p, "sortby((1,2), sin: -sin)", "(2,1)", why)) return false;
+                 if (!expectEval(p, "f(x)=x; sortby((1,2), f: -f)", "(2,1)", why)) return false;
+                 if (!expectEval(p, "filter((1,2), sin: sin+1)", "(1,2)", why)) return false;
+                 if (!expectEval(p, "f(x)=x; filter((1,2), f: f+1)", "(1,2)", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter((), x:())", "function body is empty", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((), x:())", "function body is empty", why)) return false;
+                 return expectEvalErrorContains(p, "filter((), x:( ))", "function body is empty", why);
                }});
 #endif
   return t;

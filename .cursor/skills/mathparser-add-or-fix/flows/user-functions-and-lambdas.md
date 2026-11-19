@@ -37,11 +37,11 @@ Shared today:
 
 | Rule | Basic | C++ |
 |---|---|---|
-| Bind parameters and evaluate the body | `EvaluateBoundBody`, called by `EvaluateUserFunction` and `EvaluateInlineLambda` | `tryCompileExprToProgram` + `runCompiledProgram`, called by `evalUserFunctionCall` and `evalInlineLambdaCall` |
-| Syntax-check the body | `ParseSyntaxCheckedBody`, called by `TryValidateUserFunctionBodyExpression` and `SyntaxCheckInlineLambdaBody` | `tryParseSyntaxCheckedExpression` / `getUserFunctionDefinitionErrorText` |
-| Empty body, including `()` | `UdfBodyIsEmptyTupleLiteral`; `InlineLambdaBodyIsEffectivelyEmpty` is that check | `udfBodyIsEmptyTupleLiteral` in `getUserFunctionDefinitionErrorText` and `evalInlineLambdaCall` |
+| Bind parameters and evaluate the body | `EvaluateBoundBody`, called by `EvaluateUserFunction` and `EvaluateInlineLambda` | `tryCompileExprToProgram` + `runBoundProgram` (`runCompiledProgram`), called by `evalUserFunctionCall` and `evalInlineLambdaCall` |
+| Syntax-check the body | `SyntaxCheckBodyWithParams` (`ParseSyntaxCheckedBody`), called by `TryValidateUserFunctionBodyExpression` and `SyntaxCheckInlineLambdaBody` | `tryParseSyntaxCheckedExpression` / `getUserFunctionDefinitionErrorText` |
+| Empty body, including `()` | `UdfBodyIsEmptyTupleLiteral`; `InlineLambdaBodyIsEffectivelyEmpty` is that check | `bodyIsEffectivelyEmpty` in `getUserFunctionDefinitionErrorText`, `makeUnaryInlineLambdaExpr`, and `evalInlineLambdaCall` |
 | Reject a definition (names, empty body, direct recursion, body syntax) | `TryValidateUserFunctionDefinition` for both `f(x)=...` and `f=x:...` | `getUserFunctionDefinitionErrorText` / `trySetUserFunctionDefinitionError` for both; lambda-style assignment stores a `UserFunction` |
-| Parameter names during the body check | `functionVariableNames` while the body is checked | `compilingUserFunctionParams` / `validatingUserFunctionName` |
+| Parameter names during the body check and while the body is compiled | `functionVariableNames` while the body is checked; the same names are variables when the body runs | `boundBodyParamNames` on the parse context in `getUserFunctionDefinitionErrorText`, `makeUnaryInlineLambdaExpr`, and `tryCompileExprToProgram`. A nested lambda binds its own parameters for that check |
 
 These call-site differences stay. Do not merge them away:
 

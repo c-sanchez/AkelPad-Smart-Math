@@ -2110,6 +2110,22 @@ std::string trim(const std::string& s) {
   return s.substr(l, r - l);
 }
 
+bool bodyIsEffectivelyEmpty(const std::string& bodyExpr) {
+  const std::string t = trim(bodyExpr);
+  if (t.empty()) {
+    return true;
+  }
+  if (t.size() < 2 || t.front() != '(' || t.back() != ')') {
+    return false;
+  }
+  for (std::size_t i = 1; i + 1 < t.size(); ++i) {
+    if (!std::isspace(static_cast<unsigned char>(t[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool isNumericLiteralStart(char c) {
   return std::isdigit(static_cast<unsigned char>(c)) || c == '.';
 }
@@ -7140,6 +7156,7 @@ bool MathParser::tryCompileExprToProgram(
     std::vector<std::string>* callStack,
     const char* validatingUserFunctionName,
     bool suppressBareFunctionTailHint,
+    const std::vector<std::string>* boundBodyParamNames,
     std::vector<AstStatement>& outProgram) {
   EvalContext parseCtx;
   parseCtx.p = expr.c_str();
@@ -7147,6 +7164,7 @@ bool MathParser::tryCompileExprToProgram(
   parseCtx.userFunctionCallStack = callStack;
   parseCtx.validatingUserFunctionName = validatingUserFunctionName;
   parseCtx.compilingUserFunctionParams = parentCtx.compilingUserFunctionParams;
+  parseCtx.boundBodyParamNames = boundBodyParamNames;
   parseCtx.suppressBareFunctionTailHint = suppressBareFunctionTailHint;
   // Bodies are expressions, same as definition checking. ``name=expr`` stays a comparison.
   skipSpaces(parseCtx.p);
@@ -7250,7 +7268,7 @@ std::string MathParser::getUserFunctionDefinitionErrorText(
   if (const char* udfNameErr = validateUserFunctionDefinitionNames(fnName, fnParams)) {
     return udfNameErr;
   }
-  if (trim(fnExpr).empty() || udfBodyIsEmptyTupleLiteral(fnExpr)) {
+  if (bodyIsEffectivelyEmpty(fnExpr)) {
     return STR_FUNCTION_BODY_IS_EMPTY;
   }
   if (udfBodyCallsDefinedFunction(fnExpr, fnName)) {
@@ -7261,6 +7279,7 @@ std::string MathParser::getUserFunctionDefinitionErrorText(
   validatingUserFunctionParams[fnName] = fnParams;
   bodyCtx.compilingUserFunctionParams = &validatingUserFunctionParams;
   bodyCtx.validatingUserFunctionName = fnName.c_str();
+  bodyCtx.boundBodyParamNames = &fnParams;
   std::unique_ptr<Expr> ex;
   if (!tryParseSyntaxCheckedExpression(bodyCtx, fnExpr, evaluateBody, ex)) {
     if (!bodyCtx.errorText.empty()) {
@@ -7760,18 +7779,6 @@ bool MathParser::tryConsumeLogicalOrOp(EvalContext& ctx, Expr::BinaryOp& outOp) 
   return true;
 }
 
-bool MathParser::udfBodyIsEmptyTupleLiteral(const std::string& bodyExpr) {
-  const std::string t = trim(bodyExpr);
-  if (t.size() < 2 || t.front() != '(' || t.back() != ')') {
-    return false;
-  }
-  for (std::size_t i = 1; i + 1 < t.size(); ++i) {
-    if (!std::isspace(static_cast<unsigned char>(t[i]))) {
-      return false;
-    }
-  }
-  return true;
-}
 
 #if SMARTMATH_COMPLEX_NUMBERS
 void MathParser::applyComplexCaretPrincipalEval(
@@ -8566,6 +8573,43 @@ MathParser::EvalValue MathParser::mapBinary(EvalContext& ctx, const EvalValue& a
       ok);
 }
 
+bool tryConsumeParenthesizedIdentList(
+    smartmath_internal::EvalContext& ctx, std::vector<std::string>& outParams, bool quiet) {
+  outParams.clear();
+  if (*ctx.p != '(') {
+    return false;
+  }
+  ++ctx.p;
+  skipSpaces(ctx.p);
+  if (*ctx.p == ')') {
+    ++ctx.p;
+    return true;
+  }
+  while (true) {
+    if (!localIsIdentStart(*ctx.p)) {
+      if (!quiet) {
+        ctx.fail(ParseErrorId::UnexpectedToken);
+      }
+      return false;
+    }
+    outParams.emplace_back(consumeLowerIdentToken(ctx.p));
+    skipSpaces(ctx.p);
+    if (*ctx.p == ',') {
+      ++ctx.p;
+      skipSpaces(ctx.p);
+      continue;
+    }
+    if (*ctx.p == ')') {
+      ++ctx.p;
+      return true;
+    }
+    if (!quiet) {
+      ctx.fail(ParseErrorId::UnexpectedToken);
+    }
+    return false;
+  }
+}
+
 bool MathParser::parseFunctionDefinition(
     EvalContext& ctx,
     std::string& outName,
@@ -8584,32 +8628,11 @@ bool MathParser::parseFunctionDefinition(
     ctx.p = save;
     return false;
   }
-  ++ctx.p;
-  skipSpaces(ctx.p);
-
   std::vector<std::string> params;
-  if (*ctx.p != ')') {
-    while (true) {
-      if (!localIsIdentStart(*ctx.p)) {
-        ctx.p = save;
-        return false;
-      }
-      params.emplace_back(consumeLowerIdentToken(ctx.p));
-      skipSpaces(ctx.p);
-      if (*ctx.p == ',') {
-        ++ctx.p;
-        skipSpaces(ctx.p);
-        continue;
-      }
-      break;
-    }
-  }
-
-  if (*ctx.p != ')') {
+  if (!tryConsumeParenthesizedIdentList(ctx, params, true)) {
     ctx.p = save;
     return false;
   }
-  ++ctx.p;
   skipSpaces(ctx.p);
   // UDF: name(params)=body — single '=' only; do not treat first '=' of '==' as UDF starter.
   if (*ctx.p != '=') {
@@ -8695,35 +8718,7 @@ bool MathParser::tryConsumeLambdaParameterList(EvalContext& ctx, std::vector<std
   outParams.clear();
   skipSpaces(ctx.p);
   if (*ctx.p == '(') {
-    ++ctx.p;
-    skipSpaces(ctx.p);
-    if (*ctx.p == ')') {
-      ++ctx.p;
-      return true;
-    }
-    while (true) {
-      if (!localIsIdentStart(*ctx.p)) {
-        if (!quiet) {
-          ctx.fail(ParseErrorId::UnexpectedToken);
-        }
-        return false;
-      }
-      outParams.emplace_back(consumeLowerIdentToken(ctx.p));
-      skipSpaces(ctx.p);
-      if (*ctx.p == ',') {
-        ++ctx.p;
-        skipSpaces(ctx.p);
-        continue;
-      }
-      if (*ctx.p == ')') {
-        ++ctx.p;
-        return true;
-      }
-      if (!quiet) {
-        ctx.fail(ParseErrorId::UnexpectedToken);
-      }
-      return false;
-    }
+    return tryConsumeParenthesizedIdentList(ctx, outParams, quiet);
   }
   if (!localIsIdentStart(*ctx.p)) {
     return false;
@@ -8827,7 +8822,7 @@ std::unique_ptr<MathParser::Expr> MathParser::makeUnaryInlineLambdaExpr(
     ctx.fail(expectsUnaryFunction);
     return nullptr;
   }
-  if (trim(body).empty()) {
+  if (bodyIsEffectivelyEmpty(body)) {
     ctx.fail(STR_FUNCTION_BODY_IS_EMPTY);
     return nullptr;
   }
@@ -8836,6 +8831,7 @@ std::unique_ptr<MathParser::Expr> MathParser::makeUnaryInlineLambdaExpr(
     bodyCtx.suppressBareFunctionTailHint = true;
     bodyCtx.compilingUserFunctionParams = ctx.compilingUserFunctionParams;
     bodyCtx.validatingUserFunctionName = ctx.validatingUserFunctionName;
+    bodyCtx.boundBodyParamNames = &params;
     std::unique_ptr<Expr> parsed;
     if (!tryParseSyntaxCheckedExpression(bodyCtx, body, true, parsed)) {
       ctx.fail(bodyCtx.errorText.empty() ? std::string(STR_FAILED_TO_PARSE_USER_FUNCTION_BODY)
@@ -8916,25 +8912,16 @@ MathParser::EvalValue MathParser::evalInlineLambdaCall(
   }
 
   const std::string trimmedBody = trim(bodyExpr);
-  if (trimmedBody.empty() || udfBodyIsEmptyTupleLiteral(trimmedBody)) {
+  if (bodyIsEffectivelyEmpty(trimmedBody)) {
     ctx.fail(STR_FUNCTION_BODY_IS_EMPTY);
     return makeScalar(0);
   }
 
   std::vector<AstStatement> compiledBody;
-  if (!tryCompileExprToProgram(trimmedBody, ctx, nullptr, nullptr, true, compiledBody)) {
+  if (!tryCompileExprToProgram(trimmedBody, ctx, nullptr, nullptr, true, &paramNames, compiledBody)) {
     return makeScalar(0);
   }
-
-  EvalContext sub;
-  sub.evalDepth = ctx.evalDepth + 1;
-  sub.userFunctionCallStack = ctx.userFunctionCallStack;
-  sub.suppressBareFunctionTailHint = true;
-  EvalValue v = runCompiledProgram(sub, compiledBody, &localVars, false);
-  if (!finishSubEvalFromCompiledProgram(ctx, sub)) {
-    return makeScalar(0);
-  }
-  return v;
+  return runBoundProgram(ctx, compiledBody, &localVars, true);
 }
 #endif
 
@@ -9422,6 +9409,19 @@ std::unique_ptr<MathParser::Expr> MathParser::parseIsInstanceCall(EvalContext& c
   return call;
 }
 
+bool identIsBoundBodyParam(const smartmath_internal::EvalContext& ctx, const std::string& ident) {
+  const std::vector<std::string>* names = ctx.boundBodyParamNames;
+  if (names == nullptr) {
+    return false;
+  }
+  for (const std::string& name : *names) {
+    if (name == ident) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryIdentifierOrCall(EvalContext& ctx) {
   const char* identStart = ctx.p;
   if (!localIsIdentStart(*ctx.p)) {
@@ -9444,6 +9444,12 @@ std::unique_ptr<MathParser::Expr> MathParser::parsePrimaryIdentifierOrCall(EvalC
     }
     std::string ident;
     assignLowerIdentFromRange(ident, identStart, identEnd);
+    if (identIsBoundBodyParam(ctx, ident)) {
+      auto v = std::make_unique<Expr>();
+      v->tag = Expr::Tag::Variable;
+      v->name = std::move(ident);
+      return v;
+    }
     if (identMayBeBareBuiltinName(ident) && trySetMissingFunctionCallError(ctx, ident, identStart)) {
       return nullptr;
     }
@@ -13378,6 +13384,22 @@ MathParser::EvalValue MathParser::builtinLog(EvalContext& ctx, const std::vector
       ctx, getFunctionName(BuiltinFunctionId::Log), BuiltinFunctionId::Log, args, false, true);
 }
 
+MathParser::EvalValue MathParser::runBoundProgram(
+    EvalContext& ctx,
+    const std::vector<AstStatement>& program,
+    const std::unordered_map<std::string, EvalValue>* localVars,
+    bool suppressBareFunctionTailHint) {
+  EvalContext sub;
+  sub.evalDepth = ctx.evalDepth + 1;
+  sub.userFunctionCallStack = ctx.userFunctionCallStack;
+  sub.suppressBareFunctionTailHint = suppressBareFunctionTailHint;
+  EvalValue v = runCompiledProgram(sub, program, localVars, false);
+  if (!finishSubEvalFromCompiledProgram(ctx, sub)) {
+    return makeScalar(0);
+  }
+  return v;
+}
+
 MathParser::EvalValue MathParser::evalUserFunctionCall(
     EvalContext& ctx,
     const std::string& fnName,
@@ -13427,21 +13449,14 @@ MathParser::EvalValue MathParser::evalUserFunctionCall(
 
   if (!uf->compiledProgramReady) {
     std::vector<AstStatement> compiledBody;
-    if (!tryCompileExprToProgram(uf->expr, ctx, callStack, fnName.c_str(), false, compiledBody)) {
+    if (!tryCompileExprToProgram(uf->expr, ctx, callStack, fnName.c_str(), false, &uf->params, compiledBody)) {
       return makeScalar(0);
     }
     uf->compiledProgram = std::move(compiledBody);
     uf->compiledProgramReady = true;
   }
 
-  EvalContext sub;
-  sub.evalDepth = ctx.evalDepth + 1;
-  sub.userFunctionCallStack = ctx.userFunctionCallStack;
-  EvalValue v = runCompiledProgram(sub, uf->compiledProgram, &localVars, false);
-  if (!finishSubEvalFromCompiledProgram(ctx, sub)) {
-    return makeScalar(0);
-  }
-  return v;
+  return runBoundProgram(ctx, uf->compiledProgram, &localVars, false);
 }
 
 MathParser::EvalValue MathParser::evalFunctionCall(

@@ -232,8 +232,6 @@ private:
       EvalContext& ctx,
       const char* expectsOneFunction,
       const char* expectsUnaryFunction);
-  static bool udfBodyIsEmptyTupleLiteral(const std::string& bodyExpr);
-
 #if SMARTMATH_COMPLEX_NUMBERS
   void applyComplexCaretPrincipalEval(
       const EvalValue::ScalarValue& lv,
@@ -293,6 +291,7 @@ private:
       std::vector<std::string>* callStack,
       const char* validatingUserFunctionName,
       bool suppressBareFunctionTailHint,
+      const std::vector<std::string>* boundBodyParamNames,
       std::vector<AstStatement>& outProgram);
   static std::string formatUserFunctionSignature(const UserFunction& uf);
   bool handleUnknownIdentifier(EvalContext& ctx, const std::string& ident, std::string& unknownList) const;
@@ -439,6 +438,11 @@ private:
       const std::vector<AstStatement>& program,
       const std::unordered_map<std::string, EvalValue>* scopedVars,
       bool scalarOnlyMode = false);
+  EvalValue runBoundProgram(
+      EvalContext& ctx,
+      const std::vector<AstStatement>& program,
+      const std::unordered_map<std::string, EvalValue>* localVars,
+      bool suppressBareFunctionTailHint);
 
   EvalValue evalFunctionCall(
       EvalContext& ctx,

@@ -838,6 +838,12 @@ namespace smartmath_internal {
     std::vector<std::string>* userFunctionCallStack = nullptr;
     /** Set only while parsing a UDF body for definition validation. */
     const char* validatingUserFunctionName = nullptr;
+    /**
+     * Parameter names in scope while syntax-checking or compiling this body.
+     * A bare parameter is a variable even when the same spelling is a builtin or a user function.
+     * A nested lambda binds its own parameters for that check, the same as Basic's override list.
+     */
+    const std::vector<std::string>* boundBodyParamNames = nullptr;
     /** Set while evaluating an inline lambda body (e.g. sortby key). */
     // Path C: set when trailing ';' was stripped. Path B: *p == ';' in trySetMissingFunctionCallError.
     bool suppressBareFunctionTailHint = false;

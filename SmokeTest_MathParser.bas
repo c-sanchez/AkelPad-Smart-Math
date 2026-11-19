@@ -3424,7 +3424,7 @@ private sub RunIifRandTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1907) as SmokeCase
+  dim tests(1 to 1919) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -5406,6 +5406,18 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1905).expr = "isnTime=x:isinstance(x, time); isnTime(1:30)": tests(1905).expected = "1"
   tests(1906).expr = "isnTime=x:isinstance(x, time); isnTime(4)": tests(1906).expected = "0"
   tests(1907).expr = "fFlatEmpty()=flat(); fFlatEmpty()": tests(1907).expected = "()"
+  tests(1908).expr = "f(sin)=sin+1; f(2)": tests(1908).expected = "3" ' [udf] parameter shadows builtin
+  tests(1909).expr = "f(x)=x; g(f)=f+1; g(2)": tests(1909).expected = "3" ' [udf] parameter shadows a user function
+  tests(1910).expr = "f(sin)=sin(1); f(2)": tests(1910).expected = "0.8414709848078965" ' [udf] a call is still the builtin
+  tests(1911).expr = "f=sin:sin+1; f(2)": tests(1911).expected = "3" ' [lambda] parameter shadows builtin
+  tests(1912).expr = "f(x)=x; g=f:f+1; g(2)": tests(1912).expected = "3" ' [lambda] parameter shadows a user function
+  tests(1913).expr = "sortby((1,2), sin: -sin)": tests(1913).expected = "(2,1)" ' [lambda] anonymous parameter shadows builtin
+  tests(1914).expr = "f(x)=x; sortby((1,2), f: -f)": tests(1914).expected = "(2,1)" ' [lambda] anonymous parameter shadows a user function
+  tests(1915).expr = "filter((1,2), sin: sin+1)": tests(1915).expected = "(1,2)" ' [lambda] filter keeps inputs whose body is truthy
+  tests(1916).expr = "f(x)=x; filter((1,2), f: f+1)": tests(1916).expected = "(1,2)" ' [lambda] same with a user-function name
+  tests(1917).expr = "filter((), x:())": tests(1917).expectedErrContains = "function body is empty" ' [lambda] empty tuple body rejected at parse
+  tests(1918).expr = "sortby((), x:())": tests(1918).expectedErrContains = "function body is empty" ' [lambda] empty tuple body rejected at parse
+  tests(1919).expr = "filter((), x:( ))": tests(1919).expectedErrContains = "function body is empty" ' [lambda] whitespace-only tuple body
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

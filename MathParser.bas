@@ -9199,41 +9199,48 @@ private function LambdaBodyTake(byref body as string, byval stopMode as Integer,
       orelse (stopMode = LAMBDA_BODY_UNTIL_ARG_DELIM)
 end function
 
+'' Caller is on '('. Consumes the list and the closing ')'. On failure the caller rewinds.
+private function TryConsumeParenthesizedIdentList(fnParams() as string, byval quiet as Boolean) as Boolean
+  erase fnParams
+  if pStream[0] <> CHAR_LPAREN then return FALSE
+  pStream += 1
+  SkipSpaces()
+  if pStream[0] = CHAR_RPAREN then
+    pStream += 1
+    return TRUE
+  end if
+  do
+    if IsIdentStartChar(asc(pStream[0])) = FALSE then
+      if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+      return FALSE
+    end if
+    dim nm as string = ConsumeIdentTokenFromStream()
+    if ubound(fnParams) < lbound(fnParams) then
+      redim fnParams(0 to 0)
+      fnParams(0) = nm
+    else
+      redim preserve fnParams(lbound(fnParams) to ubound(fnParams) + 1)
+      fnParams(ubound(fnParams)) = nm
+    end if
+    SkipSpaces()
+    if pStream[0] = CHAR_COMMA then
+      pStream += 1
+      SkipSpaces()
+    elseif pStream[0] = CHAR_RPAREN then
+      pStream += 1
+      return TRUE
+    else
+      if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+      return FALSE
+    end if
+  loop
+end function
+
 private function TryConsumeLambdaParamList(fnParams() as string, byval quiet as Boolean) as Boolean
   erase fnParams
   SkipSpaces()
   if pStream[0] = CHAR_LPAREN then
-    pStream += 1
-    SkipSpaces()
-    if pStream[0] = CHAR_RPAREN then
-      pStream += 1
-      return TRUE
-    end if
-    do
-      if IsIdentStartChar(asc(pStream[0])) = FALSE then
-        if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
-        return FALSE
-      end if
-      dim nm as string = ConsumeIdentTokenFromStream()
-      if ubound(fnParams) < lbound(fnParams) then
-        redim fnParams(0 to 0)
-        fnParams(0) = nm
-      else
-        redim preserve fnParams(lbound(fnParams) to ubound(fnParams) + 1)
-        fnParams(ubound(fnParams)) = nm
-      end if
-      SkipSpaces()
-      if pStream[0] = CHAR_COMMA then
-        pStream += 1
-        SkipSpaces()
-      elseif pStream[0] = CHAR_RPAREN then
-        pStream += 1
-        return TRUE
-      else
-        if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
-        return FALSE
-      end if
-    loop
+    return TryConsumeParenthesizedIdentList(fnParams(), quiet)
   elseif IsIdentStartChar(asc(pStream[0])) then
     redim fnParams(0 to 0)
     fnParams(0) = ConsumeIdentTokenFromStream()
@@ -9361,6 +9368,21 @@ private function ParseSyntaxCheckedBody(byref body as String, byref errText as S
   return ok
 end function
 
+'' Bind the parameter names, syntax-check the body, then restore the previous binding.
+private function SyntaxCheckBodyWithParams(byref body as String, fnParams() as String, byref errText as String, byref bodyCol as Integer, byval suppressTailHint as Boolean) as Boolean
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+  dim savedFunctionVariableCount as Integer
+  dim savedFunctionVariableNames() as String
+  SaveFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
+  BindFunctionVariableOverrides(fnParams())
+#endif
+  dim ok as Boolean = ParseSyntaxCheckedBody(body, errText, bodyCol, suppressTailHint)
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+  RestoreFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
+#endif
+  return ok
+end function
+
 '' Tokens, brackets, and call arity only. Index, bitwise, and domain checks stay on the real call.
 private function SyntaxCheckInlineLambdaBody(byref body as string, fnParams() as string) as Boolean
   dim savedSuppress as Boolean = suppressBareFunctionTailHint
@@ -9368,23 +9390,12 @@ private function SyntaxCheckInlineLambdaBody(byref body as string, fnParams() as
   dim savedBodyCol as Integer = unaryFuncBodyParseErrorCol
   dim savedFuncCol as Integer = unaryFuncParseErrorCol
 
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  dim savedFunctionVariableCount as Integer
-  dim savedFunctionVariableNames() as String
-  SaveFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
-  BindFunctionVariableOverrides(fnParams())
-#endif
-
   suppressBareFunctionTailHint = TRUE
   arrayIndexBracketDepth = 0
 
   dim errText as String
   dim bodyCol as Integer
-  dim ok as Boolean = ParseSyntaxCheckedBody(body, errText, bodyCol, TRUE)
-
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  RestoreFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
-#endif
+  dim ok as Boolean = SyntaxCheckBodyWithParams(body, fnParams(), errText, bodyCol, TRUE)
 
   suppressBareFunctionTailHint = savedSuppress
   arrayIndexBracketDepth = savedBracket
@@ -9455,10 +9466,6 @@ private function TryParseLambdaAssignmentRhs(fnParams() as string, byref lamBody
   SkipSpaces()
   if TryParseWrappedParenLambdaSuffix(fnParams(), lamBody, LAMBDA_BODY_UNTIL_RPAREN) then
     if pStream[0] = CHAR_NUL orelse pStream[0] = CHAR_SEMICOLON then
-      if InlineLambdaBodyIsEffectivelyEmpty(lamBody) then
-        SetFunctionBodyIsEmptyError()
-        return FALSE
-      end if
       return TRUE
     end if
     pStream = saveOuter
@@ -9468,13 +9475,7 @@ private function TryParseLambdaAssignmentRhs(fnParams() as string, byref lamBody
   SkipSpaces()
   if TryParseLambdaInnerSuffix(fnParams(), lamBody, LAMBDA_BODY_UNTIL_SEMICOLON_EOF, 0) = FALSE then return FALSE
   SkipSpaces()
-  if pStream[0] = CHAR_NUL orelse pStream[0] = CHAR_SEMICOLON then
-    if InlineLambdaBodyIsEffectivelyEmpty(lamBody) then
-      SetFunctionBodyIsEmptyError()
-      return FALSE
-    end if
-    return TRUE
-  end if
+  if pStream[0] = CHAR_NUL orelse pStream[0] = CHAR_SEMICOLON then return TRUE
   return FALSE
 end function
 
@@ -12252,21 +12253,8 @@ private function ParseExpression() as EvalValue
 end function
 
 private function TryValidateUserFunctionBodyExpression(byref body as String, fnParams() as String, byref errText as String) as Boolean
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  dim savedFunctionVariableCount as Integer
-  dim savedFunctionVariableNames() as String
-  SaveFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
-  BindFunctionVariableOverrides(fnParams())
-#endif
-
   dim bodyCol as Integer
-  dim ok as Boolean = ParseSyntaxCheckedBody(body, errText, bodyCol, FALSE)
-
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  RestoreFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
-#endif
-
-  return ok
+  return SyntaxCheckBodyWithParams(body, fnParams(), errText, bodyCol, FALSE)
 end function
 
 private sub ResetTopLevelEvaluationState(byref exprInput as String)
@@ -12916,6 +12904,21 @@ private function TryEvaluateElementAssignStatement(byref result as Double, byref
   return TRUE
 end function
 
+'' Validate, store, and publish ``defined f(...)``. Empty-body rejection stays in the validation.
+private function TryCommitDefinedUserFunction(byref fnName as String, fnParams() as String, byref body as String, byref result as Double, byref resultText as String, byref isArray as Boolean) as Boolean
+  dim errText as String = ""
+  if TryValidateUserFunctionDefinition(fnName, fnParams(), body, errText) = FALSE then
+    SetValidationError(errText)
+    return FALSE
+  end if
+  SetUserFunction(fnName, fnParams(), body)
+  resultText = FB_STR_DEFINED & FormatFunctionSignatureText(fnName, fnParams())
+  isArray = FALSE
+  result = 0
+  InvalidateLastRawResult()
+  return TRUE
+end function
+
 private function TryEvaluateStatementCore(byref exprInput as String, byref result as Double, byref resultText as String, byref isArray as Boolean, byval suppressTailHint as Boolean) as Boolean
   dim savedSuppressTailHint as Boolean = suppressBareFunctionTailHint
   suppressBareFunctionTailHint = suppressTailHint
@@ -12952,19 +12955,12 @@ private function TryEvaluateStatementCore(byref exprInput as String, byref resul
           dim lamP() as string
           dim lamB as string = ""
           if PeekRhsMayBeLambdaSyntaxAt(afterEq) andalso TryParseLambdaAssignmentRhs(lamP(), lamB) then
-          dim lamUdfErr as string = ""
-          if TryValidateUserFunctionDefinition(varName, lamP(), lamB, lamUdfErr) = FALSE then
-            SetValidationError(lamUdfErr)
+            if TryCommitDefinedUserFunction(varName, lamP(), lamB, result, resultText, isArray) = FALSE then
+              suppressBareFunctionTailHint = savedSuppressTailHint
+              return FALSE
+            end if
             suppressBareFunctionTailHint = savedSuppressTailHint
-            return FALSE
-          end if
-          SetUserFunction(varName, lamP(), lamB)
-          resultText = FB_STR_DEFINED & FormatFunctionSignatureText(varName, lamP())
-          isArray = FALSE
-          result = 0
-          InvalidateLastRawResult()
-          suppressBareFunctionTailHint = savedSuppressTailHint
-          return TRUE
+            return TRUE
           end if
         elseif PeekRhsMayBeLambdaSyntaxAt(afterEq) then
           SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
@@ -13020,58 +13016,23 @@ private function TryEvaluateStatementCore(byref exprInput as String, byref resul
       dim varName as String = ConsumeIdentTokenFromStream()
       SkipSpaces()
       if pStream[0] = CHAR_LPAREN then
-      dim savedPos as ZString ptr = pStream
-      pStream += 1
-      SkipSpaces()
-      dim fnParams() as String
-      dim parseParamsOk as Integer = 1
-
-      if pStream[0] <> CHAR_RPAREN then
-        do
-          if not IsIdentStartChar(asc(pStream[0])) then
-            parseParamsOk = 0
-            exit do
-          end if
-          dim parName as String = ConsumeIdentTokenFromStream()
-          if ubound(fnParams) = -1 then
-            redim fnParams(0)
-          else
-            redim preserve fnParams(ubound(fnParams) + 1)
-          end if
-          fnParams(ubound(fnParams)) = parName
+        dim savedPos as ZString ptr = pStream
+        dim fnParams() as String
+        if TryConsumeParenthesizedIdentList(fnParams(), TRUE) then
           SkipSpaces()
-          if pStream[0] = CHAR_COMMA then
+          if pStream[0] = CHAR_EQUALS andalso pStream[1] <> CHAR_EQUALS then
             pStream += 1
             SkipSpaces()
-          else
-            exit do
-          end if
-        loop
-      end if
-
-      if parseParamsOk andalso pStream[0] = CHAR_RPAREN then
-        pStream += 1
-        SkipSpaces()
-        if pStream[0] = CHAR_EQUALS andalso pStream[1] <> CHAR_EQUALS then
-          pStream += 1
-          SkipSpaces()
-          dim udfValidationErr as String
-          dim body as String = *pStream
-          if TryValidateUserFunctionDefinition(varName, fnParams(), body, udfValidationErr) = FALSE then
-            SetValidationError(udfValidationErr)
+            dim body as String = *pStream
+            if TryCommitDefinedUserFunction(varName, fnParams(), body, result, resultText, isArray) = FALSE then
+              suppressBareFunctionTailHint = savedSuppressTailHint
+              return FALSE
+            end if
             suppressBareFunctionTailHint = savedSuppressTailHint
-            return FALSE
+            return TRUE
           end if
-          SetUserFunction(varName, fnParams(), body)
-          resultText = FB_STR_DEFINED & FormatFunctionSignatureText(varName, fnParams())
-          isArray = FALSE
-          result = 0
-          InvalidateLastRawResult()
-          suppressBareFunctionTailHint = savedSuppressTailHint
-          return TRUE
         end if
-      end if
-      pStream = savedPos
+        pStream = savedPos
       end if
     end if
   end if
