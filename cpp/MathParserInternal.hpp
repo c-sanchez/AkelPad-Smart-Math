@@ -107,6 +107,8 @@ namespace smartmath_internal {
     Cart,
     Conj,
     Filter,
+    Iif,
+    IsInstance,
     Count
   };
 
@@ -115,7 +117,6 @@ namespace smartmath_internal {
     Array,
     FunctionRef,
     InlineLambda,
-    UdfFormalValidationDummy,
     DefinedFunction
   };
 
@@ -196,7 +197,6 @@ namespace smartmath_internal {
     enum : unsigned int {
       fExpandArgs = 0x01u,   // Used by unpack(...): marks values for call-argument expansion.
       fRenderUnsigned = 0x02u, // For hex/oct/bin output: render negative integers as unsigned bit pattern.
-      fFormalProbeTaint = 0x08u, // UDF validation: value depends on a formal probe.
       fRenderBaseMask = 0x0000FF00u, // Bit mask for packed RenderBase storage in flags.
       fRenderBaseShift = 8u // Bit shift for packed RenderBase storage in flags.
     };
@@ -215,8 +215,6 @@ namespace smartmath_internal {
     void setExpandArgs(bool v) { flags = v ? (flags | fExpandArgs) : (flags & ~fExpandArgs); }
     bool hasRenderUnsigned() const { return (flags & fRenderUnsigned) != 0; }
     void setRenderUnsigned(bool v) { flags = v ? (flags | fRenderUnsigned) : (flags & ~fRenderUnsigned); }
-    bool hasFormalProbeTaint() const { return (flags & fFormalProbeTaint) != 0; }
-    void setFormalProbeTaint(bool v) { flags = v ? (flags | fFormalProbeTaint) : (flags & ~fFormalProbeTaint); }
     RenderBase getRenderBase() const {
       const unsigned int raw = (flags & fRenderBaseMask) >> fRenderBaseShift;
       return (raw == 0u) ? RenderBase::Dec : static_cast<RenderBase>(raw);
@@ -244,7 +242,6 @@ namespace smartmath_internal {
 
   EvalValue makeArrayFromScalars(const std::vector<EvalValue>& v);
   EvalValue makeInlineLambdaValue(std::vector<std::string> params, std::string body);
-  EvalValue makeUdfFormalValidationDummy();
 
   void scalarClearImaginary(EvalValue::ScalarValue& s);
 
@@ -621,6 +618,8 @@ namespace smartmath_internal {
     PolarCart,
     Log,
     Filter,
+    Iif,
+    IsInstance,
     Unknown,
   };
 
@@ -668,7 +667,9 @@ namespace smartmath_internal {
     XN,
     X,
     StartStopStep,
-    ArrayFunc
+    ArrayFunc,
+    Iif,
+    IsInstance
   };
 
   enum class BuiltinFlags : unsigned {
@@ -766,7 +767,8 @@ namespace smartmath_internal {
       Slice,
       ArrayOrParens,
       PostfixPercent,
-      FunctionRef
+      FunctionRef,
+      TypeName
     };
 
     enum class BinaryOp {

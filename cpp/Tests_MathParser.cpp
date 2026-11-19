@@ -471,14 +471,14 @@ std::vector<TestCase> buildUnitCases() {
                  }
                  return true;
                }});
-  t.push_back({"unit/addUserFunction rejects formal probe as function name", [](std::string& why) {
+  t.push_back({"unit/addUserFunction accepts underscore as function name", [](std::string& why) {
                  MathParser p;
                  const std::string err = p.addUserFunction("_(x)=x*x");
-                 if (err != "reserved built-in variable name") {
-                   why = "expected reserved built-in variable name, got: " + err;
+                 if (!err.empty()) {
+                   why = "expected addUserFunction(_(x)=x*x) to succeed, got: " + err;
                    return false;
                  }
-                 return true;
+                 return expectEval(p, "_(3)", "9", why);
                }});
   t.push_back({"unit/addUserFunction rejects trailing junk in body", [](std::string& why) {
                  MathParser p;
@@ -3167,22 +3167,26 @@ std::vector<TestCase> buildRegressionCases() {
                   return false;
                 return true;
               }});
-  t.push_back({"regression/underscore reads as 1 before assignment", [](std::string& why) {
+  t.push_back({"regression/underscore is unknown until assigned", [](std::string& why) {
                 MathParser p;
-                if (!expectEval(p, "_", "1", why)) return false;
-                return expectEval(p, "_+5", "6", why);
+                if (!expectEvalErrorContains(p, "_", "unknown variable: _", why)) return false;
+                if (!expectEvalErrorContains(p, "_+5", "unknown variable: _", why)) return false;
+                if (!expectEval(p, "fund(x)=_+x", "defined fund(x)", why)) return false;
+                if (!expectEvalErrorContains(p, "fund(3)", "unknown variable: _", why)) return false;
+                if (!expectEval(p, "_=10", "10", why)) return false;
+                return expectEval(p, "_+5", "15", why);
               }});
-  t.push_back({"regression/UDF formal validation probe from _ default 1", [](std::string& why) {
+  t.push_back({"regression/modulo UDF is accepted without a probe value", [](std::string& why) {
                 MathParser p;
                 if (!p.addUserFunction("f(x)=1%x").empty()) {
-                  why = "expected addUserFunction(f(x)=1%x) to succeed with default probe 1";
+                  why = "expected addUserFunction(f(x)=1%x) to succeed";
                   return false;
                 }
                 if (!expectEval(p, "f(7)", "1", why)) return false;
                 MathParser p2;
                 if (!expectEval(p2, "_=10", "10", why)) return false;
                 if (!p2.addUserFunction("g(x)=1%(x-1)").empty()) {
-                  why = "expected addUserFunction after _=10 to validate 1%(x-1)";
+                  why = "expected addUserFunction(g(x)=1%(x-1)) to succeed";
                   return false;
                 }
                 if (!expectEval(p2, "g(5)", "1", why)) return false;
@@ -3401,6 +3405,16 @@ std::vector<TestCase> buildRegressionCases() {
                 if (!expectEvalErrorContains(p, "sin)", "mismatched closing parenthesis", why)) return false;
                 if (p.getError().find("function:") != std::string::npos) {
                   why = "sin): must not emit function hint";
+                  return false;
+                }
+                if (!expectEvalErrorContains(p, " sin)", "mismatched closing parenthesis", why)) return false;
+                if (p.getError().find("function:") != std::string::npos) {
+                  why = " sin): must not emit function hint";
+                  return false;
+                }
+                if (!expectEvalErrorContains(p, "1; sin)", "mismatched closing parenthesis", why)) return false;
+                if (p.getError().find("function:") != std::string::npos) {
+                  why = "1; sin): must not emit function hint";
                   return false;
                 }
                 if (!expectEvalErrorContains(p, "sin]", "mismatched closing bracket", why)) return false;
@@ -4200,8 +4214,8 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "f(x)=x+1; f", "user-defined function: f(x)"} ,
     {ParityBasicCase::Kind::Expected, "x=0; f(x)=1/x; f(2)", "0.5"} ,
     {ParityBasicCase::Kind::Expected, "f(x)=1%x; f(7)", "1"} ,
-    {ParityBasicCase::Kind::Expected, "_", "1"} ,
-    {ParityBasicCase::Kind::Expected, "_+5", "6"} ,
+    {ParityBasicCase::Kind::ErrorContains, "_", "unknown variable: _"} ,
+    {ParityBasicCase::Kind::ErrorContains, "_+5", "unknown variable: _"} ,
     {ParityBasicCase::Kind::Expected, "_=10; g(x)=1%(x-1); g(5)", "1"} ,
     {ParityBasicCase::Kind::Expected, "log(8,2)", "3"} ,
     {ParityBasicCase::Kind::Expected, "log(100,10)", "2"} ,
@@ -4522,7 +4536,7 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "flat(5)", "(5)"} ,
     {ParityBasicCase::Kind::Expected, "flat((1,2,3))", "(1,2,3)"} ,
     {ParityBasicCase::Kind::Expected, "flat((1,2),3,(4,5))", "(1,2,3,4,5)"} ,
-    {ParityBasicCase::Kind::ErrorContains, "flat()", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::Expected, "flat()", "()"} ,
     {ParityBasicCase::Kind::Expected, "flat(())", "()"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat", "function: flat(...)"} ,
     {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x*y; f(flat((2,3)))", "expects 2 argument(s)"} ,
@@ -4555,7 +4569,10 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "oct(x)=x", "reserved function name"} ,
     {ParityBasicCase::Kind::ErrorContains, "not(x)=x", "reserved function name"} ,
     {ParityBasicCase::Kind::ErrorContains, "ans(x)=x", "reserved built-in variable name"} ,
-    {ParityBasicCase::Kind::ErrorContains, "_(x)=x", "reserved built-in variable name"} ,
+    {ParityBasicCase::Kind::Expected, "_(x)=x", "defined _(x)"} ,
+    {ParityBasicCase::Kind::Expected, "_(x)=x*x; _(3)", "9"} ,
+    {ParityBasicCase::Kind::Expected, "h(_)=_*3; h(4)", "12"} ,
+    {ParityBasicCase::Kind::Expected, "_(x)=x; _=7; _", "7"} ,
     {ParityBasicCase::Kind::ErrorContains, "ANS(x)=x", "reserved built-in variable name"} ,
     {ParityBasicCase::Kind::Expected, "f(x,y)=x*y; a=(2,3); f(unpack(a))", "6"} ,
     {ParityBasicCase::Kind::Expected, "f(x,y,z)=x+y+z; f(unpack((1,2,3)))", "6"} ,
@@ -4939,15 +4956,16 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
 #if SMARTMATH_LAMBDA_FUNCTIONS
     {ParityBasicCase::Kind::Expected, "f(a,b)=filter(a, t: t>b)[0]; f((1,5,3),2)", "5"} ,
 #endif
-    {ParityBasicCase::Kind::ErrorContains, "f(x)=1[0]", "indexing requires an array value"} ,
-    {ParityBasicCase::Kind::ErrorContains, "f(a)=a[0][0]", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=1[0]; f(0)", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(a)=a[0][0]; f(1)", "indexing requires an array value"} ,
 #if SMARTMATH_LAMBDA_FUNCTIONS
-    {ParityBasicCase::Kind::ErrorContains, "f(v)=filter(v, t: t>=0)[0][0]", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(v)=filter(v, t: t>=0)[0][0]; f(1)", "indexing requires an array value"} ,
 #endif
-    {ParityBasicCase::Kind::ErrorContains, "f(x)=(1,2)[5]", "array index is out of range"} ,
-    {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x%(y-x)", "incompatible operands"} ,
-    {ParityBasicCase::Kind::ErrorContains, "f(x)=1%(x-1)", "incompatible operands"} ,
-    {ParityBasicCase::Kind::ErrorContains, "f(x)=(x/2)<<2", "bitwise operands must be integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=(1,2)[5]; f(0)", "array index is out of range"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x,y)=x%(y-x); f(1,1)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=1%(x-1); f(1)", "incompatible operands"} ,
+    {ParityBasicCase::Kind::ErrorContains, "f(x)=(x/2)<<2; f(1)", "bitwise operands must be integer values"} ,
+    {ParityBasicCase::Kind::Expected, "f(x)=(x/2)<<2; f(2)", "4"} ,
     {ParityBasicCase::Kind::Expected, "a=(1,2,3); a[1]=10", "(1, 10, 3)"} ,
     {ParityBasicCase::Kind::Expected, "a=(1,2,3); a[1]=10; ans", "(1, 10, 3)"} ,
     {ParityBasicCase::Kind::Expected, "a=(1,2,3); a[1]=()", "(1, 3)"} ,
@@ -5007,6 +5025,161 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "f=x:x=1; f(5)", "0"} ,
     {ParityBasicCase::Kind::Expected, "f=x:x=1; f(1)", "1"} ,
 #endif
+    {ParityBasicCase::Kind::Expected, "iif(1, 10, 20)", "10"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0, 10, 20)", "20"} ,
+    {ParityBasicCase::Kind::Expected, "iif(nan, 10, 20)", "20"} ,
+    {ParityBasicCase::Kind::Expected, "iif((), 10, 20)", "20"} ,
+    {ParityBasicCase::Kind::Expected, "iif((0), 10, 20)", "20"} ,
+    {ParityBasicCase::Kind::Expected, "iif((0,0), 10, 20)", "10"} ,
+    {ParityBasicCase::Kind::Expected, "iif((1,0), 10, 20)", "10"} ,
+    {ParityBasicCase::Kind::Expected, "iif(inf, 1, 2)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, (10,20,30), 0)", "(10, 20, 30)"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0, (10,20,30), 0)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, (), 2)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0, 1, ())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, 2, (1,2)[9])", "2"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0, (1,2)[9], 4)", "4"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, 2, nosuch)", "2"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1, 2, 1+)", "unexpected token"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1, (1)[9], 1+)", "unexpected token"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1, 2, pow(3))", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(0, pow(3), 1)", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif()", "expects 3 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1)", "expects 3 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1,2)", "expects 3 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1,2,3,4)", "expects 3 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1, 2, sin)", "unknown variable: sin"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif", "function: iif(condition, expr_if_true, expr_if_false)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(x)=x", "reserved function name"} ,
+    {ParityBasicCase::Kind::ErrorContains, "sortby((1,2), iif)", "expects a function that takes 1 parameter"} ,
+    {ParityBasicCase::Kind::ErrorContains, "filter((1,2), iif)", "expects a function that takes 1 parameter"} ,
+    {ParityBasicCase::Kind::Expected, "aIif=flat(10); fIif(n)=iif(n>=0, aIif[n], 0); fIif(0)", "10"} ,
+    {ParityBasicCase::Kind::ErrorContains, "aIif=flat(10); fIif(n)=iif(n>=0, aIif[n], 0); fIif(1)", "array index is out of range"} ,
+    {ParityBasicCase::Kind::ErrorContains, "fIifStrict(n)=iif(1, flat(10)[1], 0); fIifStrict(0)", "array index is out of range"} ,
+    {ParityBasicCase::Kind::Expected, "fIifGuard(a,n)=iif(n>=0 && n<len(a), a[n], ()); fIifGuard((10,20,30), 1)", "20"} ,
+    {ParityBasicCase::Kind::Expected, "fIifGuard(a,n)=iif(n>=0 && n<len(a), a[n], ()); fIifGuard((10,20,30), 5)", "()"} ,
+    {ParityBasicCase::Kind::Expected, "xIif=1; iif(xIif, (10,20,30), 0)", "(10, 20, 30)"} ,
+    {ParityBasicCase::Kind::Expected, "xIif=0; iif(xIif, (10,20,30), 0)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "fmoddef(x)=1%(x-1)", "defined fmoddef(x)"} ,
+    {ParityBasicCase::Kind::Expected, "fmoddef(x)=1%(x-1); fmoddef(2)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "fidxdef(x)=(1,2)[5]", "defined fidxdef(x)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "fidxdef(x)=(1,2)[5]; fidxdef(0)", "array index is out of range"} ,
+    {ParityBasicCase::Kind::Expected, "fiifkeep()=iif(1, 2, (1)[9])", "defined fiifkeep()"} ,
+    {ParityBasicCase::Kind::Expected, "fiifkeep()=iif(1, 2, (1)[9]); fiifkeep()", "2"} ,
+    {ParityBasicCase::Kind::ErrorContains, "fiifarity()=iif(1, pow(3), 0)", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::Expected, "iif(-0, 1, 2)", "2"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, hex(255), 0)", "0xFF"} ,
+    {ParityBasicCase::Kind::ErrorContains, "sum(1, sin)", "unknown variable: sin"} ,
+    {ParityBasicCase::Kind::Expected, "funddef(x)=_+x", "defined funddef(x)"} ,
+#if SMARTMATH_LAMBDA_FUNCTIONS
+    {ParityBasicCase::Kind::ErrorContains, "flamtok(a)=filter(a, t: 1+)", "unexpected token"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1, 0, filter((1), t: 1+))", "unexpected token"} ,
+    {ParityBasicCase::Kind::Expected, "flamidxdef(a)=filter(a, t: t[9])", "defined flamidxdef(a)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flamidx(a)=filter(a, t: t[9]); flamidx((1,2))", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, 0, filter((1), t: t[9]))", "0"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flampow(a)=filter(a, t: pow(t))", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(1, 0, filter((1), t: pow(t)))", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "flamsort(a)=sortby(a, t: 1+)", "unexpected token"} ,
+    {ParityBasicCase::Kind::Expected, "fiifabs=x:iif(x>0, x, -x); fiifabs(-4)", "4"} ,
+    {ParityBasicCase::Kind::Expected, "fiifabs=x:iif(x>0, x, -x); fiifabs(4)", "4"} ,
+    {ParityBasicCase::Kind::Expected, "fiifquiet=x:iif(1, x, (1,2)[9]); fiifquiet(5)", "5"} ,
+    {ParityBasicCase::Kind::ErrorContains, "fiifboom=x:iif(0, x, (1,2)[9]); fiifboom(5)", "array index is out of range"} ,
+    {ParityBasicCase::Kind::Expected, "filter((1,-2,0), x: iif(x>0, 1, 0))", "(1)"} ,
+    {ParityBasicCase::Kind::Expected, "filter((), x: iif(x>0, 1, 0))", "()"} ,
+    {ParityBasicCase::Kind::Expected, "filter((5), x: iif(1, x, (1,2)[9]))", "(5)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "filter((5), x: iif(0, x, (1,2)[9]))", "array index is out of range"} ,
+    {ParityBasicCase::Kind::ErrorContains, "filter((1), x: iif(1, x, 1+))", "unexpected token"} ,
+    {ParityBasicCase::Kind::ErrorContains, "filter((1), x: iif(1, x, pow(x)))", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::Expected, "sortby((3,-1,2), x: iif(x<0, -x, x))", "(-1, 2, 3)"} ,
+    {ParityBasicCase::Kind::Expected, "isnLam=x:isinstance(x, int); isnLam(2)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isnLam=x:isinstance(x, int); isnLam(1.5)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "filter((1, 1.5, 2), x: isinstance(x, int))", "(1, 2)"} ,
+    {ParityBasicCase::Kind::Expected, "sortby((1.5, 3), x: isinstance(x, int))", "(1.5, 3)"} ,
+    {ParityBasicCase::Kind::Expected, "isnLamGuard=x:iif(isinstance(x, array), x[0], 0); isnLamGuard((8,9))", "8"} ,
+    {ParityBasicCase::Kind::Expected, "isnLamGuard=x:iif(isinstance(x, array), x[0], 0); isnLamGuard(7)", "0"} ,
+#endif
+    {ParityBasicCase::Kind::Expected, "isinstance(1, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(-1, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1.0, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1.0, float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(2.00, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1e2, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1e2, float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1.5, int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1.5, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1e20, int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1e20, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(2**63, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(2**63, float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(nan, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(nan, int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(inf, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(-inf, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(pi, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(pi, int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(hex(255), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(ratio(1/2), float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(ratio(1/2), int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(ratio(2), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(ratio(2), float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(int(3.9), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(3.9, int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(3.9, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1, INT)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "IsInstance(1.5, Float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(isinstance(1, int), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1==1, int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(2 && flat(0), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(2 && flat(0), array)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "xIs=1.5; isinstance(xIs, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "float=1.5; isinstance(float, float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((), array)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((), list)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((), int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((), float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((), time)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((5), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((5), array)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(flat(5), array)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(flat(5), list)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(flat(5), int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(flat(0), array)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1,2,3), array)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1,2,3), list)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1,2,3), int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1, 2.5), float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1,2,3)[1], int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1, time)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1, complex)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1.5, complex)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((), complex)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isnInt(x)=isinstance(x, int); isnInt(1)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isnInt(x)=isinstance(x, int); isnInt(1.5)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "iif(isinstance(5, array), 5[0], 0)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "iif(isinstance((10,20), array), (10,20)[0], 0)", "10"} ,
+    {ParityBasicCase::Kind::Expected, "isnGuard(x)=iif(isinstance(x, array), x[0], 0); isnGuard((10,20))", "10"} ,
+    {ParityBasicCase::Kind::Expected, "isnGuard(x)=iif(isinstance(x, array), x[0], 0); isnGuard(5)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0, (1)[9], isinstance(1.5, float))", "1"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance()", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1)", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, int, float)", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance", "function: isinstance(value, type)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(x)=x", "reserved function name"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, foo)", "unknown type name: foo"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, sin)", "unknown type name: sin"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, pi)", "unknown type name: pi"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, 5)", "expects a type name"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, int(1))", "expects a type name"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(1, (int))", "expects a type name"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isnBad()=isinstance(1, nope)", "unknown type name: nope"} ,
+    {ParityBasicCase::Kind::Expected, "isnidx()=isinstance((1)[9], int)", "defined isnidx()"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isnidx()=isinstance((1)[9], int); isnidx()", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance((1)[9], int)", "indexing requires an array value"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(unpack((1,2)), int)", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::ErrorContains, "isinstance(unpack(()), int)", "expects 2 argument(s)"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(unpack(5), int)", "1"} ,
+    {ParityBasicCase::Kind::ErrorContains, "filter((1,2), isinstance)", "expects a function that takes 1 parameter"} ,
+    {ParityBasicCase::Kind::Expected, "fFlatEmpty()=flat(); fFlatEmpty()", "()"} ,
 };
 
 static const ParityBasicCase kParityTimeFromSmokeCases[] = {
@@ -5151,6 +5324,34 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::ErrorContains, "5/flat(1m,12)", "incompatible operands"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat(1m,12)**2", "incompatible operands"} ,
     {ParityBasicCase::Kind::ErrorContains, "flat(1m,12)+()", "incompatible operands"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, 1:30, 0)", "01:30"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0, 1:30, 0)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "gIif(x)=iif(x, 1:30, 0); gIif(1)", "01:30"} ,
+    {ParityBasicCase::Kind::Expected, "gIif(x)=iif(x, 1:30, 0); gIif(0)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "fmixdef()=(1:30, 2)", "defined fmixdef()"} ,
+    {ParityBasicCase::Kind::ErrorContains, "fmixdef()=(1:30, 2); fmixdef()", "array literal: time values cannot be mixed with non-time values"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, 0, (1:30, 2))", "0"} ,
+    {ParityBasicCase::Kind::ErrorContains, "iif(0, 0, (1:30, 2))", "array literal: time values cannot be mixed with non-time values"} ,
+    {ParityBasicCase::Kind::Expected, "iif(0:00, 1, 2)", "2"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1:30, 1, 2)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1:30, time)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1:30, int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1:30, float)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(minute, time)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1h, time)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(milliseconds(1:30), int)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(milliseconds(1:30), time)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(seconds(1:30), float)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(seconds(1:30), int)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance(1:00+5, time)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1:00, 2:00)[0], time)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1:00, 2:00), time)", "0"} ,
+    {ParityBasicCase::Kind::Expected, "isinstance((1:00, 2:00), array)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "iif(1, isinstance(1:30, time), 0)", "1"} ,
+#if SMARTMATH_LAMBDA_FUNCTIONS
+    {ParityBasicCase::Kind::Expected, "isnTime=x:isinstance(x, time); isnTime(1:30)", "1"} ,
+    {ParityBasicCase::Kind::Expected, "isnTime=x:isinstance(x, time); isnTime(4)", "0"} ,
+#endif
 #include "../tools/smoke_parity_append_generated.cpp.inc"
 };
 
@@ -5306,7 +5507,7 @@ std::vector<TestCase> buildTimeValuesSupportOptionCases() {
                [](std::string& why) {
                  MathParser p;
                  p.setSupportTimeValues(true);
-                 p.parseAndEvaluate("_=0:00; rd(t)=ratio(days(t)); rd(1h)");
+                 p.parseAndEvaluate("rd(t)=ratio(days(t)); rd(1h)");
                  if (!p.getError().empty()) {
                    why = p.getError();
                    return false;
@@ -5417,6 +5618,12 @@ std::vector<TestCase> buildTimeValuesSupportOptionCases() {
                    }
                  }
                  return true;
+               }});
+  t.push_back({"time-opt: isinstance accepts the time type when support is off",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportTimeValues(false);
+                 return expectEval(p, "isinstance(1, time)", "0", why);
                }});
 #endif
   return t;
@@ -6885,6 +7092,33 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  if (!expectEval(p, "pctLeftI=-5i", "-5i", why)) return false;
                  return expectEval(p, "pctLeftI+10%", "-5.5i", why);
                }});
+  t.push_back({"complex-opt: untaken complex bitwise complement is not checked",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 if (!expectEval(p, "iif(1, 0, ~2i)", "0", why)) return false;
+                 if (!expectEval(p, "iif(1, 0, ~i)", "0", why)) return false;
+                 if (!expectEval(p, "xTilde=i; iif(1, 0, ~xTilde)", "0", why)) return false;
+                 if (!expectEval(p, "ftilde2i()=~2i", "defined ftilde2i()", why)) return false;
+                 if (!expectEvalErrorContains(p, "ftilde2i()", "incompatible operands", why)) return false;
+                 return expectEvalErrorContains(p, "iif(0, 0, ~i)", "incompatible operands", why);
+               }});
+  t.push_back({"complex-opt: isinstance classifies a complex value before int and float",
+               [](std::string& why) {
+                 MathParser p;
+                 p.setSupportComplexNumbers(true);
+                 if (!expectEval(p, "isinstance(1+2i, complex)", "1", why)) return false;
+                 if (!expectEval(p, "isinstance(1+2i, int)", "0", why)) return false;
+                 if (!expectEval(p, "isinstance(1+2i, float)", "0", why)) return false;
+                 if (!expectEval(p, "isinstance(1+0i, int)", "1", why)) return false;
+                 if (!expectEval(p, "isinstance(1+0i, complex)", "0", why)) return false;
+                 if (!expectEval(p, "isinstance((1+i, 2)[0], complex)", "1", why)) return false;
+                 if (!expectEval(p, "isinstance((1+i, 2), array)", "1", why)) return false;
+                 if (!expectEval(p, "isinstance(real(1+2i), int)", "1", why)) return false;
+                 if (!expectEval(p, "isinstance(ratio(0.5+0.25i), complex)", "1", why)) return false;
+                 if (!expectEval(p, "isinstance(ratio(0.5+0.25i), float)", "0", why)) return false;
+                 return expectEval(p, "isinstance(ratio(0.5+0.25i), int)", "0", why);
+               }});
   return t;
 }
 
@@ -7027,6 +7261,79 @@ std::vector<TestCase> buildFilterCases() {
   return t;
 }
 
+std::vector<TestCase> buildIifRandCases() {
+  std::vector<TestCase> t;
+  t.push_back({"iif rand: false branch only", [](std::string& why) {
+                 MathParser p;
+                 std::srand(1);
+                 p.parseAndEvaluate("rand()");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 const std::string saved = p.getResult();
+                 std::srand(1);
+                 p.parseAndEvaluate("iif(0, rand(), rand())");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != saved) {
+                   why = "false branch drew \"" + p.getResult() + "\" expected \"" + saved + "\"";
+                   return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"iif rand: true branch only", [](std::string& why) {
+                 MathParser p;
+                 std::srand(2);
+                 p.parseAndEvaluate("rand()");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 const std::string saved = p.getResult();
+                 std::srand(2);
+                 p.parseAndEvaluate("iif(1, rand(), rand())");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != saved) {
+                   why = "true branch drew \"" + p.getResult() + "\" expected \"" + saved + "\"";
+                   return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"iif rand: wrong arity draws nothing", [](std::string& why) {
+                 MathParser p;
+                 std::srand(3);
+                 p.parseAndEvaluate("rand()");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 const std::string saved = p.getResult();
+                 std::srand(3);
+                 p.parseAndEvaluate("iif(rand(), 1)");
+                 if (p.getError().find("expects 3 argument(s)") == std::string::npos) {
+                   why = p.getError().empty() ? "expected arity error" : p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("rand()");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 if (p.getResult() != saved) {
+                   why = "arity call consumed a draw";
+                   return false;
+                 }
+                 return true;
+               }});
+  return t;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -7099,6 +7406,8 @@ int main(int argc, char** argv) {
   runSuite("Clamp preserve integer metadata", clampPreserveIntegerMetadata, s);
   runSuite("Clamp inverted bounds", clampInvertedBounds, s);
   runSuite("Clamp NaN bounds", clampNanBound, s);
+  const auto iifRand = buildIifRandCases();
+  runSuite("iif rand", iifRand, s);
 
   std::cout << "TOTAL: " << s.total << ", PASSED: " << s.passed << ", FAILED: " << s.failed << "\n";
   return (s.failed == 0) ? 0 : 1;

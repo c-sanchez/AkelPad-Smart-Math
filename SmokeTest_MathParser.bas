@@ -792,6 +792,54 @@ private sub RunComplexNumberSupportOptionTests()
     subPass += 1
   end if
 
+  if Parser_TryEvaluateEx("iif(1, 0, ~2i)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: iif(1, 0, ~2i) got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: iif(1, 0, ~2i) -> 0"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("iif(1, 0, ~i)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: iif(1, 0, ~i) got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: iif(1, 0, ~i) -> 0"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("xTilde=i; iif(1, 0, ~xTilde)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: xTilde=i; iif(1, 0, ~xTilde) got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: untaken complex ~ of a variable -> 0"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("ftilde2i()=~2i", r, rt, ia) = FALSE orelse rt <> "defined ftilde2i()" then
+    print "[complex-opt] FAIL: ftilde2i()=~2i got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: ftilde2i()=~2i defines"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("ftilde2i()", r, rt, ia) orelse instr(Parser_GetLastError(), "incompatible operands") = 0 then
+    print "[complex-opt] FAIL: ftilde2i() got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: ftilde2i() incompatible operands"
+    subPass += 1
+  end if
+
+  if Parser_TryEvaluateEx("iif(0, 0, ~i)", r, rt, ia) orelse instr(Parser_GetLastError(), "incompatible operands") = 0 then
+    print "[complex-opt] FAIL: iif(0, 0, ~i) got """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: selected complex ~i is incompatible operands"
+    subPass += 1
+  end if
+
   if Parser_TryEvaluateEx("abs(0x7FFFFFFFFFFFFFFF+20)", r, rt, ia) = FALSE orelse rt <> "9223372036854775827" then
     print "[complex-opt] FAIL: abs exact int with flag ON, got """ & rt & """ err=" & Parser_GetLastError()
     subFail += 1
@@ -1959,6 +2007,84 @@ private sub RunComplexNumberSupportOptionTests()
     subPass += 1
   end if
 
+  if Parser_TryEvaluateEx("isinstance(1+2i, complex)", r, rt, ia) = FALSE orelse rt <> "1" then
+    print "[complex-opt] FAIL: isinstance(1+2i, complex) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(1+2i, complex) -> 1"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(1+2i, int)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: isinstance(1+2i, int) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(1+2i, int) -> 0"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(1+2i, float)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: isinstance(1+2i, float) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(1+2i, float) -> 0"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(1+0i, int)", r, rt, ia) = FALSE orelse rt <> "1" then
+    print "[complex-opt] FAIL: isinstance(1+0i, int) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(1+0i, int) -> 1"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(1+0i, complex)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: isinstance(1+0i, complex) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(1+0i, complex) -> 0"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance((1+i, 2)[0], complex)", r, rt, ia) = FALSE orelse rt <> "1" then
+    print "[complex-opt] FAIL: isinstance((1+i, 2)[0], complex) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance((1+i, 2)[0], complex) -> 1"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance((1+i, 2), array)", r, rt, ia) = FALSE orelse rt <> "1" then
+    print "[complex-opt] FAIL: isinstance((1+i, 2), array) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance((1+i, 2), array) -> 1"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(real(1+2i), int)", r, rt, ia) = FALSE orelse rt <> "1" then
+    print "[complex-opt] FAIL: isinstance(real(1+2i), int) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(real(1+2i), int) -> 1"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(ratio(0.5+0.25i), complex)", r, rt, ia) = FALSE orelse rt <> "1" then
+    print "[complex-opt] FAIL: isinstance(ratio(0.5+0.25i), complex) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(ratio(0.5+0.25i), complex) -> 1"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(ratio(0.5+0.25i), float)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: isinstance(ratio(0.5+0.25i), float) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(ratio(0.5+0.25i), float) -> 0"
+    subPass += 1
+  end if
+  if Parser_TryEvaluateEx("isinstance(ratio(0.5+0.25i), int)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[complex-opt] FAIL: isinstance(ratio(0.5+0.25i), int) -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[complex-opt] PASS: isinstance(ratio(0.5+0.25i), int) -> 0"
+    subPass += 1
+  end if
+
   Parser_SetSupportComplexNumbers(FALSE)
   if Parser_GetSupportComplexNumbers() <> FALSE then
     print "[complex-opt] FAIL: expected support flag OFF after disable"
@@ -2281,16 +2407,18 @@ private sub RunIncompleteFunctionCallHintTests()
     subPass += 1
   end if
 
-  dim badCloserExprs(1 to 5) as String
-  dim badCloserNeed(1 to 5) as String
-  dim badCloserMustNot(1 to 5) as String
+  dim badCloserExprs(1 to 7) as String
+  dim badCloserNeed(1 to 7) as String
+  dim badCloserMustNot(1 to 7) as String
   badCloserExprs(1) = "sin)": badCloserNeed(1) = "mismatched closing parenthesis": badCloserMustNot(1) = "function:"
   badCloserExprs(2) = "sin]": badCloserNeed(2) = "mismatched closing bracket": badCloserMustNot(2) = "function:"
   badCloserExprs(3) = "sin}": badCloserNeed(3) = "mismatched closing brace": badCloserMustNot(3) = "function:"
   badCloserExprs(4) = "f(x)=x; f)": badCloserNeed(4) = "mismatched closing parenthesis": badCloserMustNot(4) = "user-defined function:"
   badCloserExprs(5) = "sin)(1)": badCloserNeed(5) = "mismatched closing parenthesis": badCloserMustNot(5) = "function:"
+  badCloserExprs(6) = " sin)": badCloserNeed(6) = "mismatched closing parenthesis": badCloserMustNot(6) = "function:"
+  badCloserExprs(7) = "1; sin)": badCloserNeed(7) = "mismatched closing parenthesis": badCloserMustNot(7) = "function:"
   dim bi as Integer
-  for bi = 1 to 5
+  for bi = 1 to 7
     if Parser_TryEvaluateEx(badCloserExprs(bi), r, rt, ia) then
       print "[bare-fn-closer] FAIL: """ & badCloserExprs(bi) & """ expected error, got """ & rt & """"
       subFail += 1
@@ -2875,6 +3003,13 @@ private sub RunTimeValuesSupportOptionTests()
   end if
 
   Parser_SetSupportTimeValues(FALSE)
+  if Parser_TryEvaluateEx("isinstance(1, time)", r, rt, ia) = FALSE orelse rt <> "0" then
+    print "[time-opt] FAIL: isinstance(1, time) with support OFF -> """ & rt & """ err=" & Parser_GetLastError()
+    subFail += 1
+  else
+    print "[time-opt] PASS: isinstance(1, time) -> 0 with support OFF"
+    subPass += 1
+  end if
   if Parser_GetSupportTimeValues() <> FALSE then
     print "[time-opt] FAIL: expected support flag OFF after disable"
     subFail += 1
@@ -2943,11 +3078,11 @@ private sub RunTimeValuesSupportOptionTests()
 
   Parser_ClearVariables()
   Parser_SetSupportTimeValues(TRUE)
-  if Parser_TryEvaluateEx("_=0:00; rd(t)=ratio(days(t)); rd(1h)", r, rt, ia) = FALSE orelse rt <> "1/24" then
+  if Parser_TryEvaluateEx("rd(t)=ratio(days(t)); rd(1h)", r, rt, ia) = FALSE orelse rt <> "1/24" then
     print "[time-opt] FAIL: UDF duration arg, got """ & rt & """ err=" & Parser_GetLastError()
     subFail += 1
   else
-    print "[time-opt] PASS: _=0:00; rd(t)=ratio(days(t)); rd(1h) -> 1/24"
+    print "[time-opt] PASS: rd(t)=ratio(days(t)); rd(1h) -> 1/24"
     subPass += 1
   end if
 
@@ -3213,8 +3348,83 @@ private sub RunInexactFloatDisplayTests()
   print ""
 end sub
 
+private sub RunIifRandTests()
+  print "=== iif evaluates only the selected branch (rand) ==="
+  dim subPass as Integer = 0
+  dim subFail as Integer = 0
+  dim r as Double
+  dim rt as String
+  dim ia as Boolean
+  dim saved as String
+
+  Randomize 1
+  if Parser_TryEvaluateEx("rand()", r, rt, ia) = FALSE then
+    print "[iif-rand] FAIL: rand() " & Parser_GetLastError()
+    subFail += 1
+  else
+    saved = rt
+    Randomize 1
+    if Parser_TryEvaluateEx("iif(0, rand(), rand())", r, rt, ia) = FALSE then
+      print "[iif-rand] FAIL: false branch " & Parser_GetLastError()
+      subFail += 1
+    elseif rt <> saved then
+      print "[iif-rand] FAIL: false branch drew """ & rt & """ expected """ & saved & """"
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  end if
+
+  Randomize 2
+  if Parser_TryEvaluateEx("rand()", r, rt, ia) = FALSE then
+    print "[iif-rand] FAIL: rand() " & Parser_GetLastError()
+    subFail += 1
+  else
+    saved = rt
+    Randomize 2
+    if Parser_TryEvaluateEx("iif(1, rand(), rand())", r, rt, ia) = FALSE then
+      print "[iif-rand] FAIL: true branch " & Parser_GetLastError()
+      subFail += 1
+    elseif rt <> saved then
+      print "[iif-rand] FAIL: true branch drew """ & rt & """ expected """ & saved & """"
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  end if
+
+  Randomize 3
+  if Parser_TryEvaluateEx("rand()", r, rt, ia) = FALSE then
+    print "[iif-rand] FAIL: rand() " & Parser_GetLastError()
+    subFail += 1
+  else
+    saved = rt
+    Randomize 3
+    if Parser_TryEvaluateEx("iif(rand(), 1)", r, rt, ia) then
+      print "[iif-rand] FAIL: expected arity error, got """ & rt & """"
+      subFail += 1
+    elseif instr(lcase(Parser_GetLastError()), "expects 3 argument(s)") = 0 then
+      print "[iif-rand] FAIL: " & Parser_GetLastError()
+      subFail += 1
+    elseif Parser_TryEvaluateEx("rand()", r, rt, ia) = FALSE then
+      print "[iif-rand] FAIL: rand after arity " & Parser_GetLastError()
+      subFail += 1
+    elseif rt <> saved then
+      print "[iif-rand] FAIL: arity call consumed a draw """ & rt & """ expected """ & saved & """"
+      subFail += 1
+    else
+      subPass += 1
+    end if
+  end if
+
+  g_passed += subPass
+  g_failed += subFail
+  print "iif rand sub-tests: passed " & str(subPass) & ", failed " & str(subFail)
+  print ""
+end sub
+
 sub Main()
-  dim tests(1 to 1724) as SmokeCase
+  dim tests(1 to 1907) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -4241,8 +4451,8 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(968).expr = "x=0.5; f(x)=x<<2; x": tests(968).expected = "0.5"
   tests(969).expr = "x=0; f(x)=1/x; f(2)": tests(969).expected = "0.5"
   tests(970).expr = "f(x)=1%x; f(7)": tests(970).expected = "1"
-  tests(971).expr = "_": tests(971).expected = "1"
-  tests(972).expr = "_+5": tests(972).expected = "6"
+  tests(971).expr = "_": tests(971).expectedErrContains = "unknown variable: _"
+  tests(972).expr = "_+5": tests(972).expectedErrContains = "unknown variable: _"
   tests(973).expr = "_=10; g(x)=1%(x-1); g(5)": tests(973).expected = "1"
   tests(974).expr = "f(x)=x*newfn(x)": tests(974).expected = "defined f(x)"
   tests(975).expr = "f(2)": tests(975).expectedErrContains = "unknown function: newfn"
@@ -4276,7 +4486,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1003).expr = "prod(1:00)": tests(1003).expectedErrContains = "incompatible operands" ' [time] prod disallowed with duration
   tests(1004).expr = "product(1:00)": tests(1004).expectedErrContains = "incompatible operands" ' [time] product disallowed with duration
   tests(1005).expr = "ans(x)=x*x": tests(1005).expectedErrContains = "reserved built-in variable name" ' [syntax] UDF name collides with ans
-  tests(1006).expr = "_(x)=x*x": tests(1006).expectedErrContains = "reserved built-in variable name" ' [syntax] UDF name collides with formal probe _
+  tests(1006).expr = "_(x)=x*x": tests(1006).expected = "defined _(x)"
   tests(1007).expr = "ANS(x)=x": tests(1007).expectedErrContains = "reserved built-in variable name" ' [syntax] ans reserved case-insensitively for UDF
   tests(1008).expr = "milliseconds((0:01:00,0:02:00))": tests(1008).expected = "(60000, 120000)" ' [time] converter element-wise int array
   tests(1009).expr = "seconds((0:30,1:00))": tests(1009).expected = "(30, 60)" ' [time] converter element-wise float tuple
@@ -4679,7 +4889,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1404).expr = "flat(5)": tests(1404).expected = "(5)" ' [flat] single scalar -> array
   tests(1405).expr = "flat((1,2,3))": tests(1405).expected = "(1,2,3)" ' [flat] single array passthrough
   tests(1406).expr = "flat((1,2),3,(4,5))": tests(1406).expected = "(1,2,3,4,5)" ' [flat] multi-arg
-  tests(1407).expr = "flat()": tests(1407).expectedErrContains = "expects at least 1 argument" ' [flat] arity
+  tests(1407).expr = "flat()": tests(1407).expected = "()" ' [flat] no arguments, same as flat(())
   tests(1408).expr = "flat(())": tests(1408).expected = "()" ' [flat] empty array passes through
   tests(1409).expr = "flat": tests(1409).expectedErrContains = "function: flat(...)" ' [flat] hint
   tests(1410).expr = "f(x,y)=x*y; f(flat((2,3)))": tests(1410).expectedErrContains = "expects 2 argument(s)" ' [flat] no call spreading
@@ -4912,13 +5122,13 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1625).expr = "f(a,b)=range(a,b)[0]; f(0,3)": tests(1625).expected = "0"
   tests(1626).expr = "f(a,b)=range(a,b)[0]; f(2,2)": tests(1626).expectedErrContains = "array index is out of range"
   tests(1627).expr = "f(a,b)=filter(a, t: t>b)[0]; f((1,5,3),2)": tests(1627).expected = "5"
-  tests(1628).expr = "f(x)=1[0]": tests(1628).expectedErrContains = "indexing requires an array value"
-  tests(1629).expr = "f(a)=a[0][0]": tests(1629).expectedErrContains = "indexing requires an array value"
-  tests(1630).expr = "f(v)=filter(v, t: t>=0)[0][0]": tests(1630).expectedErrContains = "indexing requires an array value"
-  tests(1631).expr = "f(x)=(1,2)[5]": tests(1631).expectedErrContains = "array index is out of range"
-  tests(1632).expr = "f(x,y)=x%(y-x)": tests(1632).expectedErrContains = "incompatible operands"
-  tests(1633).expr = "f(x)=1%(x-1)": tests(1633).expectedErrContains = "incompatible operands"
-  tests(1634).expr = "f(x)=(x/2)<<2": tests(1634).expectedErrContains = "bitwise operands must be integer values"
+  tests(1628).expr = "f(x)=1[0]; f(0)": tests(1628).expectedErrContains = "indexing requires an array value"
+  tests(1629).expr = "f(a)=a[0][0]; f(1)": tests(1629).expectedErrContains = "indexing requires an array value"
+  tests(1630).expr = "f(v)=filter(v, t: t>=0)[0][0]; f(1)": tests(1630).expectedErrContains = "indexing requires an array value"
+  tests(1631).expr = "f(x)=(1,2)[5]; f(0)": tests(1631).expectedErrContains = "array index is out of range"
+  tests(1632).expr = "f(x,y)=x%(y-x); f(1,1)": tests(1632).expectedErrContains = "incompatible operands"
+  tests(1633).expr = "f(x)=1%(x-1); f(1)": tests(1633).expectedErrContains = "incompatible operands"
+  tests(1634).expr = "f(x)=(x/2)<<2; f(1)": tests(1634).expectedErrContains = "bitwise operands must be integer values"
   tests(1635).expr = "a=(1,2,3); a[1]=10": tests(1635).expected = "(1, 10, 3)" ' [array-assign]
   tests(1636).expr = "a=(1,2,3); a[1]=10; ans": tests(1636).expected = "(1, 10, 3)"
   tests(1637).expr = "a=(1,2,3); a[1]=()": tests(1637).expected = "(1, 3)" ' delete
@@ -5013,6 +5223,190 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1723).expr = "flat(1m,12)**2": tests(1723).expectedErrContains = "incompatible operands" ' power rejects a duration
   tests(1724).expr = "flat(1m,12)+()": tests(1724).expectedErrContains = "incompatible operands" ' length mismatch
 
+  tests(1725).expr = "iif(1, 10, 20)": tests(1725).expected = "10"
+  tests(1726).expr = "iif(0, 10, 20)": tests(1726).expected = "20"
+  tests(1727).expr = "iif(nan, 10, 20)": tests(1727).expected = "20"
+  tests(1728).expr = "iif((), 10, 20)": tests(1728).expected = "20"
+  tests(1729).expr = "iif((0), 10, 20)": tests(1729).expected = "20"
+  tests(1730).expr = "iif((0,0), 10, 20)": tests(1730).expected = "10"
+  tests(1731).expr = "iif((1,0), 10, 20)": tests(1731).expected = "10"
+  tests(1732).expr = "iif(inf, 1, 2)": tests(1732).expected = "1"
+  tests(1733).expr = "iif(1, (10,20,30), 0)": tests(1733).expected = "(10, 20, 30)"
+  tests(1734).expr = "iif(0, (10,20,30), 0)": tests(1734).expected = "0"
+  tests(1735).expr = "iif(1, 1:30, 0)": tests(1735).expected = "01:30"
+  tests(1736).expr = "iif(0, 1:30, 0)": tests(1736).expected = "0"
+  tests(1737).expr = "iif(1, (), 2)": tests(1737).expected = "()"
+  tests(1738).expr = "iif(0, 1, ())": tests(1738).expected = "()"
+  tests(1739).expr = "iif(1, 2, (1,2)[9])": tests(1739).expected = "2"
+  tests(1740).expr = "iif(0, (1,2)[9], 4)": tests(1740).expected = "4"
+  tests(1741).expr = "iif(1, 2, nosuch)": tests(1741).expected = "2"
+  tests(1742).expr = "iif(1, 2, 1+)": tests(1742).expectedErrContains = "unexpected token"
+  tests(1743).expr = "iif(1, (1)[9], 1+)": tests(1743).expectedErrContains = "unexpected token"
+  tests(1744).expr = "iif(1, 2, pow(3))": tests(1744).expectedErrContains = "expects 2 argument(s)"
+  tests(1745).expr = "iif(0, pow(3), 1)": tests(1745).expectedErrContains = "expects 2 argument(s)"
+  tests(1746).expr = "iif()": tests(1746).expectedErrContains = "expects 3 argument(s)"
+  tests(1747).expr = "iif(1)": tests(1747).expectedErrContains = "expects 3 argument(s)"
+  tests(1748).expr = "iif(1,2)": tests(1748).expectedErrContains = "expects 3 argument(s)"
+  tests(1749).expr = "iif(1,2,3,4)": tests(1749).expectedErrContains = "expects 3 argument(s)"
+  tests(1750).expr = "iif(1, 2, sin)": tests(1750).expectedErrContains = "unknown variable: sin"
+  tests(1751).expr = "iif": tests(1751).expectedErrContains = "function: iif(condition, expr_if_true, expr_if_false)"
+  tests(1752).expr = "iif(x)=x": tests(1752).expectedErrContains = "reserved function name"
+  tests(1753).expr = "sortby((1,2), iif)": tests(1753).expectedErrContains = "expects a function that takes 1 parameter"
+  tests(1754).expr = "filter((1,2), iif)": tests(1754).expectedErrContains = "expects a function that takes 1 parameter"
+  tests(1755).expr = "aIif=flat(10); fIif(n)=iif(n>=0, aIif[n], 0); fIif(0)": tests(1755).expected = "10"
+  tests(1756).expr = "aIif=flat(10); fIif(n)=iif(n>=0, aIif[n], 0); fIif(1)": tests(1756).expectedErrContains = "array index is out of range"
+  tests(1757).expr = "fIifStrict(n)=iif(1, flat(10)[1], 0); fIifStrict(0)": tests(1757).expectedErrContains = "array index is out of range"
+  tests(1758).expr = "fIifGuard(a,n)=iif(n>=0 && n<len(a), a[n], ()); fIifGuard((10,20,30), 1)": tests(1758).expected = "20"
+  tests(1759).expr = "fIifGuard(a,n)=iif(n>=0 && n<len(a), a[n], ()); fIifGuard((10,20,30), 5)": tests(1759).expected = "()"
+  tests(1760).expr = "gIif(x)=iif(x, 1:30, 0); gIif(1)": tests(1760).expected = "01:30"
+  tests(1761).expr = "gIif(x)=iif(x, 1:30, 0); gIif(0)": tests(1761).expected = "0"
+  tests(1762).expr = "xIif=1; iif(xIif, (10,20,30), 0)": tests(1762).expected = "(10, 20, 30)"
+  tests(1763).expr = "xIif=0; iif(xIif, (10,20,30), 0)": tests(1763).expected = "0"
+  tests(1764).expr = "f(x)=(x/2)<<2; f(2)": tests(1764).expected = "4"
+  tests(1765).expr = "fmoddef(x)=1%(x-1)": tests(1765).expected = "defined fmoddef(x)"
+  tests(1766).expr = "fmoddef(x)=1%(x-1); fmoddef(2)": tests(1766).expected = "0"
+  tests(1767).expr = "fidxdef(x)=(1,2)[5]": tests(1767).expected = "defined fidxdef(x)"
+  tests(1768).expr = "fidxdef(x)=(1,2)[5]; fidxdef(0)": tests(1768).expectedErrContains = "array index is out of range"
+  tests(1769).expr = "fiifkeep()=iif(1, 2, (1)[9])": tests(1769).expected = "defined fiifkeep()"
+  tests(1770).expr = "fiifkeep()=iif(1, 2, (1)[9]); fiifkeep()": tests(1770).expected = "2"
+  tests(1771).expr = "fiifarity()=iif(1, pow(3), 0)": tests(1771).expectedErrContains = "expects 2 argument(s)"
+  tests(1772).expr = "fmixdef()=(1:30, 2)": tests(1772).expected = "defined fmixdef()"
+  tests(1773).expr = "fmixdef()=(1:30, 2); fmixdef()": tests(1773).expectedErrContains = "array literal: time values cannot be mixed with non-time values"
+  tests(1774).expr = "iif(1, 0, (1:30, 2))": tests(1774).expected = "0"
+  tests(1775).expr = "iif(0, 0, (1:30, 2))": tests(1775).expectedErrContains = "array literal: time values cannot be mixed with non-time values"
+  tests(1776).expr = "iif(-0, 1, 2)": tests(1776).expected = "2"
+  tests(1777).expr = "iif(0:00, 1, 2)": tests(1777).expected = "2"
+  tests(1778).expr = "iif(1:30, 1, 2)": tests(1778).expected = "1"
+  tests(1779).expr = "iif(1, hex(255), 0)": tests(1779).expected = "0xFF"
+  tests(1780).expr = "sum(1, sin)": tests(1780).expectedErrContains = "unknown variable: sin"
+  tests(1781).expr = "flamtok(a)=filter(a, t: 1+)": tests(1781).expectedErrContains = "unexpected token"
+  tests(1782).expr = "iif(1, 0, filter((1), t: 1+))": tests(1782).expectedErrContains = "unexpected token"
+  tests(1783).expr = "flamidxdef(a)=filter(a, t: t[9])": tests(1783).expected = "defined flamidxdef(a)"
+  tests(1784).expr = "flamidx(a)=filter(a, t: t[9]); flamidx((1,2))": tests(1784).expectedErrContains = "indexing requires an array value"
+  tests(1785).expr = "iif(1, 0, filter((1), t: t[9]))": tests(1785).expected = "0"
+  tests(1786).expr = "flampow(a)=filter(a, t: pow(t))": tests(1786).expectedErrContains = "expects 2 argument(s)"
+  tests(1787).expr = "iif(1, 0, filter((1), t: pow(t)))": tests(1787).expectedErrContains = "expects 2 argument(s)"
+  tests(1788).expr = "flamsort(a)=sortby(a, t: 1+)": tests(1788).expectedErrContains = "unexpected token"
+  tests(1789).expr = "funddef(x)=_+x": tests(1789).expected = "defined funddef(x)"
+  tests(1790).expr = "_(x)=x*x; _(3)": tests(1790).expected = "9"
+  tests(1791).expr = "h(_)=_*3; h(4)": tests(1791).expected = "12"
+  tests(1792).expr = "_(x)=x; _=7; _": tests(1792).expected = "7"
+  tests(1793).expr = "fiifabs=x:iif(x>0, x, -x); fiifabs(-4)": tests(1793).expected = "4"
+  tests(1794).expr = "fiifabs=x:iif(x>0, x, -x); fiifabs(4)": tests(1794).expected = "4"
+  tests(1795).expr = "fiifquiet=x:iif(1, x, (1,2)[9]); fiifquiet(5)": tests(1795).expected = "5"
+  tests(1796).expr = "fiifboom=x:iif(0, x, (1,2)[9]); fiifboom(5)": tests(1796).expectedErrContains = "array index is out of range"
+  tests(1797).expr = "filter((1,-2,0), x: iif(x>0, 1, 0))": tests(1797).expected = "(1)"
+  tests(1798).expr = "filter((), x: iif(x>0, 1, 0))": tests(1798).expected = "()"
+  tests(1799).expr = "filter((5), x: iif(1, x, (1,2)[9]))": tests(1799).expected = "(5)"
+  tests(1800).expr = "filter((5), x: iif(0, x, (1,2)[9]))": tests(1800).expectedErrContains = "array index is out of range"
+  tests(1801).expr = "filter((1), x: iif(1, x, 1+))": tests(1801).expectedErrContains = "unexpected token"
+  tests(1802).expr = "filter((1), x: iif(1, x, pow(x)))": tests(1802).expectedErrContains = "expects 2 argument(s)"
+  tests(1803).expr = "sortby((3,-1,2), x: iif(x<0, -x, x))": tests(1803).expected = "(-1,2,3)"
+  tests(1804).expr = "isinstance(1, int)": tests(1804).expected = "1"
+  tests(1805).expr = "isinstance(-1, int)": tests(1805).expected = "1"
+  tests(1806).expr = "isinstance(1.0, int)": tests(1806).expected = "1"
+  tests(1807).expr = "isinstance(1.0, float)": tests(1807).expected = "0"
+  tests(1808).expr = "isinstance(2.00, int)": tests(1808).expected = "1"
+  tests(1809).expr = "isinstance(1e2, int)": tests(1809).expected = "1"
+  tests(1810).expr = "isinstance(1e2, float)": tests(1810).expected = "0"
+  tests(1811).expr = "isinstance(1.5, int)": tests(1811).expected = "0"
+  tests(1812).expr = "isinstance(1.5, float)": tests(1812).expected = "1"
+  tests(1813).expr = "isinstance(1e20, int)": tests(1813).expected = "0"
+  tests(1814).expr = "isinstance(1e20, float)": tests(1814).expected = "1"
+  tests(1815).expr = "isinstance(2**63, int)": tests(1815).expected = "1"
+  tests(1816).expr = "isinstance(2**63, float)": tests(1816).expected = "0"
+  tests(1817).expr = "isinstance(nan, float)": tests(1817).expected = "1"
+  tests(1818).expr = "isinstance(nan, int)": tests(1818).expected = "0"
+  tests(1819).expr = "isinstance(inf, float)": tests(1819).expected = "1"
+  tests(1820).expr = "isinstance(-inf, float)": tests(1820).expected = "1"
+  tests(1821).expr = "isinstance(pi, float)": tests(1821).expected = "1"
+  tests(1822).expr = "isinstance(pi, int)": tests(1822).expected = "0"
+  tests(1823).expr = "isinstance(hex(255), int)": tests(1823).expected = "1"
+  tests(1824).expr = "isinstance(ratio(1/2), float)": tests(1824).expected = "1"
+  tests(1825).expr = "isinstance(ratio(1/2), int)": tests(1825).expected = "0"
+  tests(1826).expr = "isinstance(ratio(2), int)": tests(1826).expected = "1"
+  tests(1827).expr = "isinstance(ratio(2), float)": tests(1827).expected = "0"
+  tests(1828).expr = "isinstance(int(3.9), int)": tests(1828).expected = "1"
+  tests(1829).expr = "isinstance(3.9, int)": tests(1829).expected = "0"
+  tests(1830).expr = "isinstance(3.9, float)": tests(1830).expected = "1"
+  tests(1831).expr = "isinstance(1, INT)": tests(1831).expected = "1"
+  tests(1832).expr = "IsInstance(1.5, Float)": tests(1832).expected = "1"
+  tests(1833).expr = "isinstance(isinstance(1, int), int)": tests(1833).expected = "1"
+  tests(1834).expr = "isinstance(1==1, int)": tests(1834).expected = "1"
+  tests(1835).expr = "isinstance(2 && flat(0), int)": tests(1835).expected = "1"
+  tests(1836).expr = "isinstance(2 && flat(0), array)": tests(1836).expected = "0"
+  tests(1837).expr = "xIs=1.5; isinstance(xIs, float)": tests(1837).expected = "1"
+  tests(1838).expr = "float=1.5; isinstance(float, float)": tests(1838).expected = "1"
+  tests(1839).expr = "isinstance((), array)": tests(1839).expected = "1"
+  tests(1840).expr = "isinstance((), list)": tests(1840).expected = "1"
+  tests(1841).expr = "isinstance((), int)": tests(1841).expected = "0"
+  tests(1842).expr = "isinstance((), float)": tests(1842).expected = "0"
+  tests(1843).expr = "isinstance((), time)": tests(1843).expected = "0"
+  tests(1844).expr = "isinstance((5), int)": tests(1844).expected = "1"
+  tests(1845).expr = "isinstance((5), array)": tests(1845).expected = "0"
+  tests(1846).expr = "isinstance(flat(5), array)": tests(1846).expected = "1"
+  tests(1847).expr = "isinstance(flat(5), list)": tests(1847).expected = "1"
+  tests(1848).expr = "isinstance(flat(5), int)": tests(1848).expected = "0"
+  tests(1849).expr = "isinstance(flat(0), array)": tests(1849).expected = "1"
+  tests(1850).expr = "isinstance((1,2,3), array)": tests(1850).expected = "1"
+  tests(1851).expr = "isinstance((1,2,3), list)": tests(1851).expected = "1"
+  tests(1852).expr = "isinstance((1,2,3), int)": tests(1852).expected = "0"
+  tests(1853).expr = "isinstance((1, 2.5), float)": tests(1853).expected = "0"
+  tests(1854).expr = "isinstance((1,2,3)[1], int)": tests(1854).expected = "1"
+  tests(1855).expr = "isinstance(1, time)": tests(1855).expected = "0"
+  tests(1856).expr = "isinstance(1, complex)": tests(1856).expected = "0"
+  tests(1857).expr = "isinstance(1.5, complex)": tests(1857).expected = "0"
+  tests(1858).expr = "isinstance((), complex)": tests(1858).expected = "0"
+  tests(1859).expr = "isnInt(x)=isinstance(x, int); isnInt(1)": tests(1859).expected = "1"
+  tests(1860).expr = "isnInt(x)=isinstance(x, int); isnInt(1.5)": tests(1860).expected = "0"
+  tests(1861).expr = "iif(isinstance(5, array), 5[0], 0)": tests(1861).expected = "0"
+  tests(1862).expr = "iif(isinstance((10,20), array), (10,20)[0], 0)": tests(1862).expected = "10"
+  tests(1863).expr = "isnGuard(x)=iif(isinstance(x, array), x[0], 0); isnGuard((10,20))": tests(1863).expected = "10"
+  tests(1864).expr = "isnGuard(x)=iif(isinstance(x, array), x[0], 0); isnGuard(5)": tests(1864).expected = "0"
+  tests(1865).expr = "iif(0, (1)[9], isinstance(1.5, float))": tests(1865).expected = "1"
+  tests(1866).expr = "isinstance()": tests(1866).expectedErrContains = "expects 2 argument(s)"
+  tests(1867).expr = "isinstance(1)": tests(1867).expectedErrContains = "expects 2 argument(s)"
+  tests(1868).expr = "isinstance(1, int, float)": tests(1868).expectedErrContains = "expects 2 argument(s)"
+  tests(1869).expr = "isinstance": tests(1869).expectedErrContains = "function: isinstance(value, type)"
+  tests(1870).expr = "isinstance(x)=x": tests(1870).expectedErrContains = "reserved function name"
+  tests(1871).expr = "isinstance(1, foo)": tests(1871).expectedErrContains = "unknown type name: foo"
+  tests(1872).expr = "isinstance(1, sin)": tests(1872).expectedErrContains = "unknown type name: sin"
+  tests(1873).expr = "isinstance(1, pi)": tests(1873).expectedErrContains = "unknown type name: pi"
+  tests(1874).expr = "isinstance(1, 5)": tests(1874).expectedErrContains = "expects a type name"
+  tests(1875).expr = "isinstance(1, int(1))": tests(1875).expectedErrContains = "expects a type name"
+  tests(1876).expr = "isinstance(1, (int))": tests(1876).expectedErrContains = "expects a type name"
+  tests(1877).expr = "isnBad()=isinstance(1, nope)": tests(1877).expectedErrContains = "unknown type name: nope"
+  tests(1878).expr = "isnidx()=isinstance((1)[9], int)": tests(1878).expected = "defined isnidx()"
+  tests(1879).expr = "isnidx()=isinstance((1)[9], int); isnidx()": tests(1879).expectedErrContains = "indexing requires an array value"
+  tests(1880).expr = "isinstance((1)[9], int)": tests(1880).expectedErrContains = "indexing requires an array value"
+  tests(1881).expr = "isinstance(unpack((1,2)), int)": tests(1881).expectedErrContains = "expects 2 argument(s)"
+  tests(1882).expr = "isinstance(unpack(()), int)": tests(1882).expectedErrContains = "expects 2 argument(s)"
+  tests(1883).expr = "isinstance(unpack(5), int)": tests(1883).expected = "1"
+  tests(1884).expr = "filter((1,2), isinstance)": tests(1884).expectedErrContains = "expects a function that takes 1 parameter"
+  tests(1885).expr = "isnLam=x:isinstance(x, int); isnLam(2)": tests(1885).expected = "1"
+  tests(1886).expr = "isnLam=x:isinstance(x, int); isnLam(1.5)": tests(1886).expected = "0"
+  tests(1887).expr = "filter((1, 1.5, 2), x: isinstance(x, int))": tests(1887).expected = "(1, 2)"
+  tests(1888).expr = "sortby((1.5, 3), x: isinstance(x, int))": tests(1888).expected = "(1.5, 3)"
+  tests(1889).expr = "isnLamGuard=x:iif(isinstance(x, array), x[0], 0); isnLamGuard((8,9))": tests(1889).expected = "8"
+  tests(1890).expr = "isnLamGuard=x:iif(isinstance(x, array), x[0], 0); isnLamGuard(7)": tests(1890).expected = "0"
+  tests(1891).expr = "isinstance(1:30, time)": tests(1891).expected = "1"
+  tests(1892).expr = "isinstance(1:30, int)": tests(1892).expected = "0"
+  tests(1893).expr = "isinstance(1:30, float)": tests(1893).expected = "0"
+  tests(1894).expr = "isinstance(minute, time)": tests(1894).expected = "1"
+  tests(1895).expr = "isinstance(1h, time)": tests(1895).expected = "1"
+  tests(1896).expr = "isinstance(milliseconds(1:30), int)": tests(1896).expected = "1"
+  tests(1897).expr = "isinstance(milliseconds(1:30), time)": tests(1897).expected = "0"
+  tests(1898).expr = "isinstance(seconds(1:30), float)": tests(1898).expected = "1"
+  tests(1899).expr = "isinstance(seconds(1:30), int)": tests(1899).expected = "0"
+  tests(1900).expr = "isinstance(1:00+5, time)": tests(1900).expected = "1"
+  tests(1901).expr = "isinstance((1:00, 2:00)[0], time)": tests(1901).expected = "1"
+  tests(1902).expr = "isinstance((1:00, 2:00), time)": tests(1902).expected = "0"
+  tests(1903).expr = "isinstance((1:00, 2:00), array)": tests(1903).expected = "1"
+  tests(1904).expr = "iif(1, isinstance(1:30, time), 0)": tests(1904).expected = "1"
+  tests(1905).expr = "isnTime=x:isinstance(x, time); isnTime(1:30)": tests(1905).expected = "1"
+  tests(1906).expr = "isnTime=x:isinstance(x, time); isnTime(4)": tests(1906).expected = "0"
+  tests(1907).expr = "fFlatEmpty()=flat(); fFlatEmpty()": tests(1907).expected = "()"
+
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer
   dim sigI as String
@@ -5095,6 +5489,7 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
 
   RunInexactFloatDisplayTests()
   RunFilterExactIntegerTests()
+  RunIifRandTests()
 
   print "=== Result ==="
   print "Passed: " & g_passed

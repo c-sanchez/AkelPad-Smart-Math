@@ -171,6 +171,7 @@ private:
   bool tryParseCompactSuffixTimeLiteral(EvalContext& ctx, EvalValue& out) const;
 #endif
   std::unique_ptr<Expr> parsePrimaryIdentifierOrCall(EvalContext& ctx);
+  std::unique_ptr<Expr> parseIsInstanceCall(EvalContext& ctx);
   bool parseUnaryFunctionCallArguments(
       EvalContext& ctx,
       std::vector<std::unique_ptr<Expr>>& outArgs,
@@ -214,7 +215,8 @@ private:
       EvalContext& ctx,
       std::vector<std::string>&& params,
       std::string&& body,
-      const char* expectsUnaryFunction);
+      const char* expectsUnaryFunction,
+      bool syntaxCheckBody);
   EvalValue evalInlineLambdaCall(
       EvalContext& ctx,
       const std::vector<std::string>& paramNames,
@@ -298,7 +300,6 @@ private:
       const Expr& e,
       const std::unordered_map<std::string, EvalValue>* scopedVars,
       EvalValue& out) const;
-  EvalValue formalValidationProbeScalar(long long missingFallback) const;
   const char* validateUserFunctionDefinitionNames(
       const std::string& fnName,
       const std::vector<std::string>& fnParams) const;
@@ -307,6 +308,11 @@ private:
       const std::vector<std::string>& fnParams,
       const std::string& fnExpr,
       bool evaluateBody);
+  bool tryParseSyntaxCheckedExpression(
+      EvalContext& bodyCtx,
+      const std::string& source,
+      bool checkCallShapes,
+      std::unique_ptr<Expr>& out);
   bool trySetUserFunctionDefinitionError(
       EvalContext& ctx,
       const std::string& fnName,
@@ -330,18 +336,11 @@ private:
     long long startIdx = 0;
     long long stopIdx = 0;
     long long stepIdx = 1;
-    bool startTainted = false;
-    bool stopTainted = false;
-    bool stepTainted = false;
-    bool startIsInt = true;
-    bool stopIsInt = true;
-    bool stepIsInt = true;
   };
   bool tryEvalSliceBounds(
       EvalContext& ctx,
       const Expr& slice,
       const std::unordered_map<std::string, EvalValue>* scopedVars,
-      bool baseTainted,
       SliceBoundValues& bounds);
   bool tryEvalElementAssign(EvalContext& ctx, const AstStatement& st, EvalValue& out);
   bool consumeProgramStatementSeparator(EvalContext& ctx);
@@ -447,6 +446,15 @@ private:
       std::vector<EvalValue>&& args,
       BuiltinFunctionId preboundId,
       const std::unordered_map<std::string, EvalValue>* scopedVars);
+  EvalValue evalIif(
+      EvalContext& ctx,
+      const Expr& e,
+      const std::unordered_map<std::string, EvalValue>* scopedVars);
+  EvalValue evalIsInstance(
+      EvalContext& ctx,
+      const Expr& e,
+      const std::unordered_map<std::string, EvalValue>* scopedVars);
+  bool checkUnevaluatedCallShapes(EvalContext& ctx, const Expr& e) const;
 
   EvalValue builtinUnpack(EvalContext& ctx, const std::vector<EvalValue>& args) const;
   EvalValue builtinLen(EvalContext& ctx, const std::vector<EvalValue>& args) const;
