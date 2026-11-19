@@ -16,6 +16,7 @@ Load when editing `USAGE_AND_SYNTAX.md`: function or constant documentation, or 
 - Update **"Quick index (alphabetical)"** under **"Built-in Functions"**: alphabetical names; aliases on the same row as the canonical name (e.g. `asin/arcsin(value)`); category labels consistent with neighbors. Then run the docs index gate (build-gates).
 - Document purpose, signature, each argument/constraints, return behavior (arrays/variadic if relevant).
 - At least 2–3 examples: basic scalar; edge/interesting; array when supported.
+- User-defined functions and lambda-style definitions are one section. A body or parameter rule is written once and shown in both spellings (user-functions-and-lambdas flow).
 
 ## Semantics changes
 

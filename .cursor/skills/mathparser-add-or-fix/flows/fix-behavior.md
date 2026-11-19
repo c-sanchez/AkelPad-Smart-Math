@@ -11,6 +11,7 @@ Load when fixing a reported defect or otherwise changing existing results or err
 ## 2) Fix
 
 - Fix the root cause in both parsers (parity skill), following coding-standards. Prefer one shared helper for the same rule used at several call sites.
+- A defect in a user function or a lambda is fixed on both surfaces through the shared helper (user-functions-and-lambdas flow), then re-probed on both.
 - Keep each site's existing error ids and texts unless the error text is the defect.
 - When a fix makes a previously ignored case reachable (overflow, non-finite, `INT64_MIN`), raise the accept-or-reject choice per raise-concerns. Lock it with tests only after the user decides.
 

@@ -43,3 +43,7 @@ Collect before editing: token spelling, precedence and associativity relative to
 - Place the operator at the same precedence level in both parsers, and test it against each neighboring level and against both associativity directions.
 - Follow the real ↔ complex parity rules (complex-support flow) when the operator accepts complex operands. `deg` and `rad` stay real-only even when complex support is on; a nonzero imaginary part is `incompatible operands`.
 - A domain the operator rejects, or a result that breaks ordinary arithmetic, is raised per raise-concerns before it is implemented or tested.
+
+## Function arguments
+
+`sortby` and `filter` take a named user function or an anonymous lambda. Those are one callable (user-functions-and-lambdas flow). A change to what they accept, or to how the per-element call behaves, is implemented and tested as both.

@@ -5,6 +5,7 @@ Load when writing or editing Basic/C++ parser implementation (skip for docs-only
 ## Helper reuse and optimization
 
 - Search for an existing helper that covers or nearly covers the need before adding one.
+- User-function and lambda body, parameter, and definition rules already share one helper per rule (user-functions-and-lambdas flow). Extend that helper. Do not add a second copy for the other surface.
 - If close: extend it and migrate old and new call sites; keep it hot-path efficient.
 - Otherwise add a **narrow** new helper (no overlapping responsibilities).
 - Reuse existing locals/state before adding temporaries.

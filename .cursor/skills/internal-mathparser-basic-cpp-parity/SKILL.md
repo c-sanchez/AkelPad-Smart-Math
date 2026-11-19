@@ -16,6 +16,7 @@ Load when Basic or C++ parser/test sources change and mirroring may be required,
 All C++ artifacts (sources, test batches, tools) stay under `cpp/`.
 
 - Port in **both** directions when either parser changes: fixes, refactors, cleanup, hardening, and behavior-preserving rewrites that can still affect edges.
+- A user-function change and a lambda change are one change (user-functions-and-lambdas flow). Mirror both surfaces into the other language.
 - Mirror test expectations and cases in each language's own harness.
 - Preserve intent, not only syntax.
 - Implement equivalent logic in the other language; do not call or depend on the other language's runtime, binaries, or test harness.

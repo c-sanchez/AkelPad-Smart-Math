@@ -16,6 +16,8 @@ Behavior, error text, and exact-int metadata stay mirrored with Basic (parity sk
 
 Public method names and `MathParser::RawResult` field layout stay stable unless the task asks for an API change.
 
+Named user functions (`userFunctions_`) and anonymous lambda values are one callable (user-functions-and-lambdas flow). `evalUserFunctionCall` and `evalInlineLambdaCall` share `tryCompileExprToProgram` and `runCompiledProgram`. A new body or parameter rule extends that shared path. The table stays session state; an anonymous lambda stays an `EvalValue`.
+
 It orchestrates parse, eval, and builtin dispatch. It does not own value algebra, formatting, lexing utilities, or per-builtin math.
 
 ## Member or not (Core Guidelines C.4)

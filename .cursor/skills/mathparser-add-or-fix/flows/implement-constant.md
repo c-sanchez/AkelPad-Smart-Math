@@ -32,7 +32,7 @@ Mirror `pi` / `e` coverage (expectation rules: smoke-tests flow); for a flag-gat
 
 - Assignment LHS rejected (`expectedErrContains` matching `reserved constant name`)
 - Case-insensitive variant if resolution is case-insensitive
-- UDF parameter name and UDF function name rejected when equal to the new constant
+- UDF parameter name and UDF function name rejected when equal to the new constant, on both definition spellings (`f(x)=...` and `f=x:...`; user-functions-and-lambdas flow)
 
 ## Docs
 

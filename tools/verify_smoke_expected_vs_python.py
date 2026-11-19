@@ -43,6 +43,13 @@ Smart-Math rules plain Python does not model:
     ``sum([]) == 0`` or ``math.prod([]) == 1``. An empty ``range`` span is ``()``,
     matching Python ``range``.
   * A bare trailing formatter is ``name(ans)``; a final ``;`` still yields that result.
+  * Postfix ``%`` binds under ``**`` and unary ``+ - ~ !``, and over ``* /`` modulo.
+    ``2%**3`` is ``(2%)**3``. A ``+``/``-`` whose whole right-hand side is a percent
+    term scales that side by the left (``200+15%``, ``10+2**3%``).
+  * ``name[index] = value`` updates that array element (an empty value deletes it).
+    ``(name)[index] = value`` and ``name[index] == value`` stay comparisons.
+  * ``iif`` evaluates only the chosen branch. ``isinstance(value, type)`` uses a
+    bare type name (``int``, ``float``, ``time``, ``complex``, ``array`` / ``list``).
 
 Sources parsed (in addition to ``tests(N)`` rows):
   * ``tools/neg_band_cases_generated.bas`` (neg/pos real + complex magnitude bands)
@@ -124,12 +131,16 @@ class Duration:
     def __sub__(self, other: object) -> Any:
         if isinstance(other, Duration):
             return Duration(self.ms - other.ms)
-        return NotImplemented
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return Duration(self.ms - extra)
 
     def __rsub__(self, other: object) -> Any:
-        if isinstance(other, Duration):
-            return Duration(other.ms - self.ms)
-        return NotImplemented
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return Duration(extra - self.ms)
 
     def __mul__(self, other: object) -> Any:
         if isinstance(other, bool) or not isinstance(other, (int, float)):
@@ -164,6 +175,10 @@ class Duration:
         return self.ms >= extra
 
     def __truediv__(self, other: object) -> Any:
+        if isinstance(other, Duration):
+            if other.ms == 0.0:
+                return math.nan
+            return self.ms / other.ms
         if isinstance(other, bool) or not isinstance(other, (int, float)):
             return NotImplemented
         if other == 0:
@@ -797,9 +812,9 @@ def _flat_ast_tuple(elts: list[ast.AST]) -> ast.Tuple:
 
 def _fold_tuple_broadcast_ast(node: ast.AST) -> ast.AST:
     """
-    Lower Smart-Math element-wise tuple algebra to a flat tuple of scalars
-    (``(a,b)+c -> (a+c, b+c)``, same for ``- * /`` when one side is a tuple).
-    Nested array literals are spliced into that flat tuple before the broadcast.
+    Splice nested tuple literals and zip two tuple literals element-wise.
+    A call, name, or scalar against a tuple stays a binary op so runtime
+    broadcast can see an array result (``flat(1m,12)+(5,5)``).
     """
 
     def fold(n: ast.AST) -> ast.AST:
@@ -815,14 +830,8 @@ def _fold_tuple_broadcast_ast(node: ast.AST) -> ast.AST:
                         for le, re in zip(left.elts, right.elts)
                     ]
                 )
-            if isinstance(left, ast.Tuple) and not isinstance(right, ast.Tuple):
-                return _flat_ast_tuple(
-                    [ast.BinOp(left=le, op=op, right=right) for le in left.elts]
-                )
-            if isinstance(right, ast.Tuple) and not isinstance(left, ast.Tuple):
-                return _flat_ast_tuple(
-                    [ast.BinOp(left=left, op=op, right=re) for re in right.elts]
-                )
+            # A call or name may itself be an array (`flat(1m,12)+(5,5)`).
+            # Leave that pair for runtime broadcast instead of copying one side.
             return ast.BinOp(left=left, op=op, right=right)
         if isinstance(n, ast.UnaryOp):
             operand = fold(n.operand)
@@ -1329,15 +1338,16 @@ def dsl_bitinv(x: Any) -> Any:
 
 
 def fractional_power_is_odd_unit_root(p: float) -> Optional[int]:
+    """Odd ``1/n`` whose reciprocal is still the closest double (through ``2**53``)."""
     if p <= 0.0 or p >= 1.0:
         return None
     inv = 1.0 / p
-    if inv < 2.0 or inv > 63.0:
+    if inv < 2.0 or inv > 9007199254740992.0:
         return None
     n = int(round(inv))
-    if n < 2 or n > 63:
+    if n < 2:
         return None
-    if abs(inv - float(n)) > 1e-6:
+    if abs(p * float(n) - 1.0) > 1e-15:
         return None
     if (n % 2) == 0:
         return None
@@ -1449,8 +1459,40 @@ class _SmokeAstTransform(ast.NodeTransformer):
         return self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
-        """Spread ``unpack(...)`` results into the surrounding call."""
-        node = self.generic_visit(node)
+        """Spread ``unpack(...)`` results into the surrounding call.
+
+        ``iif`` thunks each argument so only the chosen branch runs.
+        """
+        func = self.visit(node.func)
+        if (
+            isinstance(func, ast.Name)
+            and func.id == "iif_sm"
+            and len(node.args) == 3
+            and not node.keywords
+        ):
+            thunks = []
+            for arg in node.args:
+                thunks.append(
+                    ast.Lambda(
+                        args=ast.arguments(
+                            posonlyargs=[],
+                            args=[],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[],
+                        ),
+                        body=self.visit(arg),
+                    )
+                )
+            node = ast.Call(func=func, args=thunks, keywords=[])
+        else:
+            node = ast.Call(
+                func=func,
+                args=[self.visit(arg) for arg in node.args],
+                keywords=[self.visit(kw) for kw in node.keywords],
+            )
         return ast.Call(
             func=ast.Name(id="expand_call_sm", ctx=ast.Load()),
             args=[node.func, *node.args],
@@ -1578,8 +1620,63 @@ def _rewrite_all_base_vals(s: str) -> str:
     )
 
 
+def _promote_whole_formatter(arg: str) -> str:
+    """A branch that is only ``hex(...)`` stays a display; a nested formatter does not."""
+    s = arg.strip()
+    matched = re.match(r"(hex|oct|bin|uhex|uoct|ubin)\s*\(", s, flags=re.I)
+    if matched is None:
+        return arg
+    open_idx = matched.end() - 1
+    close_idx = _matching_paren(s, open_idx)
+    if close_idx != len(s) - 1:
+        return arg
+    name = matched.group(1).lower()
+    return f"{name}_sm" + s[open_idx:]
+
+
+def _protect_iif_display_branches(expr: str) -> str:
+    """``iif`` returns the chosen branch unchanged, so a formatter branch still displays."""
+    out: list[str] = []
+    i = 0
+    n = len(expr)
+    lower = expr.lower()
+    while i < n:
+        j = lower.find("iif", i)
+        if j < 0:
+            out.append(expr[i:])
+            break
+        end_name = j + 3
+        prev_ok = j == 0 or not (expr[j - 1].isalnum() or expr[j - 1] == "_")
+        next_ok = end_name >= n or not (expr[end_name].isalnum() or expr[end_name] == "_")
+        if not prev_ok or not next_ok or _quote_depth_at(expr, j):
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        k = end_name
+        while k < n and expr[k].isspace():
+            k += 1
+        if k >= n or expr[k] != "(":
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        args, close = _split_call_args(expr, k)
+        if args is None or len(args) != 3:
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        cond = _protect_iif_display_branches(args[0])
+        branches = [
+            _promote_whole_formatter(_protect_iif_display_branches(arg)) for arg in args[1:]
+        ]
+        out.append(expr[i:j])
+        out.append(f"iif({cond}, {branches[0]}, {branches[1]})")
+        i = close + 1
+    return "".join(out)
+
+
 def _rewrite_formatters_for_value(expr: str) -> str:
     """A formatter that is the whole result stays a display. Nested ones return the integer."""
+    expr = _protect_iif_display_branches(expr)
     s = expr.strip()
     matched = re.match(r"(hex|oct|bin|uhex|uoct|ubin)\s*\(", s, flags=re.I)
     if matched:
@@ -2811,87 +2908,217 @@ def _implicit_mul(expr: str) -> str:
     return s
 
 
-_RE_POSTFIX_NUMBER = re.compile(r"(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$")
+_RE_FACTOR_NUMBER = re.compile(r"(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$")
+_PERCENT_TAIL = set(")],;+-*/^<>=!&|}")
+_ADDITIVE_BOUNDARY = set(")+-,;<>&^|]}")
+_UNARY_AFTER = set("([,;+-*/%^&|<>=~!")
 
 
-def _primary_before(s: str, end: int) -> Optional[tuple[int, str]]:
-    """Primary (number or parenthesized group) that ends just before ``end``."""
-    k = end - 1
-    while k >= 0 and s[k].isspace():
-        k -= 1
-    if k < 0:
+def _skip_ws_left(s: str, i: int) -> int:
+    while i >= 0 and s[i].isspace():
+        i -= 1
+    return i
+
+
+def _skip_ws_right(s: str, i: int) -> int:
+    while i < len(s) and s[i].isspace():
+        i += 1
+    return i
+
+
+def _is_percentage_tail(s: str, i: int) -> bool:
+    """``%`` is postfix when the next token is an operator or a closer, not a value."""
+    j = _skip_ws_right(s, i + 1)
+    if j >= len(s):
+        return True
+    return s[j] in _PERCENT_TAIL
+
+
+def _match_factor_end(s: str, end: int) -> Optional[int]:
+    """Start index of the factor that ends at ``end`` (exclusive)."""
+    i = _skip_ws_left(s, end - 1)
+    if i < 0:
         return None
-    if s[k] == ")":
+    if s[i] in ")]":
+        close = s[i]
+        open_ch = "(" if close == ")" else "["
         depth = 0
-        j = k
+        j = i
         while j >= 0:
-            if s[j] == ")":
+            if s[j] == close:
                 depth += 1
-            elif s[j] == "(":
+            elif s[j] == open_ch:
                 depth -= 1
                 if depth == 0:
-                    return j, s[j : k + 1]
+                    break
             j -= 1
-        return None
-    matched = _RE_POSTFIX_NUMBER.search(s[: k + 1])
-    if matched is None or matched.end() != k + 1:
-        return None
-    start = matched.start()
-    if start > 0 and s[start - 1] in "+-":
-        prev = s[start - 2] if start >= 2 else ""
-        if start == 1 or prev in "(*+-/^%,":
-            start -= 1
-    return start, s[start : k + 1]
+        if j < 0:
+            return None
+        if close == "]":
+            return _match_factor_end(s, j)
+        k = _skip_ws_left(s, j - 1)
+        if k >= 0 and (s[k].isalnum() or s[k] == "_"):
+            while k >= 0 and (s[k].isalnum() or s[k] == "_"):
+                k -= 1
+            return k + 1
+        return j
+    if s[i].isdigit() or s[i] == ".":
+        matched = _RE_FACTOR_NUMBER.search(s[: i + 1])
+        if matched is None or matched.end() != i + 1:
+            return None
+        return matched.start()
+    if s[i].isalnum() or s[i] == "_":
+        j = i
+        while j >= 0 and (s[j].isalnum() or s[j] == "_"):
+            j -= 1
+        return j + 1
+    return None
 
 
-def _next_postfix_percent(s: str) -> int:
-    """Index of a ``%`` that is postfix, not the modulo operator."""
-    i = 0
-    while i < len(s):
-        if s[i] == "%":
-            j = i + 1
-            while j < len(s) and s[j].isspace():
-                j += 1
-            if j >= len(s) or not (s[j].isalnum() or s[j] in "._("):
-                return i
-        i += 1
+def _include_unary_prefixes(s: str, start: int) -> int:
+    """Pull in unary ``+ - ~ !`` that bind to the factor at ``start``."""
+    while True:
+        j = _skip_ws_left(s, start - 1)
+        if j < 0 or s[j] not in "+-~!":
+            return start
+        if s[j] == "!" and j + 1 < len(s) and s[j + 1] == "=":
+            return start
+        if s[j] in "+-":
+            prev = _skip_ws_left(s, j - 1)
+            if prev >= 0 and s[prev] not in _UNARY_AFTER:
+                if not (s[prev] == "*" and prev > 0 and s[prev - 1] == "*"):
+                    return start
+        start = j
+
+
+def _match_power_end(s: str, end: int) -> Optional[int]:
+    """``factor (** unary)*``, right-associative, not including a unary on the base."""
+    factor_start = _match_factor_end(s, end)
+    if factor_start is None:
+        return None
+    u_start = _include_unary_prefixes(s, factor_start)
+    j = _skip_ws_left(s, u_start - 1)
+    if j >= 1 and s[j] == "*" and s[j - 1] == "*":
+        left = _match_power_end(s, j - 1)
+        if left is None or left >= factor_start:
+            return factor_start
+        return left
+    return factor_start
+
+
+def _match_unary_power_end(s: str, end: int) -> Optional[int]:
+    power_start = _match_power_end(s, end)
+    if power_start is None:
+        return None
+    return _include_unary_prefixes(s, power_start)
+
+
+def _is_binary_add(s: str, op_index: int) -> bool:
+    prev = _skip_ws_left(s, op_index - 1)
+    if prev < 0:
+        return False
+    if s[prev] == "*" and prev > 0 and s[prev - 1] == "*":
+        return False
+    return s[prev] not in _UNARY_AFTER
+
+
+def _match_multiplicative_end(s: str, end: int) -> Optional[int]:
+    start = _match_unary_power_end(s, end)
+    if start is None:
+        return None
+    while True:
+        j = _skip_ws_left(s, start - 1)
+        if j < 0:
+            return start
+        if s[j] in "*/%":
+            if s[j] == "*" and (j == 0 or s[j - 1] != "*") and j + 1 < len(s) and s[j + 1] == "*":
+                return start
+            if s[j] == "*" and j > 0 and s[j - 1] == "*":
+                return start
+            left = _match_unary_power_end(s, j)
+        elif s[j] == ")":
+            left = _match_unary_power_end(s, j + 1)
+        else:
+            return start
+        if left is None or left >= start:
+            return start
+        start = left
+
+
+def _match_additive_end(s: str, end: int) -> Optional[int]:
+    start = _match_multiplicative_end(s, end)
+    if start is None:
+        return None
+    while True:
+        j = _skip_ws_left(s, start - 1)
+        if j < 0 or s[j] not in "+-" or not _is_binary_add(s, j):
+            return start
+        left = _match_multiplicative_end(s, j)
+        if left is None or left >= start:
+            return start
+        start = left
+
+
+def _find_leftmost_postfix_percent(s: str) -> int:
+    for i, ch in enumerate(s):
+        if ch == "%" and _is_percentage_tail(s, i):
+            return i
     return -1
+
+
+def _percent_before_power(s: str, percent_index: int) -> bool:
+    j = _skip_ws_right(s, percent_index + 1)
+    return j + 1 < len(s) and s[j] == "*" and s[j + 1] == "*"
 
 
 def _postfix_percent(expr: str) -> Optional[str]:
     """
-    Postfix ``%`` is a percentage, not modulo.
+    Postfix ``%`` binds under ``**`` and unary operators, and over ``* /`` modulo.
 
-    ``200+15%`` -> ``200 + 200*(15/100)``. ``2*3%`` -> ``2*(3/100)``.
-    ``5+(2*3)%`` -> ``5 + 5*((2*3)/100)``. ``5%3`` stays modulo.
+    ``2**3%`` is ``(2**3)/100``. ``2%**3`` is ``(2/100)**3``. ``2*3%`` is ``2*(3/100)``.
+    When ``+`` or ``-`` has that percent as its whole right-hand side, the right-hand
+    side is ``left * (percent/100)`` (``200+15%``, ``10+2**3%``). ``5%3`` stays modulo.
     """
     if "%" not in expr:
         return expr
     s = expr
-    for _ in range(32):
-        i = _next_postfix_percent(s)
+    for _ in range(64):
+        i = _find_leftmost_postfix_percent(s)
         if i < 0:
             return s
-        found = _primary_before(s, i)
-        if found is None:
+        before_power = _percent_before_power(s, i)
+        if before_power:
+            op_start = _match_factor_end(s, i)
+        else:
+            op_start = _match_unary_power_end(s, i)
+        if op_start is None:
             return None
-        primary_start, primary = found
-        pct = f"(({primary})/100)"
-        stripped = s[:primary_start].rstrip()
-        if stripped and stripped[-1] in "+-" and len(stripped) >= 2:
-            op_index = len(stripped) - 1
-            before_op = stripped[:op_index]
-            base = before_op.strip()
-            if base and base[-1] not in "+-*/%(,":
-                op = stripped[op_index]
-                base_start = len(before_op) - len(before_op.lstrip())
-                if op == "+":
-                    repl = f"({base})+({base})*{pct}"
-                else:
-                    repl = f"({base})-({base})*{pct}"
-                s = s[:base_start] + repl + s[i + 1 :]
-                continue
-        s = s[:primary_start] + pct + s[i + 1 :]
+        operand = s[op_start:i].strip()
+        if not operand:
+            return None
+        pct = f"((({operand})/100))"
+        live = not before_power
+        j = _skip_ws_right(s, i + 1)
+        at_boundary = j >= len(s) or s[j] in _ADDITIVE_BOUNDARY
+        op_index = _skip_ws_left(s, op_start - 1)
+        if (
+            live
+            and at_boundary
+            and op_index >= 0
+            and s[op_index] in "+-"
+            and _is_binary_add(s, op_index)
+        ):
+            base_start = _match_additive_end(s, op_index)
+            if base_start is None:
+                return None
+            base = s[base_start:op_index].strip()
+            if not base:
+                return None
+            op = s[op_index]
+            repl = f"({base}){op}({base})*{pct}"
+            s = s[:base_start] + repl + s[i + 1 :]
+            continue
+        s = s[:op_start] + pct + s[i + 1 :]
     return None
 
 
@@ -3115,6 +3342,7 @@ def _translate_functions(expr: str, *, mode: str = "real") -> Optional[str]:
         "unpack": "unpack_sm",
         "filter": "filter_sm",
         "sortby": "sortby_sm",
+        "iif": "iif_sm",
     }
     repl.update(
         {
@@ -3392,7 +3620,10 @@ def _trunc_nonfinite(v: Any) -> Any:
         return v
     if isinstance(v, float) and not math.isfinite(v):
         return v
-    return float(math.trunc(float(v)))
+    truncated = math.trunc(float(v))
+    if _INT64_MIN <= truncated <= _UINT64_MAX:
+        return int(truncated)
+    return float(truncated)
 
 
 def int_sm(x: Any) -> Any:
@@ -3606,11 +3837,28 @@ def _zmul(x: float, y: float) -> float:
 
 
 def _cmul(a: Any, b: Any) -> complex:
+    """Cartesian product. A pure-real factor scales each part; ``(inf+inf*i)*0`` is nan."""
     aa, bb = _as_complex(a), _as_complex(b)
-    return complex(
-        _zmul(aa.real, bb.real) - _zmul(aa.imag, bb.imag),
-        _zmul(aa.real, bb.imag) + _zmul(aa.imag, bb.real),
-    )
+    ar, ai, br, bi = aa.real, aa.imag, bb.real, bb.imag
+    if ai == 0.0 and br == 0.0:
+        out_r = 0.0
+    elif bi == 0.0:
+        out_r = ar * br
+        if ar == 0.0 and math.isnan(out_r):
+            out_r = 0.0
+    elif ai == 0.0:
+        out_r = ar * br
+    elif br == 0.0:
+        out_r = -(ai * bi)
+    else:
+        out_r = ar * br - ai * bi
+    if ai == 0.0:
+        out_i = ar * bi
+    elif bi == 0.0:
+        out_i = ai * br
+    else:
+        out_i = ar * bi + ai * br
+    return complex(out_r, out_i)
 
 
 def _cdiv(a: Any, b: Any) -> complex:
@@ -4519,7 +4767,7 @@ _MAX_PRODUCED = 1000
 
 def flat_sm(*args: Any) -> tuple:
     if not args:
-        raise ValueError("flat() expects at least 1 argument")
+        return ()
     return tuple(_flatten_args(*args))
 
 
@@ -4773,6 +5021,8 @@ def build_ns(ans: Any) -> dict:
         "unpack_sm": unpack_sm,
         "filter_sm": filter_sm,
         "sortby_sm": sortby_sm,
+        "iif_sm": iif_sm,
+        "isinstance_sm": isinstance_sm,
         "expand_call_sm": expand_call_sm,
         "_dur_lit_compact": _dur_lit_compact,
         "dur_parse_colon_literal": dur_parse_colon_literal,
@@ -4861,6 +5111,366 @@ def build_ns_time(ans: Any) -> dict:
     return ns
 
 
+_RE_NUM_LITERAL = re.compile(
+    r"(?<![A-Za-z0-9_.])(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?"
+)
+_INSTANCE_TYPES = {"int", "float", "time", "complex", "array", "list"}
+_NO_ELEMENT_ASSIGN = object()
+
+
+def _digits_to_uint64(digits: list[int]) -> Optional[int]:
+    value = 0
+    for digit in digits:
+        if value > (_UINT64_MAX - digit) // 10:
+            return None
+        value = value * 10 + digit
+    return value
+
+
+def _try_parse_input_number_as_integer(text: str) -> Optional[int]:
+    """Whole literals the parser stores as int64/uint64, including ``1.0`` and ``1e2``."""
+    if not text or text[0] == "-":
+        return None
+    i = 1 if text[0] == "+" else 0
+    n = len(text)
+    if i >= n:
+        return None
+    digits: list[int] = []
+    int_digit_count = 0
+    frac_digits = 0
+    int_part_started = False
+    has_digit = False
+    while i < n and text[i].isdigit():
+        digit = ord(text[i]) - 48
+        has_digit = True
+        if digit != 0:
+            int_part_started = True
+        if int_part_started:
+            if len(digits) >= 128:
+                return None
+            digits.append(digit)
+            int_digit_count += 1
+        i += 1
+    if i < n and text[i] == ".":
+        i += 1
+        int_part_started = True
+        while i < n and text[i].isdigit():
+            digit = ord(text[i]) - 48
+            has_digit = True
+            if len(digits) < 128:
+                digits.append(digit)
+            elif digit != 0:
+                return None
+            frac_digits += 1
+            i += 1
+    if not has_digit:
+        return None
+    if not digits:
+        return 0 if i == n else None
+    exponent = 0
+    if i < n and text[i] in "eE":
+        i += 1
+        exponent_negative = False
+        if i < n and text[i] in "+-":
+            exponent_negative = text[i] == "-"
+            i += 1
+        if i >= n or not text[i].isdigit():
+            return None
+        exponent_digits = 0
+        while i < n and text[i].isdigit():
+            digit = ord(text[i]) - 48
+            if digit != 0 or exponent_digits != 0:
+                exponent_digits += 1
+                if exponent_digits > 2:
+                    return None
+                exponent = exponent * 10 + digit
+            i += 1
+        if exponent_negative:
+            exponent = -exponent
+    if i != n:
+        return None
+    adjust = exponent - frac_digits
+    if adjust >= 0:
+        if int_digit_count + frac_digits + adjust > 20:
+            return None
+        value = _digits_to_uint64(digits)
+        if value is None:
+            return None
+        if adjust > 0:
+            scale = 10**adjust
+            if value > _UINT64_MAX // scale:
+                return None
+            value *= scale
+        return value
+    divisor = -adjust
+    if divisor > len(digits):
+        return None
+    if any(digit != 0 for digit in digits[len(digits) - divisor :]):
+        return None
+    result_count = len(digits) - divisor
+    if result_count == 0:
+        return 0
+    return _digits_to_uint64(digits[:result_count])
+
+
+def _rewrite_exact_int_literals(expr: str) -> str:
+    """Turn parser-exact literals (``1.0``, ``2.00``, ``1e2``) into Python ints."""
+    out: list[str] = []
+    i = 0
+    n = len(expr)
+    while i < n:
+        if expr[i] in "\"'":
+            quote = expr[i]
+            j = i + 1
+            while j < n and expr[j] != quote:
+                j += 1
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        matched = _RE_NUM_LITERAL.match(expr, i)
+        if matched is None:
+            out.append(expr[i])
+            i += 1
+            continue
+        parsed = _try_parse_input_number_as_integer(matched.group(0))
+        out.append(matched.group(0) if parsed is None else str(parsed))
+        i = matched.end()
+    return "".join(out)
+
+
+def _split_call_args(expr: str, open_index: int) -> tuple[Optional[list[str]], int]:
+    """Arguments of the call whose ``(`` is at ``open_index``. ``(None, -1)`` if unbalanced."""
+    if open_index >= len(expr) or expr[open_index] != "(":
+        return None, -1
+    depth = 0
+    start = open_index + 1
+    args: list[str] = []
+    for i in range(open_index, len(expr)):
+        ch = expr[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                args.append(expr[start:i])
+                return args, i
+        elif ch == "," and depth == 1:
+            args.append(expr[start:i])
+            start = i + 1
+    return None, -1
+
+
+def _quote_depth_at(expr: str, pos: int) -> bool:
+    """True when ``pos`` sits inside a single- or double-quoted string."""
+    quote = ""
+    for ch in expr[:pos]:
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+    return bool(quote)
+
+
+def _rewrite_isinstance_calls(expr: str) -> str:
+    """``isinstance(value, Type)`` keeps ``Type`` as a name, not an expression."""
+    out: list[str] = []
+    i = 0
+    n = len(expr)
+    key = "isinstance"
+    lower = expr.lower()
+    while i < n:
+        j = lower.find(key, i)
+        if j < 0:
+            out.append(expr[i:])
+            break
+        end_name = j + len(key)
+        prev_ok = j == 0 or not (expr[j - 1].isalnum() or expr[j - 1] == "_")
+        next_ok = end_name >= n or not (expr[end_name].isalnum() or expr[end_name] == "_")
+        if not prev_ok or not next_ok:
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        if _quote_depth_at(expr, j):
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        k = end_name
+        while k < n and expr[k].isspace():
+            k += 1
+        if k >= n or expr[k] != "(":
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        args, close = _split_call_args(expr, k)
+        if args is None or len(args) != 2 or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", args[1].strip()
+        ):
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        out.append(expr[i:j])
+        value = _rewrite_isinstance_calls(args[0].strip())
+        out.append(f'isinstance_sm({value}, "{args[1].strip()}")')
+        i = close + 1
+    return "".join(out)
+
+
+def _has_nonzero_imag(value: Any) -> bool:
+    if isinstance(value, ExactComplex):
+        return value.imag != 0
+    if isinstance(value, complex):
+        return math.isnan(value.imag) or value.imag != 0.0
+    return False
+
+
+def _is_exact_int_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, RatioValue):
+        return "/" not in value.text
+    return False
+
+
+def _value_matches_type(value: Any, type_name: str) -> bool:
+    if isinstance(value, tuple):
+        return type_name in ("array", "list")
+    if _has_nonzero_imag(value):
+        return type_name == "complex"
+    if isinstance(value, ExactComplex):
+        value = value.real
+    elif isinstance(value, complex):
+        value = value.real
+    if isinstance(value, Duration):
+        return type_name == "time"
+    if _is_exact_int_value(value):
+        return type_name == "int"
+    return type_name == "float"
+
+
+def isinstance_sm(value: Any, type_name: str) -> int:
+    name = str(type_name).lower()
+    for suffix in ("_sm_cx", "_sm"):
+        if name.endswith(suffix) and name[: -len(suffix)] in _INSTANCE_TYPES:
+            name = name[: -len(suffix)]
+            break
+    if name not in _INSTANCE_TYPES:
+        raise ValueError(f"unknown type name: {name}")
+    return 1 if _value_matches_type(value, name) else 0
+
+
+def iif_sm(condition: Any, when_true: Any, when_false: Any) -> Any:
+    """Evaluate only the chosen branch. Arguments are zero-arg thunks."""
+    cond = condition() if callable(condition) else condition
+    chosen = when_true if dsl_truth(cond) else when_false
+    return chosen() if callable(chosen) else chosen
+
+
+def _index_expr_is_slice(index_expr: str) -> bool:
+    depth_paren = 0
+    depth_bracket = 0
+    for ch in index_expr:
+        if ch == "(":
+            depth_paren += 1
+        elif ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+        elif ch == "[":
+            depth_bracket += 1
+        elif ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+        elif ch == ":" and depth_paren == 0 and depth_bracket == 0:
+            return True
+    return False
+
+
+def _split_element_assign(part: str) -> Optional[tuple[str, str, str]]:
+    """``name[index] = rhs`` at the start of a statement. ``None`` when it is not that form."""
+    matched = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\[", part.strip())
+    if matched is None:
+        return None
+    text = part.strip()
+    name = matched.group(1)
+    open_at = matched.end() - 1
+    depth = 0
+    close_at = -1
+    for i in range(open_at, len(text)):
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                close_at = i
+                break
+    if close_at < 0:
+        return None
+    rest = text[close_at + 1 :].lstrip()
+    if not rest.startswith("=") or rest.startswith("=="):
+        return None
+    return name, text[open_at + 1 : close_at], rest[1:].strip()
+
+
+def _resolve_array_index(length: int, idx_val: Any) -> int:
+    if isinstance(idx_val, bool) or isinstance(idx_val, (tuple, complex, ExactComplex, Duration)):
+        raise ValueError("array index must be an integer")
+    if isinstance(idx_val, int):
+        idx = idx_val
+    elif isinstance(idx_val, float) and math.isfinite(idx_val) and idx_val.is_integer():
+        idx = int(idx_val)
+    else:
+        raise ValueError("array index must be an integer")
+    if idx < 0:
+        idx += length
+    if idx < 0 or idx >= length:
+        raise ValueError("array index is out of range")
+    return idx
+
+
+def _element_assign_time_mix(base_items: list[Any], rhs_items: list[Any]) -> bool:
+    if not rhs_items or not base_items:
+        return False
+    base_time = all(isinstance(item, Duration) for item in base_items)
+    base_other = all(not isinstance(item, Duration) for item in base_items)
+    for item in rhs_items:
+        item_time = isinstance(item, Duration)
+        if (base_time and not item_time) or (base_other and item_time):
+            return True
+    return False
+
+
+def _assign_array_element(base: tuple, idx_val: Any, rhs_val: Any) -> tuple:
+    items = list(base)
+    idx = _resolve_array_index(len(items), idx_val)
+    rhs_items = list(_flatten_value(rhs_val)) if isinstance(rhs_val, tuple) else [rhs_val]
+    if _element_assign_time_mix(items, rhs_items):
+        raise ValueError("time values cannot be mixed with non-time values")
+    return tuple(items[:idx] + rhs_items + items[idx + 1 :])
+
+
+def _eval_element_assign_statement(
+    part: str, ns: dict, mode: str, expected_hint: str
+) -> Any:
+    parsed = _split_element_assign(part)
+    if parsed is None:
+        return _NO_ELEMENT_ASSIGN
+    name, index_expr, rhs = parsed
+    if _index_expr_is_slice(index_expr):
+        raise ValueError("cannot assign to an array slice")
+    if name not in ns or isinstance(ns.get(name), _UserFunction):
+        raise ValueError(f"unknown variable: {name}")
+    base = ns[name]
+    if not isinstance(base, tuple):
+        raise ValueError("indexing requires an array value")
+    idx_val = ref_eval(index_expr, ns, mode=mode, expected_hint=expected_hint)
+    rhs_val = ref_eval(rhs, ns, mode=mode, expected_hint=expected_hint)
+    new_val = _assign_array_element(base, idx_val, rhs_val)
+    ns[name] = new_val
+    ns["ans"] = new_val
+    return new_val
+
+
 def ref_eval(
     expr: str, ns: dict, *, mode: str = "real", expected_hint: str = ""
 ) -> Any:
@@ -4892,6 +5502,8 @@ def ref_eval(
     e = _implicit_mul(e)
     e = _rewrite_lambdas(e)
     e = _rewrite_empty_tuples(e)
+    e = _rewrite_isinstance_calls(e)
+    e = _rewrite_exact_int_literals(e)
     t = _translate_functions(e, mode=mode)
     if t is None:
         raise ValueError("translate")
@@ -4927,7 +5539,9 @@ def ref_eval(
         node = ast.Expression(body=body)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
-        result = eval(compile(node, "<smoke>", "eval"), {"__builtins__": {}}, ns)
+        env = dict(ns)
+        env["__builtins__"] = {}
+        result = eval(compile(node, "<smoke>", "eval"), env)
     if isinstance(result, _Unpack):
         result = result.values[0] if len(result.values) == 1 else tuple(result.values)
     return _flatten_value(result)
@@ -4935,7 +5549,7 @@ def ref_eval(
 
 def ref_format(v: Any, *, mode: str = "real") -> str:
     if isinstance(v, _UserFunction):
-        return f"defined {v.name}({','.join(v.params)})"
+        return f"defined {v.name}({', '.join(v.params)})"
     if isinstance(v, RatioValue):
         return v.text
     if isinstance(v, Duration):
@@ -5033,8 +5647,6 @@ def try_reference(
     if fn_box:
         ns.update(fn_box)
     ns["ans"] = ans_seed
-    if ans_seed is not None:
-        ns["_"] = ans_seed
     _CALL_NS[0] = ns
     last = ans_seed
     try:
@@ -5070,10 +5682,12 @@ def try_reference(
                     ns[name] = last
                     ns["ans"] = last
                     continue
+                assigned = _eval_element_assign_statement(part, ns, mode, expected_hint)
+                if assigned is not _NO_ELEMENT_ASSIGN:
+                    last = assigned
+                    continue
             last = ref_eval(part, ns, mode=mode, expected_hint=expected_hint)
             ns["ans"] = last
-            if not isinstance(last, _UserFunction):
-                ns["_"] = last
         if fn_box is not None:
             fn_box.clear()
             fn_box.update(_carried_functions(ns))

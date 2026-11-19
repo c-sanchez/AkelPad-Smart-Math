@@ -12,6 +12,7 @@ Load when **adding or reviewing** test expectations, or when any test fails ("Ha
 - The Basic main `tests(1 to N)` table and C++ `expectEval` **skip** a case whose signature duplicates an earlier one. Bump `N` when appending, and check each run's "Detected duplicate cases" count so a new case is not silently skipped.
 - C++ parity rows construct a fresh `MathParser` per case; multi-step state checks (assign, then read) need a dedicated test.
 - Feature flags: time values and lambdas are **on** by default, so ordinary duration and lambda cases belong in the main tables; their option suites (`RunTimeValuesSupportOptionTests`, `RunLambdaFunctionsSupportOptionTests` and the C++ equivalents) are for behavior that depends on the flag. Only complex support is off by default; complex cases follow complex-support isolation. In C++, any case that needs a feature also sits inside that feature's `#if SMARTMATH_*` guard (complex-support flow).
+- A user-function case and its lambda counterpart are one pair (user-functions-and-lambdas flow): classic definition, lambda-style definition, and the anonymous `sortby` / `filter` form when that form can express the rule.
 
 ## External reference for expected values (Required)
 

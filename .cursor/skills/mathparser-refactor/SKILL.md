@@ -4,7 +4,9 @@ description: >-
   Review and refactor Basic/C++ parser code for reusability and cleanup. Use
   when the user asks to extract duplicate code, reuse/update helpers, simplify
   without behavior or performance regressions, improve maintainability, or
-  remove legacy/unused/dead parser code.
+  remove legacy/unused/dead parser code. User-defined functions and lambdas
+  are one callable: refactoring, reviewing, or optimizing either surface
+  includes the other and keeps their shared body and parameter helpers shared.
 ---
 
 # Refactor MathParser (Behavior-Preserving)
@@ -12,6 +14,8 @@ description: >-
 ## Purpose
 
 Behavior-preserving, efficiency-safe cleanup/refactor of `MathParser.bas` (and the modules it includes), `cpp/MathParser.cpp`, `cpp/MathParser.hpp`, and `cpp/MathParserInternal.hpp`.
+
+User-defined functions and lambdas are two surfaces of the same callable. Analyzing, verifying, testing, correcting, optimizing, refactoring, or otherwise changing either surface does the same for the other, and reuses their shared code. A change on one surface can change the other.
 
 Maintenance only. For new builtins/constants or behavior fixes, use `mathparser-add-or-fix`. If thinking finds a rejection, a limit, or a mathematical mismatch, raise it per raise-concerns and fix it only when asked, through that skill's fix-behavior flow.
 
@@ -24,6 +28,7 @@ Read on demand:
 | Before first edit | `.cursor/skills/internal-mathparser-protect-workspace/SKILL.md` |
 | Planning or reviewing behavior, including a defect found during the refactor | `.cursor/skills/mathparser-add-or-fix/flows/raise-concerns.md` |
 | Editing helpers / int metadata / string constants / non-finite handling | `.cursor/skills/mathparser-add-or-fix/flows/coding-standards.md` |
+| Analyzing, verifying, testing, correcting, optimizing, refactoring, or changing a user-defined function or a lambda (either surface, including a shared body or parameter helper) | `.cursor/skills/mathparser-add-or-fix/flows/user-functions-and-lambdas.md` |
 | Editing `cpp/MathParser.hpp` / `.cpp`, or moving C++ functions off `MathParser` | `.cursor/skills/mathparser-add-or-fix/flows/cpp-class-design.md` |
 | Changing real/complex operator or builtin paths | `.cursor/skills/mathparser-add-or-fix/flows/complex-support.md` |
 | Adding or changing test expectations, or a test fails | `.cursor/skills/mathparser-add-or-fix/flows/smoke-tests.md` |
@@ -34,7 +39,7 @@ Do not load the full `mathparser-add-or-fix` skill unless the task becomes a fea
 
 ## What to optimize
 
-1. Extract/reuse helpers for duplicate logic (repeated loops, branches, validation, error text); extend existing helpers before adding new ones.
+1. Extract/reuse helpers for duplicate logic (repeated loops, branches, validation, error text); extend existing helpers before adding new ones. User-function and lambda rules already share helpers; extend those, and do not leave a second copy on the other surface (user-functions-and-lambdas flow).
 2. Simplify control flow; cut maintenance burden.
 3. Remove dead/unused code only with evidence.
 
@@ -43,6 +48,7 @@ All of it within the hard constraints below.
 ## Hard constraints
 
 - No behavior change unless explicitly requested. Keep the exact-int/exact-uint behavior the path already had; do not add metadata it did not keep.
+- User functions and lambdas stay one callable. Edit the shared helper, then review both surfaces (user-functions-and-lambdas flow). A cleanup of one surface that leaves the other with its own copy is incomplete.
 - Do not change `()` results. Behavior changes go through mathparser-add-or-fix and its empty-array policy.
 - No user-visible error message drift unless explicitly requested.
 - C++: follow cpp-class-design, including its cleanup order (one cluster at a time). Leave Basic's procedure layout as it is.
@@ -72,4 +78,4 @@ Record a short justification per removal.
 
 ## Completion report format
 
-Report: files changed; duplicates eliminated; helper reuse/extraction; dead code removed + reason; dead-code candidates kept (and why); efficiency notes (why no slowdown, with perf baseline numbers when measured); concerns raised to the user, and the decision for each, or that none were identified; one pass/fail line per gate that ran; defects found but not fixed.
+Report: files changed; duplicates eliminated; helper reuse/extraction; when a user function or a lambda was in scope, both surfaces checked and which shared helper owns the rule; dead code removed + reason; dead-code candidates kept (and why); efficiency notes (why no slowdown, with perf baseline numbers when measured); concerns raised to the user, and the decision for each, or that none were identified; one pass/fail line per gate that ran; defects found but not fixed.

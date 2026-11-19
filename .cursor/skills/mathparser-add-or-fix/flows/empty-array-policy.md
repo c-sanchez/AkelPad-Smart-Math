@@ -21,6 +21,8 @@ A reduction that still has a value ignores empty arrays and folds the rest: `sum
 
 - A missing call is an arity error (`sum()` expects at least one argument). `filter` and `sortby` still require a one-parameter function. `repeat((), 0)` still expects a positive integer.
 - `len(())` / `length(())` is `0`. `len()` with no arguments is `0`.
+- `flat()` is `()`. `flat(())` is `()`. `sort()`, `reverse()`, `unique()`, and `unpack()` still expect at least one argument.
+- `isinstance((), array)` and `isinstance((), list)` are `1`. Every other type name is `0`. The result is always the scalar `1` or `0`, including when the value is `()`.
 - An empty array is falsy: `!()` and `not ()` are `1`, `() && 1` is `0`, `() || 0` is `0`.
 - Comparisons use length: `() == ()` is `1`, `() == 0` is `0`.
 - `()+(1,2)` and other length mismatches stay `incompatible operands`.
@@ -35,4 +37,4 @@ A reduction that still has a value ignores empty arrays and folds the rest: `sum
 
 ## User functions and lambdas
 
-No extra empty-array check. The body runs with `()` bound to the parameter. `f(x)=x+1; f(())` is `()`. `f(x)=sum(x); f(())` is `()`. `f(a)=a[0]; f(())` stays the index error.
+No extra empty-array check on either surface (user-functions-and-lambdas flow). When the body runs, `()` is bound to the parameter. `f(x)=x+1; f(())` and `f=x:x+1; f(())` are `()`. `f(x)=sum(x); f(())` is `()`. `f(a)=a[0]; f(())` stays the index error. `sortby` and `filter` of `()` are still `()` and do not call the function or lambda.
