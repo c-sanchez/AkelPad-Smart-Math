@@ -254,10 +254,20 @@ Notes:
   - Wrapped form: `f=(x:1/x)`, `f=(x):1/x`, or nested `f=((x):(1/x))`
   - Zero parameters: `f=():42` then call `f()`
 - Reserved names cannot be used for function names:
-  - `hex(x)=x` -> error (`reserved function name`)
-  - `e(x)=x` -> error (`reserved constant name`)
-  - `ans(x)=x` -> error (`reserved built-in variable name`). `ans` is the last-result variable.
-  - `nan=1` -> error (`reserved constant name`)
+  - `hex(x)=x` -> error (`reserved function name: hex`)
+  - `e(x)=x` -> error (`reserved constant name: e`)
+  - `ans(x)=x` -> error (`reserved built-in variable name: ans`). `ans` is the last-result variable.
+  - `nan=1` -> error (`reserved constant name: nan`)
+- A parameter cannot be a reserved function name (including `and`, `or`, and `not`), a reserved constant, or `ans`. The same check applies to `f(x)=...`, `f=x:...`, and an anonymous `sortby` or `filter` lambda. A parameter may reuse a user-function name. In the body, the bare name is the parameter and `name(...)` is still that global function. A lambda sees the parameters of every function and lambda that encloses it. An inner parameter hides an outer parameter of the same name.
+  - `f(sin)=sin+1` -> error (`reserved function name can't be a param name: sin`)
+  - `f=sin:sin+1` -> error (`reserved function name can't be a param name: sin`)
+  - `sortby((1,2), sin: -sin)` -> error (`reserved function name can't be a param name: sin`)
+  - `f(e)=e+1` -> error (`reserved constant name: e`)
+  - `sortby((1,2), e: -e)` -> error (`reserved constant name: e`)
+  - `f(ans)=ans+1` -> error (`reserved built-in variable name: ans`)
+  - `g(x)=x*x; f(g)=g+g(g); f(3)` -> `12`
+  - `g(x)=x*x; f=g:filter((10,20,30), x: x<=g); f(20)` -> `(10, 20)`
+  - `f(x)=filter((10,20,30), x: x<x); f(100)` -> `()`
 - Recursive functions are not supported:
   - `f(x) = x*f(x-1)` -> error (`recursive function call`)
 - Inside a function or lambda body, `=` is a comparison and does not assign:

@@ -447,8 +447,8 @@ std::vector<TestCase> buildUnitCases() {
   t.push_back({"unit/addUserFunction rejects reserved function name", [](std::string& why) {
                  MathParser p;
                  const std::string err = p.addUserFunction("hex(x)=x");
-                 if (err != "reserved function name") {
-                   why = "expected reserved function name, got: " + err;
+                 if (err != "reserved function name: hex") {
+                   why = "expected reserved function name: hex, got: " + err;
                    return false;
                  }
                  return true;
@@ -456,8 +456,8 @@ std::vector<TestCase> buildUnitCases() {
   t.push_back({"unit/addUserFunction rejects reserved constant name", [](std::string& why) {
                  MathParser p;
                  const std::string err = p.addUserFunction("e(x)=x");
-                 if (err != "reserved constant name") {
-                   why = "expected reserved constant name, got: " + err;
+                 if (err != "reserved constant name: e") {
+                   why = "expected reserved constant name: e, got: " + err;
                    return false;
                  }
                  return true;
@@ -465,8 +465,8 @@ std::vector<TestCase> buildUnitCases() {
   t.push_back({"unit/addUserFunction rejects ans as function name", [](std::string& why) {
                  MathParser p;
                  const std::string err = p.addUserFunction("ans(x)=x*x");
-                 if (err != "reserved built-in variable name") {
-                   why = "expected reserved built-in variable name, got: " + err;
+                 if (err != "reserved built-in variable name: ans") {
+                   why = "expected reserved built-in variable name: ans, got: " + err;
                    return false;
                  }
                  return true;
@@ -3200,9 +3200,13 @@ std::vector<TestCase> buildRegressionCases() {
               }});
   t.push_back({"regression/parameter name shadows builtin and user function", [](std::string& why) {
                 MathParser p;
-                if (!expectEval(p, "f(sin)=sin+1; f(2)", "3", why)) return false;
+                if (!expectEvalErrorContains(p, "f(sin)=sin+1; f(2)", "reserved function name can't be a param name: sin", why))
+                  return false;
                 if (!expectEval(p, "f(x)=x; g(f)=f+1; g(2)", "3", why)) return false;
-                return expectEval(p, "f(sin)=sin(1); f(2)", "0.8414709848078965", why);
+                if (!expectEvalErrorContains(p, "f(ans)=ans+1", "reserved built-in variable name: ans", why)) return false;
+                if (!expectEvalErrorContains(p, "f(not)=1", "reserved function name can't be a param name: not", why))
+                  return false;
+                return expectEvalErrorContains(p, "f(sin)=sin(1); f(2)", "reserved function name can't be a param name: sin", why);
               }});
   t.push_back({"regression/function definition result is not a number", [](std::string& why) {
                 MathParser p;
@@ -7265,12 +7269,45 @@ std::vector<TestCase> buildFilterCases() {
                }});
   t.push_back({"regression/lambda parameter shadows builtin and user function", [](std::string& why) {
                  MathParser p;
-                 if (!expectEval(p, "f=sin:sin+1; f(2)", "3", why)) return false;
+                 if (!expectEvalErrorContains(p, "f=sin:sin+1; f(2)", "reserved function name can't be a param name: sin", why))
+                   return false;
                  if (!expectEval(p, "f(x)=x; g=f:f+1; g(2)", "3", why)) return false;
-                 if (!expectEval(p, "sortby((1,2), sin: -sin)", "(2,1)", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), sin: -sin)", "reserved function name can't be a param name: sin", why))
+                   return false;
                  if (!expectEval(p, "f(x)=x; sortby((1,2), f: -f)", "(2,1)", why)) return false;
-                 if (!expectEval(p, "filter((1,2), sin: sin+1)", "(1,2)", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), sin: sin+1)", "reserved function name can't be a param name: sin", why))
+                   return false;
                  if (!expectEval(p, "f(x)=x; filter((1,2), f: f+1)", "(1,2)", why)) return false;
+                 if (!expectEvalErrorContains(p, "f=(sin):sin+1", "reserved function name can't be a param name: sin", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "f(x)=filter((10,20,30), int: int<=x)", "reserved function name can't be a param name: int", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), (sin): -sin)", "reserved function name can't be a param name: sin", why))
+                   return false;
+                 if (!expectEvalErrorContains(p, "f=ans:ans+1", "reserved built-in variable name: ans", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), ans: -ans)", "reserved built-in variable name: ans", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), e: -e)", "reserved constant name: e", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), pi: pi)", "reserved constant name: pi", why)) return false;
+                 if (!expectEvalErrorContains(p, "sortby((1,2), (e): -e)", "reserved constant name: e", why)) return false;
+                 if (!expectEvalErrorContains(p, "filter((1,2), x,x:x)", "duplicate parameter name", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f1(g)=sortby((10,20,30), x: x-g); f1(25)", "(10, 20, 30)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f1=g:sortby((10,20,30), x: x-g); f1(25)", "(10, 20, 30)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f1(g)=sortby((10,20,30), x: g-x); f1(0)", "(30, 20, 10)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f1=g:sortby((10,20,30), x: g-x); f1(0)", "(30, 20, 10)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f2(g)=filter((10,20,30), x: x<=g); f2(20)", "(10, 20)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f2=g:filter((10,20,30), x: x<=g); f2(20)", "(10, 20)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f3(g)=g+g(g); f3(3)", "12", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f3=g:g+g(g); f3(3)", "12", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f4(g)=filter((10,20,30), x: x<=g+g(g)); f4(4)", "(10, 20)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f4=g:filter((10,20,30), x: x<=g+g(g)); f4(4)", "(10, 20)", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f4(g)=filter((10,20,30), x: x<=g+g(g)); f4(2)", "()", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f4=g:filter((10,20,30), x: x<=g+g(g)); f4(2)", "()", why)) return false;
+                 if (!expectEval(p, "f(x)=filter((10,20,30), x: x<x); f(100)", "()", why)) return false;
+                 if (!expectEval(p, "f=x:filter((10,20,30), x: x<x); f(100)", "()", why)) return false;
+                 if (!expectEval(p, "g(x)=x*x; f(a)=filter((10,20), g: sortby((1), x: a+g)[0]>0); f(3)", "(10, 20)", why))
+                   return false;
+                 if (!expectEval(p, "g(x)=x*x; f=a:filter((10,20), g: sortby((1), x: a+g)[0]>0); f(3)", "(10, 20)", why))
+                   return false;
                  if (!expectEvalErrorContains(p, "filter((), x:())", "function body is empty", why)) return false;
                  if (!expectEvalErrorContains(p, "sortby((), x:())", "function body is empty", why)) return false;
                  return expectEvalErrorContains(p, "filter((), x:( ))", "function body is empty", why);

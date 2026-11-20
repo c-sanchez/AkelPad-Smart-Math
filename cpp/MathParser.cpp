@@ -1035,9 +1035,10 @@ constexpr const char* STR_EQ_EQ = "==";
 constexpr const char* STR_NOT_EQ = "!=";
 constexpr const char* STR_LT_GT = "<>";
 constexpr const char* STR_DUPLICATE_PARAMETER_NAME = "duplicate parameter name";
-constexpr const char* STR_RESERVED_CONSTANT_NAME = "reserved constant name";
-constexpr const char* STR_RESERVED_FUNCTION_NAME = "reserved function name";
-constexpr const char* STR_RESERVED_BUILTIN_VARIABLE_NAME = "reserved built-in variable name";
+constexpr const char* STR_RESERVED_CONSTANT_NAME_COLON = "reserved constant name: ";
+constexpr const char* STR_RESERVED_FUNCTION_NAME_COLON = "reserved function name: ";
+constexpr const char* STR_RESERVED_FUNCTION_PARAM_NAME_COLON = "reserved function name can't be a param name: ";
+constexpr const char* STR_RESERVED_BUILTIN_VARIABLE_NAME_COLON = "reserved built-in variable name: ";
 constexpr const char* STR_RECURSIVE_USER_FUNCTION_CALL_COLON = "recursive function call: ";
 constexpr const char* STR_UNEXPECTED_TOKEN_AFTER_EXPRESSION = "unexpected token after expression";
 constexpr const char* STR_SCALAR_ONLY_EXPRESSION_ENCOUNTERED_NON = "scalar-only expression encountered non-scalar value";
@@ -6905,30 +6906,30 @@ MathParser::MathParser() {
   setVariable(STR_ANS, makeScalarInt(0));
 }
 
-const char* MathParser::getReservedIdentifierError(const std::string& ident) const {
-  if (isReservedFunctionName(ident)) {
-    return STR_RESERVED_FUNCTION_NAME;
-  }
+bool MathParser::isReservedConstantIdent(const std::string& ident) const {
 #if SMARTMATH_COMPLEX_NUMBERS
   if (getSupportComplexNumbers()) {
     std::string low = ident;
     std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (low == STR_I) {
-      return STR_RESERVED_CONSTANT_NAME;
+      return true;
     }
   }
 #endif
-  if (ident == STR_PI || ident == STR_E || ident == STR_INF || ident == STR_NAN) {
-    return STR_RESERVED_CONSTANT_NAME;
+  if (isReservedBuiltinConstantName(ident, getSupportTimeValues())) {
+    return true;
   }
-#if SMARTMATH_TIME_VALUES
-  if (getSupportTimeValues() &&
-      (ident == STR_MILLISECOND || ident == STR_SECOND || ident == STR_MINUTE || ident == STR_HOUR ||
-       ident == STR_DAY)) {
-    return STR_RESERVED_CONSTANT_NAME;
+  return false;
+}
+
+std::string MathParser::getReservedIdentifierError(const std::string& ident) const {
+  if (isReservedFunctionName(ident)) {
+    return std::string(STR_RESERVED_FUNCTION_NAME_COLON) + ident;
   }
-#endif
-  return nullptr;
+  if (isReservedConstantIdent(ident)) {
+    return std::string(STR_RESERVED_CONSTANT_NAME_COLON) + ident;
+  }
+  return "";
 }
 
 bool MathParser::isBareFunctionNameAtExpressionTail(EvalContext& ctx) const {
@@ -7229,35 +7230,37 @@ bool MathParser::tryResolveVariableValue(
   return false;
 }
 
-const char* MathParser::validateUserFunctionDefinitionNames(
-    const std::string& fnName,
-    const std::vector<std::string>& fnParams) const {
-  if (isReservedBuiltinVariableNameForUserFunctionDefinition(fnName)) {
-    return STR_RESERVED_BUILTIN_VARIABLE_NAME;
-  }
-  if (const char* reservedErr = getReservedIdentifierError(fnName)) {
-    return reservedErr;
-  }
+std::string MathParser::validateParameterNames(const std::vector<std::string>& fnParams) const {
   std::unordered_map<std::string, bool> seen;
   for (const auto& p : fnParams) {
     if (seen.find(p) != seen.end()) {
       return STR_DUPLICATE_PARAMETER_NAME;
     }
-    if (isReservedBuiltinConstantName(p, getSupportTimeValues())) {
-      return STR_RESERVED_CONSTANT_NAME;
+    if (p == STR_ANS) {
+      return std::string(STR_RESERVED_BUILTIN_VARIABLE_NAME_COLON) + p;
     }
-#if SMARTMATH_COMPLEX_NUMBERS
-    {
-      std::string low = p;
-      std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-      if (getSupportComplexNumbers() && low == STR_I) {
-        return STR_RESERVED_CONSTANT_NAME;
-      }
+    if (isReservedConstantIdent(p)) {
+      return std::string(STR_RESERVED_CONSTANT_NAME_COLON) + p;
     }
-#endif
+    if (isReservedFunctionName(p)) {
+      return std::string(STR_RESERVED_FUNCTION_PARAM_NAME_COLON) + p;
+    }
     seen[p] = true;
   }
-  return nullptr;
+  return "";
+}
+
+std::string MathParser::validateUserFunctionDefinitionNames(
+    const std::string& fnName,
+    const std::vector<std::string>& fnParams) const {
+  if (isReservedBuiltinVariableNameForUserFunctionDefinition(fnName)) {
+    return std::string(STR_RESERVED_BUILTIN_VARIABLE_NAME_COLON) + fnName;
+  }
+  const std::string reservedErr = getReservedIdentifierError(fnName);
+  if (!reservedErr.empty()) {
+    return reservedErr;
+  }
+  return validateParameterNames(fnParams);
 }
 
 std::string MathParser::getUserFunctionDefinitionErrorText(
@@ -7265,7 +7268,8 @@ std::string MathParser::getUserFunctionDefinitionErrorText(
     const std::vector<std::string>& fnParams,
     const std::string& fnExpr,
     const bool evaluateBody) {
-  if (const char* udfNameErr = validateUserFunctionDefinitionNames(fnName, fnParams)) {
+  const std::string udfNameErr = validateUserFunctionDefinitionNames(fnName, fnParams);
+  if (!udfNameErr.empty()) {
     return udfNameErr;
   }
   if (bodyIsEffectivelyEmpty(fnExpr)) {
@@ -7343,7 +7347,7 @@ bool MathParser::trySetUserFunctionDefinitionError(
   return true;
 }
 
-const char* MathParser::validateAssignmentTargetName(const std::string& ident) const {
+std::string MathParser::validateAssignmentTargetName(const std::string& ident) const {
   return getReservedIdentifierError(ident);
 }
 
@@ -7389,7 +7393,8 @@ bool MathParser::tryAppendAssignOrExpressionStatement(EvalContext& ctx, std::vec
     std::string ident = consumeLowerIdentToken(ctx.p);
     skipSpaces(ctx.p);
     if (*ctx.p == '=' && ctx.p[1] != '=') {
-      if (const char* assignNameErr = validateAssignmentTargetName(ident)) {
+      const std::string assignNameErr = validateAssignmentTargetName(ident);
+      if (!assignNameErr.empty()) {
         ctx.fail(assignNameErr);
         return false;
       }
@@ -7432,7 +7437,8 @@ bool MathParser::tryAppendAssignOrExpressionStatement(EvalContext& ctx, std::vec
   if (peekIdentFollowedByIndexThenAssignEquals(assignSave)) {
     ctx.p = assignSave;
     std::string ident = consumeLowerIdentToken(ctx.p);
-    if (const char* assignNameErr = validateAssignmentTargetName(ident)) {
+    const std::string assignNameErr = validateAssignmentTargetName(ident);
+    if (!assignNameErr.empty()) {
       ctx.fail(assignNameErr);
       return false;
     }
@@ -8812,12 +8818,28 @@ bool MathParser::tryParseLambdaRhsAfterEquals(
   return *ctx.p == '\0' || *ctx.p == ';';
 }
 
+std::vector<std::string> enclosingParamNamesThen(
+    const std::vector<std::string>* enclosing,
+    const std::vector<std::string>& own) {
+  std::vector<std::string> names;
+  if (enclosing != nullptr) {
+    names = *enclosing;
+  }
+  names.insert(names.end(), own.begin(), own.end());
+  return names;
+}
+
 std::unique_ptr<MathParser::Expr> MathParser::makeUnaryInlineLambdaExpr(
     EvalContext& ctx,
     std::vector<std::string>&& params,
     std::string&& body,
     const char* expectsUnaryFunction,
     const bool syntaxCheckBody) {
+  const std::string nameErr = validateParameterNames(params);
+  if (!nameErr.empty()) {
+    ctx.fail(nameErr);
+    return nullptr;
+  }
   if (params.size() != 1U) {
     ctx.fail(expectsUnaryFunction);
     return nullptr;
@@ -8827,11 +8849,12 @@ std::unique_ptr<MathParser::Expr> MathParser::makeUnaryInlineLambdaExpr(
     return nullptr;
   }
   if (syntaxCheckBody) {
+    const std::vector<std::string> boundNames = enclosingParamNamesThen(ctx.boundBodyParamNames, params);
     EvalContext bodyCtx;
     bodyCtx.suppressBareFunctionTailHint = true;
     bodyCtx.compilingUserFunctionParams = ctx.compilingUserFunctionParams;
     bodyCtx.validatingUserFunctionName = ctx.validatingUserFunctionName;
-    bodyCtx.boundBodyParamNames = &params;
+    bodyCtx.boundBodyParamNames = &boundNames;
     std::unique_ptr<Expr> parsed;
     if (!tryParseSyntaxCheckedExpression(bodyCtx, body, true, parsed)) {
       ctx.fail(bodyCtx.errorText.empty() ? std::string(STR_FAILED_TO_PARSE_USER_FUNCTION_BODY)
@@ -8917,8 +8940,17 @@ MathParser::EvalValue MathParser::evalInlineLambdaCall(
     return makeScalar(0);
   }
 
+  std::vector<std::string> enclosingNames;
+  if (parentScopedVars != nullptr) {
+    enclosingNames.reserve(parentScopedVars->size());
+    for (const auto& kv : *parentScopedVars) {
+      enclosingNames.push_back(kv.first);
+    }
+  }
+  const std::vector<std::string> boundNames = enclosingParamNamesThen(
+      parentScopedVars != nullptr ? &enclosingNames : nullptr, paramNames);
   std::vector<AstStatement> compiledBody;
-  if (!tryCompileExprToProgram(trimmedBody, ctx, nullptr, nullptr, true, &paramNames, compiledBody)) {
+  if (!tryCompileExprToProgram(trimmedBody, ctx, nullptr, nullptr, true, &boundNames, compiledBody)) {
     return makeScalar(0);
   }
   return runBoundProgram(ctx, compiledBody, &localVars, true);

@@ -3424,7 +3424,7 @@ private sub RunIifRandTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1919) as SmokeCase
+  dim tests(1 to 1946) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -5406,18 +5406,45 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1905).expr = "isnTime=x:isinstance(x, time); isnTime(1:30)": tests(1905).expected = "1"
   tests(1906).expr = "isnTime=x:isinstance(x, time); isnTime(4)": tests(1906).expected = "0"
   tests(1907).expr = "fFlatEmpty()=flat(); fFlatEmpty()": tests(1907).expected = "()"
-  tests(1908).expr = "f(sin)=sin+1; f(2)": tests(1908).expected = "3" ' [udf] parameter shadows builtin
+  tests(1908).expr = "f(sin)=sin+1; f(2)": tests(1908).expectedErrContains = "reserved function name can't be a param name: sin" ' [udf] reserved function param
   tests(1909).expr = "f(x)=x; g(f)=f+1; g(2)": tests(1909).expected = "3" ' [udf] parameter shadows a user function
-  tests(1910).expr = "f(sin)=sin(1); f(2)": tests(1910).expected = "0.8414709848078965" ' [udf] a call is still the builtin
-  tests(1911).expr = "f=sin:sin+1; f(2)": tests(1911).expected = "3" ' [lambda] parameter shadows builtin
+  tests(1910).expr = "f(sin)=sin(1); f(2)": tests(1910).expectedErrContains = "reserved function name can't be a param name: sin" ' [udf] call does not make sin a legal param
+  tests(1911).expr = "f=sin:sin+1; f(2)": tests(1911).expectedErrContains = "reserved function name can't be a param name: sin" ' [lambda] reserved function param
   tests(1912).expr = "f(x)=x; g=f:f+1; g(2)": tests(1912).expected = "3" ' [lambda] parameter shadows a user function
-  tests(1913).expr = "sortby((1,2), sin: -sin)": tests(1913).expected = "(2,1)" ' [lambda] anonymous parameter shadows builtin
+  tests(1913).expr = "sortby((1,2), sin: -sin)": tests(1913).expectedErrContains = "reserved function name can't be a param name: sin" ' [lambda] anonymous reserved function param
   tests(1914).expr = "f(x)=x; sortby((1,2), f: -f)": tests(1914).expected = "(2,1)" ' [lambda] anonymous parameter shadows a user function
-  tests(1915).expr = "filter((1,2), sin: sin+1)": tests(1915).expected = "(1,2)" ' [lambda] filter keeps inputs whose body is truthy
+  tests(1915).expr = "filter((1,2), sin: sin+1)": tests(1915).expectedErrContains = "reserved function name can't be a param name: sin" ' [lambda] anonymous reserved function param
   tests(1916).expr = "f(x)=x; filter((1,2), f: f+1)": tests(1916).expected = "(1,2)" ' [lambda] same with a user-function name
   tests(1917).expr = "filter((), x:())": tests(1917).expectedErrContains = "function body is empty" ' [lambda] empty tuple body rejected at parse
   tests(1918).expr = "sortby((), x:())": tests(1918).expectedErrContains = "function body is empty" ' [lambda] empty tuple body rejected at parse
   tests(1919).expr = "filter((), x:( ))": tests(1919).expectedErrContains = "function body is empty" ' [lambda] whitespace-only tuple body
+  tests(1920).expr = "f=(sin):sin+1": tests(1920).expectedErrContains = "reserved function name can't be a param name: sin"
+  tests(1921).expr = "f(x)=filter((10,20,30), int: int<=x)": tests(1921).expectedErrContains = "reserved function name can't be a param name: int"
+  tests(1922).expr = "f(not)=1": tests(1922).expectedErrContains = "reserved function name can't be a param name: not"
+  tests(1923).expr = "sortby((1,2), (sin): -sin)": tests(1923).expectedErrContains = "reserved function name can't be a param name: sin"
+  tests(1924).expr = "f(ans)=ans+1": tests(1924).expectedErrContains = "reserved built-in variable name: ans"
+  tests(1925).expr = "f=ans:ans+1": tests(1925).expectedErrContains = "reserved built-in variable name: ans"
+  tests(1926).expr = "sortby((1,2), ans: -ans)": tests(1926).expectedErrContains = "reserved built-in variable name: ans"
+  tests(1927).expr = "sortby((1,2), e: -e)": tests(1927).expectedErrContains = "reserved constant name: e"
+  tests(1928).expr = "filter((1,2), pi: pi)": tests(1928).expectedErrContains = "reserved constant name: pi"
+  tests(1929).expr = "sortby((1,2), (e): -e)": tests(1929).expectedErrContains = "reserved constant name: e"
+  tests(1930).expr = "g(x)=x*x; f1(g)=sortby((10,20,30), x: x-g); f1(25)": tests(1930).expected = "(10, 20, 30)"
+  tests(1931).expr = "g(x)=x*x; f1=g:sortby((10,20,30), x: x-g); f1(25)": tests(1931).expected = "(10, 20, 30)"
+  tests(1932).expr = "g(x)=x*x; f1(g)=sortby((10,20,30), x: g-x); f1(0)": tests(1932).expected = "(30, 20, 10)"
+  tests(1933).expr = "g(x)=x*x; f1=g:sortby((10,20,30), x: g-x); f1(0)": tests(1933).expected = "(30, 20, 10)"
+  tests(1934).expr = "g(x)=x*x; f2(g)=filter((10,20,30), x: x<=g); f2(20)": tests(1934).expected = "(10, 20)"
+  tests(1935).expr = "g(x)=x*x; f2=g:filter((10,20,30), x: x<=g); f2(20)": tests(1935).expected = "(10, 20)"
+  tests(1936).expr = "g(x)=x*x; f3(g)=g+g(g); f3(3)": tests(1936).expected = "12"
+  tests(1937).expr = "g(x)=x*x; f3=g:g+g(g); f3(3)": tests(1937).expected = "12"
+  tests(1938).expr = "g(x)=x*x; f4(g)=filter((10,20,30), x: x<=g+g(g)); f4(4)": tests(1938).expected = "(10, 20)"
+  tests(1939).expr = "g(x)=x*x; f4=g:filter((10,20,30), x: x<=g+g(g)); f4(4)": tests(1939).expected = "(10, 20)"
+  tests(1940).expr = "g(x)=x*x; f4(g)=filter((10,20,30), x: x<=g+g(g)); f4(2)": tests(1940).expected = "()"
+  tests(1941).expr = "g(x)=x*x; f4=g:filter((10,20,30), x: x<=g+g(g)); f4(2)": tests(1941).expected = "()"
+  tests(1942).expr = "f(x)=filter((10,20,30), x: x<x); f(100)": tests(1942).expected = "()"
+  tests(1943).expr = "f=x:filter((10,20,30), x: x<x); f(100)": tests(1943).expected = "()"
+  tests(1944).expr = "g(x)=x*x; f(a)=filter((10,20), g: sortby((1), x: a+g)[0]>0); f(3)": tests(1944).expected = "(10, 20)"
+  tests(1945).expr = "g(x)=x*x; f=a:filter((10,20), g: sortby((1), x: a+g)[0]>0); f(3)": tests(1945).expected = "(10, 20)"
+  tests(1946).expr = "filter((1,2), x,x:x)": tests(1946).expectedErrContains = "duplicate parameter name: x"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

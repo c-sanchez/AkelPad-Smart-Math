@@ -263,7 +263,7 @@ private:
       const std::vector<EvalValue>& args) const;
 
   std::string getResultWithBase(RenderBase base) const;
-  const char* getReservedIdentifierError(const std::string& ident) const;
+  std::string getReservedIdentifierError(const std::string& ident) const;
   bool isBareFunctionNameAtExpressionTail(EvalContext& ctx) const;
   bool trySetBareFunctionImmediateCloserError(EvalContext& ctx, const char* identStart) const;
 
@@ -299,7 +299,9 @@ private:
       const Expr& e,
       const std::unordered_map<std::string, EvalValue>* scopedVars,
       EvalValue& out) const;
-  const char* validateUserFunctionDefinitionNames(
+  bool isReservedConstantIdent(const std::string& ident) const;
+  std::string validateParameterNames(const std::vector<std::string>& fnParams) const;
+  std::string validateUserFunctionDefinitionNames(
       const std::string& fnName,
       const std::vector<std::string>& fnParams) const;
   std::string getUserFunctionDefinitionErrorText(
@@ -317,7 +319,7 @@ private:
       const std::string& fnName,
       const std::vector<std::string>& fnParams,
       const std::string& fnExpr);
-  const char* validateAssignmentTargetName(const std::string& ident) const;
+  std::string validateAssignmentTargetName(const std::string& ident) const;
   bool trySetUnknownNameError(const EvalContext& ctx);
   bool tryAppendParsedExpressionStatement(
       EvalContext& ctx,

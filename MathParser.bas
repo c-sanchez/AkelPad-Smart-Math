@@ -217,6 +217,7 @@ const FB_STR_HINT_PREFIX as string = "function: "
 const FB_STR_EXPRESSION_IS_TOO_LONG as string = "expression is too long"
 const FB_STR_EMPTY_STATEMENT as string = "empty statement"
 const FB_STR_RESERVED_FUNCTION_NAME_COLON as string = "reserved function name: "
+const FB_STR_RESERVED_FUNCTION_PARAM_NAME_COLON as string = "reserved function name can't be a param name: "
 const FB_STR_RESERVED_CONSTANT_NAME_COLON as string = "reserved constant name: "
 const FB_STR_RESERVED_BUILTIN_VARIABLE_NAME_COLON as string = "reserved built-in variable name: "
 const FB_STR_DUPLICATE_PARAMETER_NAME_COLON as string = "duplicate parameter name: "
@@ -3449,6 +3450,31 @@ private function TryValidateIdentifierIsNotReserved(byref ident as String, byref
   return TRUE
 end function
 
+private function TryValidateParameterNames(fnParams() as String, byref errText as String) as Boolean
+  if ubound(fnParams) < lbound(fnParams) then return TRUE
+  for iParam as Integer = lbound(fnParams) to ubound(fnParams)
+    if lcase(fnParams(iParam)) = FB_STR_ANS then
+      errText = FB_STR_RESERVED_BUILTIN_VARIABLE_NAME_COLON & fnParams(iParam)
+      return FALSE
+    end if
+    if IsBuiltinConstantName(fnParams(iParam)) then
+      errText = FB_STR_RESERVED_CONSTANT_NAME_COLON & fnParams(iParam)
+      return FALSE
+    end if
+    if IsReservedUserFunctionName(fnParams(iParam)) then
+      errText = FB_STR_RESERVED_FUNCTION_PARAM_NAME_COLON & fnParams(iParam)
+      return FALSE
+    end if
+    for jParam as Integer = iParam + 1 to ubound(fnParams)
+      if fnParams(iParam) = fnParams(jParam) then
+        errText = FB_STR_DUPLICATE_PARAMETER_NAME_COLON & fnParams(iParam)
+        return FALSE
+      end if
+    next jParam
+  next iParam
+  return TRUE
+end function
+
 private function TryValidateUserFunctionDefinitionNames(byref fnName as String, fnParams() as String, byref errText as String) as Boolean
   if IsReservedBuiltinVariableNameForUserFunction(fnName) then
     errText = FB_STR_RESERVED_BUILTIN_VARIABLE_NAME_COLON & fnName
@@ -3457,21 +3483,7 @@ private function TryValidateUserFunctionDefinitionNames(byref fnName as String, 
   if TryValidateIdentifierIsNotReserved(fnName, errText) = FALSE then
     return FALSE
   end if
-  if ubound(fnParams) >= lbound(fnParams) then
-    for iParam as Integer = lbound(fnParams) to ubound(fnParams)
-      if IsBuiltinConstantName(fnParams(iParam)) then
-        errText = FB_STR_RESERVED_CONSTANT_NAME_COLON & fnParams(iParam)
-        return FALSE
-      end if
-      for jParam as Integer = iParam + 1 to ubound(fnParams)
-        if fnParams(iParam) = fnParams(jParam) then
-          errText = FB_STR_DUPLICATE_PARAMETER_NAME_COLON & fnParams(iParam)
-          return FALSE
-        end if
-      next jParam
-    next iParam
-  end if
-  return TRUE
+  return TryValidateParameterNames(fnParams(), errText)
 end function
 
 private function TryGetConstant(byref n as String, byref v as EvalValue) as Boolean
@@ -3520,7 +3532,7 @@ end function
 #ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
 private function TryGetFunctionVariableOverride(byref n as String, byref v as EvalValue) as Boolean
   dim i as Integer
-  for i = 0 to functionVariableCount - 1
+  for i = functionVariableCount - 1 to 0 step -1
     if functionVariableNames(i) = n then
       ValueSetInt64(v, 0)
       return TRUE
@@ -9285,16 +9297,13 @@ end sub
 private sub BindFunctionVariableOverrides(fnParams() as String)
   dim paramCount as Integer = 0
   if ubound(fnParams) >= lbound(fnParams) then paramCount = ubound(fnParams) - lbound(fnParams) + 1
-  if paramCount > 0 then
-    redim functionVariableNames(0 to paramCount - 1)
-    for iParam as Integer = 0 to paramCount - 1
-      functionVariableNames(iParam) = fnParams(lbound(fnParams) + iParam)
-    next iParam
-    functionVariableCount = paramCount
-  else
-    erase functionVariableNames
-    functionVariableCount = 0
-  end if
+  if paramCount <= 0 then exit sub
+  dim nameBase as Integer = functionVariableCount
+  redim preserve functionVariableNames(0 to nameBase + paramCount - 1)
+  for iParam as Integer = 0 to paramCount - 1
+    functionVariableNames(nameBase + iParam) = fnParams(lbound(fnParams) + iParam)
+  next iParam
+  functionVariableCount = nameBase + paramCount
 end sub
 
 private sub RestoreFunctionVariableOverrides(byval savedCount as Integer, savedNames() as String)
@@ -9419,6 +9428,11 @@ private function SyntaxCheckInlineLambdaBody(byref body as string, fnParams() as
 end function
 
 private function TryFinalizeUnaryInlineLambda(fnParams() as string, byref body as string, byref outV as EvalValue, byref expectsUnary as String, byval checkSyntax as Boolean) as Boolean
+  dim nameErr as String
+  if TryValidateParameterNames(fnParams(), nameErr) = FALSE then
+    SetParseError(nameErr)
+    return FALSE
+  end if
   dim pcount as Integer = 0
   if ubound(fnParams) >= lbound(fnParams) then pcount = ubound(fnParams) - lbound(fnParams) + 1
   if pcount <> 1 then
