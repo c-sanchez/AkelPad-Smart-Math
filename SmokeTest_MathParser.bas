@@ -1675,8 +1675,8 @@ private sub RunComplexNumberSupportOptionTests()
     end if
   next txi
 
-  dim cxFmtOk(1 to 9) as String
-  dim cxFmtExpect(1 to 9) as String
+  dim cxFmtOk(1 to 12) as String
+  dim cxFmtExpect(1 to 12) as String
   cxFmtOk(1) = "hex(10+15i)": cxFmtExpect(1) = "0xA+0xFi"
   cxFmtOk(2) = "bin(1+i)": cxFmtExpect(2) = "0b1+i"
   cxFmtOk(3) = "oct(8i)": cxFmtExpect(3) = "0o10i"
@@ -1686,6 +1686,9 @@ private sub RunComplexNumberSupportOptionTests()
   cxFmtOk(7) = "ubin(5+10i)": cxFmtExpect(7) = "0b101+0b1010i"
   cxFmtOk(8) = "hex(-3-4i)": cxFmtExpect(8) = "-0x3-0x4i"
   cxFmtOk(9) = "oct(-8+8i)": cxFmtExpect(9) = "-0o10+0o10i"
+  cxFmtOk(10) = "udec(-1+2i)": cxFmtExpect(10) = "18446744073709551615+2i"
+  cxFmtOk(11) = "dec(-3-4i)": cxFmtExpect(11) = "-3-4i"
+  cxFmtOk(12) = "udec(-3-4i)": cxFmtExpect(12) = "18446744073709551613-4i"
 
   if Parser_TryEvaluateEx("(0xFFFFFFFFFFFFFF + 0x7FFFFFFFFFFFFFi);uhex", r, rt, ia) = FALSE orelse rt <> "0xFFFFFFFFFFFFFF+0x7FFFFFFFFFFFFFi" then
     print "[complex-opt] FAIL: large hex complex uhex -> """ & rt & """ err=" & Parser_GetLastError()
@@ -1765,6 +1768,20 @@ private sub RunComplexNumberSupportOptionTests()
       subPass += 1
     else
       print "[complex-opt] FAIL: hex(1+2.5i) expected integer error, got """ & Parser_GetLastError() & """"
+      subFail += 1
+    end if
+  end if
+
+  if Parser_TryEvaluateEx("dec(1+2.5i)", r, rt, ia) then
+    print "[complex-opt] FAIL: dec(1+2.5i) expected error, got """ & rt & """"
+    subFail += 1
+  else
+    dim errDec as String = lcase(Parser_GetLastError())
+    if instr(errDec, "dec() expects integer values") > 0 then
+      print "[complex-opt] PASS: dec(1+2.5i) -> dec() expects integer values"
+      subPass += 1
+    else
+      print "[complex-opt] FAIL: dec(1+2.5i) expected integer error, got """ & Parser_GetLastError() & """"
       subFail += 1
     end if
   end if
@@ -3424,7 +3441,7 @@ private sub RunIifRandTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1946) as SmokeCase
+  dim tests(1 to 1973) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -5445,6 +5462,35 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1944).expr = "g(x)=x*x; f(a)=filter((10,20), g: sortby((1), x: a+g)[0]>0); f(3)": tests(1944).expected = "(10, 20)"
   tests(1945).expr = "g(x)=x*x; f=a:filter((10,20), g: sortby((1), x: a+g)[0]>0); f(3)": tests(1945).expected = "(10, 20)"
   tests(1946).expr = "filter((1,2), x,x:x)": tests(1946).expectedErrContains = "duplicate parameter name: x"
+
+  ' === dec/udec signed and unsigned decimal digits ===
+  tests(1947).expr = "dec(-10)": tests(1947).expected = "-10"
+  tests(1948).expr = "udec(-10)": tests(1948).expected = "18446744073709551606" ' 2^64-10
+  tests(1949).expr = "dec(-1)": tests(1949).expected = "-1"
+  tests(1950).expr = "udec(-1)": tests(1950).expected = "18446744073709551615" ' 2^64-1
+  tests(1951).expr = "dec(18446744073709551615)": tests(1951).expected = "18446744073709551615"
+  tests(1952).expr = "udec(18446744073709551615)": tests(1952).expected = "18446744073709551615"
+  tests(1953).expr = "dec(-9223372036854775808)": tests(1953).expected = "-9223372036854775808"
+  tests(1954).expr = "udec(-9223372036854775808)": tests(1954).expected = "9223372036854775808" ' 2^63
+  tests(1955).expr = "dec(1.5)": tests(1955).expectedErrContains = "dec() expects integer values"
+  tests(1956).expr = "dec()": tests(1956).expectedErrContains = "expects at least 1 argument"
+  tests(1957).expr = "dec": tests(1957).expectedErrContains = "function: dec(...)"
+  tests(1958).expr = "-10; udec": tests(1958).expected = "18446744073709551606"
+  tests(1959).expr = "dec(())": tests(1959).expected = "()"
+  tests(1960).expr = "udec(1, -1)": tests(1960).expected = "(1, 18446744073709551615)"
+  tests(1961).expr = "dec(inf)": tests(1961).expected = "inf"
+  tests(1962).expr = "udec(-inf)": tests(1962).expected = "-inf"
+  tests(1963).expr = "factorint(40)": tests(1963).expected = "(2**3, 5)"
+  tests(1964).expr = "factorint(40); dec": tests(1964).expected = "(8, 5)"
+  tests(1965).expr = "udec(-1)+1": tests(1965).expected = "0"
+  tests(1966).expr = "hex(1:00)": tests(1966).expectedErrContains = "hex() expects integer values"
+  tests(1967).expr = "oct(1:00)": tests(1967).expectedErrContains = "oct() expects integer values"
+  tests(1968).expr = "bin(1:00)": tests(1968).expectedErrContains = "bin() expects integer values"
+  tests(1969).expr = "uhex(1:00)": tests(1969).expectedErrContains = "uhex() expects integer values"
+  tests(1970).expr = "uoct(1:00)": tests(1970).expectedErrContains = "uoct() expects integer values"
+  tests(1971).expr = "ubin(1:00)": tests(1971).expectedErrContains = "ubin() expects integer values"
+  tests(1972).expr = "dec(1:00)": tests(1972).expectedErrContains = "dec() expects integer values"
+  tests(1973).expr = "udec(1:00)": tests(1973).expectedErrContains = "udec() expects integer values"
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

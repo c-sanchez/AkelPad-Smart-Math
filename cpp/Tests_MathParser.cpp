@@ -5190,6 +5190,37 @@ static const ParityBasicCase kParityBasicFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "isinstance(unpack(5), int)", "1"} ,
     {ParityBasicCase::Kind::ErrorContains, "filter((1,2), isinstance)", "expects a function that takes 1 parameter"} ,
     {ParityBasicCase::Kind::Expected, "fFlatEmpty()=flat(); fFlatEmpty()", "()"} ,
+    {ParityBasicCase::Kind::Expected, "dec(-10)", "-10"} ,
+    {ParityBasicCase::Kind::Expected, "udec(-10)", "18446744073709551606"} ,
+    {ParityBasicCase::Kind::Expected, "dec(-1)", "-1"} ,
+    {ParityBasicCase::Kind::Expected, "udec(-1)", "18446744073709551615"} ,
+    {ParityBasicCase::Kind::Expected, "dec(18446744073709551615)", "18446744073709551615"} ,
+    {ParityBasicCase::Kind::Expected, "udec(18446744073709551615)", "18446744073709551615"} ,
+    {ParityBasicCase::Kind::Expected, "dec(-9223372036854775808)", "-9223372036854775808"} ,
+    {ParityBasicCase::Kind::Expected, "udec(-9223372036854775808)", "9223372036854775808"} ,
+    {ParityBasicCase::Kind::ErrorContains, "dec(1.5)", "dec() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "dec()", "expects at least 1 argument"} ,
+    {ParityBasicCase::Kind::ErrorContains, "dec", "function: dec(...)"} ,
+    {ParityBasicCase::Kind::Expected, "-10; udec", "18446744073709551606"} ,
+    {ParityBasicCase::Kind::Expected, "dec(())", "()"} ,
+    {ParityBasicCase::Kind::Expected, "udec(1, -1)", "(1, 18446744073709551615)"} ,
+    {ParityBasicCase::Kind::Expected, "dec(inf)", "inf"} ,
+    {ParityBasicCase::Kind::Expected, "udec(-inf)", "-inf"} ,
+#if SMARTMATH_FACTORINT
+    {ParityBasicCase::Kind::Expected, "factorint(40)", "(2**3, 5)"} ,
+    {ParityBasicCase::Kind::Expected, "factorint(40); dec", "(8, 5)"} ,
+#endif
+    {ParityBasicCase::Kind::Expected, "udec(-1)+1", "0"} ,
+#if SMARTMATH_TIME_VALUES
+    {ParityBasicCase::Kind::ErrorContains, "hex(1:00)", "hex() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "oct(1:00)", "oct() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "bin(1:00)", "bin() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "uhex(1:00)", "uhex() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "uoct(1:00)", "uoct() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "ubin(1:00)", "ubin() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "dec(1:00)", "dec() expects integer values"} ,
+    {ParityBasicCase::Kind::ErrorContains, "udec(1:00)", "udec() expects integer values"} ,
+#endif
 };
 
 static const ParityBasicCase kParityTimeFromSmokeCases[] = {
@@ -6951,6 +6982,9 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                      {"ubin(5+10i)", "0b101+0b1010i"},
                      {"hex(-3-4i)", "-0x3-0x4i"},
                      {"oct(-8+8i)", "-0o10+0o10i"},
+                     {"udec(-1+2i)", "18446744073709551615+2i"},
+                     {"dec(-3-4i)", "-3-4i"},
+                     {"udec(-3-4i)", "18446744073709551613-4i"},
                      {"1e-15+2i", "1e-015+2i"},
                      {"-1e-15+2i", "-1e-015+2i"},
                  };
@@ -7010,6 +7044,17 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                  std::transform(eh.begin(), eh.end(), eh.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                  if (eh.find("expects integer values") == std::string::npos) {
                    why = std::string("bad error: ") + p.getError();
+                   return false;
+                 }
+                 p.parseAndEvaluate("dec(1+2.5i)");
+                 if (p.getError().empty()) {
+                   why = "dec(1+2.5i): expected error";
+                   return false;
+                 }
+                 eh = p.getError();
+                 std::transform(eh.begin(), eh.end(), eh.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                 if (eh.find("dec() expects integer values") == std::string::npos) {
+                   why = std::string("bad dec error: ") + p.getError();
                    return false;
                  }
                  return true;

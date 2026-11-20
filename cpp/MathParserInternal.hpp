@@ -109,6 +109,8 @@ namespace smartmath_internal {
     Filter,
     Iif,
     IsInstance,
+    Dec,
+    Udec,
     Count
   };
 
@@ -128,6 +130,7 @@ namespace smartmath_internal {
   };
 
   enum class RenderBase {
+    PlainDec = 1, // dec/udec digits; Dec keeps rational and power display
     Dec = 10,
     Hex = 16,
     Oct = 8,
@@ -210,7 +213,7 @@ namespace smartmath_internal {
     /** Only when ``kind`` is InlineLambda (anonymous lambdas inside ``sortby``). */
     std::vector<std::string> lambdaParams;
     std::string lambdaBody;
-    /// When true with hex/oct/bin output, format negative integers as unsigned (two's complement) bit pattern.
+    /// When true with hex/oct/bin/dec output, format negative integers as unsigned (two's complement) bit pattern.
     bool hasExpandArgs() const { return (flags & fExpandArgs) != 0; }
     void setExpandArgs(bool v) { flags = v ? (flags | fExpandArgs) : (flags & ~fExpandArgs); }
     bool hasRenderUnsigned() const { return (flags & fRenderUnsigned) != 0; }

@@ -219,6 +219,8 @@ const smartmath_internal::BuiltinMetaRow kBuiltinMeta[] = {
     { BF::NonCalculating, 2, 2, BHK::ArrayFunc, BC::Filter },  // Filter
     { BF::None, 3, 3, BHK::Iif, BC::Iif },  // Iif
     { BF::None, 2, 2, BHK::IsInstance, BC::IsInstance },  // IsInstance
+    { BF::Format | BF::NonCalculating | BF::TrailingFormatter, 1, kBuiltinArityUnbounded, BHK::DotDotDot, BC::BaseFormat },  // Dec
+    { BF::Format | BF::NonCalculating | BF::TrailingFormatter, 1, kBuiltinArityUnbounded, BHK::DotDotDot, BC::BaseFormat },  // Udec
 };
 #undef BC
 #undef BHK
@@ -260,6 +262,7 @@ constexpr UnaryScalarKind kUnaryScalarKind[static_cast<std::size_t>(BuiltinFunct
   /* Filter */ UnaryScalarKind::None,
   /* Iif */ UnaryScalarKind::None,
   /* IsInstance */ UnaryScalarKind::None,
+  /* Dec Udec */ UnaryScalarKind::None, UnaryScalarKind::None,
 };
 
 static_assert(
@@ -967,6 +970,8 @@ constexpr const char* STR_MAX = "max";
 constexpr const char* STR_UHEX = "uhex";
 constexpr const char* STR_UOCT = "uoct";
 constexpr const char* STR_UBIN = "ubin";
+constexpr const char* STR_DEC = "dec";
+constexpr const char* STR_UDEC = "udec";
 constexpr const char* STR_MILLISECONDS = "milliseconds";
 constexpr const char* STR_SECONDS = "seconds";
 constexpr const char* STR_MINUTES = "minutes";
@@ -1638,12 +1643,20 @@ std::string formatUnsignedBase(std::uint64_t u, unsigned base, const char* prefi
 unsigned renderBaseRadix(int baseCode) {
   if (baseCode == 16) return 16U;
   if (baseCode == 8) return 8U;
+  if (baseCode == static_cast<int>(smartmath_internal::RenderBase::PlainDec) ||
+      baseCode == static_cast<int>(smartmath_internal::RenderBase::Dec)) {
+    return 10U;
+  }
   return 2U;
 }
 
 const char* renderBasePrefix(int baseCode) {
   if (baseCode == 16) return STR_PREFIX_HEX;
   if (baseCode == 8) return STR_PREFIX_OCT;
+  if (baseCode == static_cast<int>(smartmath_internal::RenderBase::PlainDec) ||
+      baseCode == static_cast<int>(smartmath_internal::RenderBase::Dec)) {
+    return "";
+  }
   return STR_PREFIX_BIN;
 }
 
@@ -2695,7 +2708,7 @@ const std::vector<std::string>& functionNames() {
       STR_PRODUCT,      STR_MIN,      STR_MAX,       STR_UHEX,   STR_UOCT,    STR_UBIN,
       STR_MILLISECONDS, STR_SECONDS,  STR_MINUTES,   STR_HOURS,  STR_DAYS,    STR_REAL,
       STR_IMAG,         STR_PHASE,    STR_POLAR,     STR_CART,   STR_CONJ,          STR_FILTER,
-      STR_IIF,      STR_ISINSTANCE
+      STR_IIF,      STR_ISINSTANCE, STR_DEC,       STR_UDEC
   };
   return kNames;
 }
@@ -2924,11 +2937,28 @@ void applyBuiltinFormatRenderMeta(BuiltinFunctionId id, EvalValue& out) {
     out.setRenderBase(RenderBase::Hex);
   } else if (id == BuiltinFunctionId::Oct || id == BuiltinFunctionId::Uoct) {
     out.setRenderBase(RenderBase::Oct);
+  } else if (id == BuiltinFunctionId::Dec || id == BuiltinFunctionId::Udec) {
+    out.setRenderBase(RenderBase::PlainDec);
   } else {
     out.setRenderBase(RenderBase::Bin);
   }
   out.setRenderUnsigned(
-      id == BuiltinFunctionId::Uhex || id == BuiltinFunctionId::Uoct || id == BuiltinFunctionId::Ubin);
+      id == BuiltinFunctionId::Uhex || id == BuiltinFunctionId::Uoct || id == BuiltinFunctionId::Ubin ||
+      id == BuiltinFunctionId::Udec);
+}
+
+void clearBaseFormatIntPowerDisplay(EvalValue& v) {
+#if SMARTMATH_FACTORINT
+  if (v.kind == ValueKind::Array) {
+    for (std::size_t i = 0; i < v.arr.size(); ++i) {
+      v.arr[i].setRenderIntPower(false);
+    }
+  } else if (v.kind == ValueKind::Scalar) {
+    v.scalarValue.setRenderIntPower(false);
+  }
+#else
+  (void)v;
+#endif
 }
 
 bool getBuiltinArity(BuiltinFunctionId id, uint8_t& minArgs, uint8_t& maxArgs) {
@@ -6637,7 +6667,8 @@ std::string formatComplexScalarWithRenderBase(
     tail = STR_I;
   } else {
     EvalValue imTmp = makeScalarInt(absIm);
-    imTmp.setRenderUnsigned(asUnsigned);
+    // Imaginary coefficient stays signed magnitude; unsigned applies to the real part only.
+    imTmp.setRenderUnsigned(false);
     tail = formatScalar(imTmp, base, supportComplexNumbers) + STR_I;
   }
 
@@ -11233,6 +11264,14 @@ bool MathParser::validateBuiltinArgs(
     BuiltinFunctionId id,
     const std::vector<EvalValue>& args) const {
   if (hasBuiltinFlag(id, BuiltinFlags::Format)) {
+#if SMARTMATH_TIME_VALUES
+    for (const EvalValue& arg : args) {
+      if (evalValueInvolvesTime(arg)) {
+        ctx.failCall(CallErrorId::IntegerValues, fnName);
+        return false;
+      }
+    }
+#endif
     return validateIntegerRepresentableArgs(ctx, fnName, args, true);
   }
   if (hasBuiltinFlag(id, BuiltinFlags::IntegerOnly)) {
@@ -12656,6 +12695,7 @@ MathParser::EvalValue MathParser::builtinBaseFormat(
     }
   }
   applyBuiltinFormatRenderMeta(id, out);
+  clearBaseFormatIntPowerDisplay(out);
   return out;
 }
 

@@ -662,6 +662,53 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
   else
     AssertEq("parser-fmt/uhex mixed hex complex", fmt, SMARTMATH_RESULT_PREFIX & "0xFFFFFFFFFFFFFF + 0x7FFFFFFFFFFFFF*i", failCount)
   end if
+  if FormatterTryEvaluateAndFormat("dec(-10)", fmt, raw) = FALSE then
+    print !"[FAIL] parser-fmt/dec(-10) — evaluate failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/dec(-10)", fmt, SMARTMATH_RESULT_PREFIX & "-10", failCount)
+  end if
+  if FormatterTryEvaluateAndFormat("udec(-1)", fmt, raw) = FALSE then
+    print !"[FAIL] parser-fmt/udec(-1) — evaluate failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/udec(-1)", fmt, SMARTMATH_RESULT_PREFIX & "18446744073709551615", failCount)
+  end if
+  if FormatterTryEvaluateAndFormat("factorint(40); dec", fmt, raw) = FALSE then
+    print !"[FAIL] parser-fmt/factorint(40); dec — evaluate failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/factorint(40); dec", fmt, SMARTMATH_RESULT_PREFIX & "(8, 5)", failCount)
+    if raw.kind <> RRK_ARRAY orelse ubound(raw.arr) < 0 orelse raw.arr(0).kind <> RSK_INT64 then
+      print !"[FAIL] parser-fmt/factorint(40); dec — expected int64 digits, not 2**n"
+      failCount += 1
+    end if
+  end if
+  if FormatterTryEvaluateAndFormat("hex(factorint(40))", fmt, raw) = FALSE then
+    print !"[FAIL] parser-fmt/hex(factorint(40)) — evaluate failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/hex(factorint(40))", fmt, SMARTMATH_RESULT_PREFIX & "(0x8, 0x5)", failCount)
+    if raw.kind <> RRK_ARRAY orelse ubound(raw.arr) < 0 orelse raw.arr(0).kind <> RSK_INT64 then
+      print !"[FAIL] parser-fmt/hex(factorint(40)) — expected int64 hex digits, not 2**n"
+      failCount += 1
+    end if
+  end if
+  if FormatterTryEvaluateAndFormat("udec(-1+2i)", fmt, raw) = FALSE then
+    print !"[FAIL] parser-fmt/udec(-1+2i) — evaluate failed"
+    failCount += 1
+  else
+    AssertEq("parser-fmt/udec(-1+2i)", fmt, SMARTMATH_RESULT_PREFIX & "18446744073709551615 + 2*i", failCount)
+  end if
+  if FormatterTryEvaluateAndFormat("hex(1:00)", fmt, raw) then
+    print !"[FAIL] parser-fmt/hex(1:00) — expected integer error, got "; fmt
+    failCount += 1
+  elseif instr(lcase(Parser_GetLastError()), "hex() expects integer values") = 0 then
+    print !"[FAIL] parser-fmt/hex(1:00) — expected integer error, got "; Parser_GetLastError()
+    failCount += 1
+  else
+    print !"[PASS] parser-fmt/hex(1:00) (expected error)"
+  end if
 
   dim bareExpr(1 to 2) as String
   dim bareWant(1 to 2) as String

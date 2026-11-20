@@ -8,7 +8,7 @@ When the inputs flatten to no scalars, the result is `()`. The operation does no
 
 This covers:
 
-- Elementwise functions: trig and hyperbolic, `exp` / `ln` / `log` / `log10`, `pow` / `sqrt` / `sqr` / `hypot`, numeric utilities (`abs`, `sign`, rounding, `frac`, `clamp`, `gcd`, `lcm`, `mod`, `ncr`, `npr`, `fact` / `factorial`), `ratio`, `deg` / `rad`, base formatters (`hex`, `oct`, `bin`, `uhex`, `uoct`, `ubin`), and time converters (`days`, `hours`, `minutes`, `seconds`, `milliseconds`).
+- Elementwise functions: trig and hyperbolic, `exp` / `ln` / `log` / `log10`, `pow` / `sqrt` / `sqr` / `hypot`, numeric utilities (`abs`, `sign`, rounding, `frac`, `clamp`, `gcd`, `lcm`, `mod`, `ncr`, `npr`, `fact` / `factorial`), `ratio`, `deg` / `rad`, base formatters (`hex`, `oct`, `bin`, `dec`, `uhex`, `uoct`, `ubin`, `udec`), and time converters (`days`, `hours`, `minutes`, `seconds`, `milliseconds`).
 - Elementwise operators: `+`, `-`, `*`, `/`, `**`, modulo `%`, bitwise `&` `^` `|` `<<` `>>` `~`, unary `+` and unary `-`. `sin(())`, `()+1`, and `-()` are `()`.
 - Structural functions: `sort` / `sorted`, `sortby`, `filter`, `reverse` / `reversed`, `unique`, `flat`, `unpack`, `repeat`.
 - Reductions: `sum`, `prod` / `product`, `avg` / `mean`, `median`, `variance`, `stddev`, `min`, `max`. `product(())`, `max(())`, and `stddev((), (), ())` are `()`.

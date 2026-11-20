@@ -119,6 +119,8 @@ const FB_STR_MAX as string = "max"
 const FB_STR_UHEX as string = "uhex"
 const FB_STR_UOCT as string = "uoct"
 const FB_STR_UBIN as string = "ubin"
+const FB_STR_DEC as string = "dec"
+const FB_STR_UDEC as string = "udec"
 const FB_STR_NOT as string = "not"
 const FB_STR_AND as string = "and"
 const FB_STR_OR as string = "or"
@@ -153,6 +155,8 @@ const FB_STR_PAR_ANS as string = "(ans)"
 const FB_STR_PREFIX_HEX as string = "0x"
 const FB_STR_PREFIX_OCT as string = "0o"
 const FB_STR_PREFIX_BIN as string = "0b"
+'' Plain decimal digits from dec/udec. 0 and 10 stay the default decimal printer.
+const FB_RENDER_BASE_PLAIN_DEC as Integer = 1
 const FB_STR_ANS as string = "ans"
 const FB_STR_INDEXING_REQUIRES_AN_ARRAY_VALUE as string = "indexing requires an array value"
 const FB_STR_MISSING_INDEX as string = "missing index"
@@ -486,6 +490,8 @@ enum BuiltinFunctionId
   FUNC_FILTER
   FUNC_IIF
   FUNC_ISINSTANCE
+  FUNC_DEC
+  FUNC_UDEC
   FUNC__COUNT
 end enum
 
@@ -639,7 +645,7 @@ type EvalValue
   lambdaBody as String
   unaryFuncErrorCol as Integer
   unaryFuncBodyErrorCol as Integer
-  declare property renderBase() as Integer ' 0=decimal, 16=hex, 8=octal, 2=binary
+  declare property renderBase() as Integer ' 0/10=decimal, 1=plain dec/udec digits, 16=hex, 8=octal, 2=binary
   declare property renderBase(byval v as Integer)
   ' uhex/uoct/ubin: two's complement as unsigned; hex/oct/bin: signed magnitude for negatives
   declare property scalarStorageKind() as Integer
@@ -1344,7 +1350,9 @@ dim shared as BuiltinMetaRow K_BUILTIN_META_ROWS(0 to FUNC__COUNT - 1) = { _
   (BUILTIN_FLAG_UNARY, 1, 1, BHK_VALUE, USK_NONE, BC_UNARY_MATH), _ ' Conj
   (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_ARRAY_FUNC, USK_NONE, BC_FILTER), _ ' Filter
   (0u, 3, 3, BHK_IIF, USK_NONE, BC_IIF), _ ' Iif
-  (0u, 2, 2, BHK_ISINSTANCE, USK_NONE, BC_ISINSTANCE) _ ' IsInstance
+  (0u, 2, 2, BHK_ISINSTANCE, USK_NONE, BC_ISINSTANCE), _ ' IsInstance
+  (BUILTIN_FLAG_FORMAT or BUILTIN_FLAG_NON_CALCULATING or BUILTIN_FLAG_TRAILING_FORMATTER, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_BASE_FORMAT), _ ' Dec
+  (BUILTIN_FLAG_FORMAT or BUILTIN_FLAG_NON_CALCULATING or BUILTIN_FLAG_TRAILING_FORMATTER, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_BASE_FORMAT) _ ' Udec
 }
 
 enum OperatorNameId
@@ -1488,6 +1496,8 @@ private sub EnsureFunctionNames()
   FunctionNames(FUNC_FILTER) = FB_STR_FILTER
   FunctionNames(FUNC_IIF) = FB_STR_IIF
   FunctionNames(FUNC_ISINSTANCE) = FB_STR_ISINSTANCE
+  FunctionNames(FUNC_DEC) = FB_STR_DEC
+  FunctionNames(FUNC_UDEC) = FB_STR_UDEC
   FunctionNamesInitialized = TRUE
 end sub
 
@@ -1630,10 +1640,24 @@ private sub ApplyBuiltinFormatRenderMeta(byval fnId as Integer, byref outV as Ev
     outV.renderBase = 16
   elseif (fnId = FUNC_OCT) orelse (fnId = FUNC_UOCT) then
     outV.renderBase = 8
+  elseif (fnId = FUNC_DEC) orelse (fnId = FUNC_UDEC) then
+    outV.renderBase = FB_RENDER_BASE_PLAIN_DEC
   else
     outV.renderBase = 2
   end if
-  outV.renderUnsigned = (fnId = FUNC_UHEX) orelse (fnId = FUNC_UOCT) orelse (fnId = FUNC_UBIN)
+  outV.renderUnsigned = (fnId = FUNC_UHEX) orelse (fnId = FUNC_UOCT) orelse (fnId = FUNC_UBIN) orelse (fnId = FUNC_UDEC)
+end sub
+
+private sub ClearBaseFormatIntPowerDisplay(byref v as EvalValue)
+  if v.kind = VK_ARRAY then
+    if ubound(v.arr) < lbound(v.arr) then exit sub
+    dim i as Integer
+    for i = lbound(v.arr) to ubound(v.arr)
+      v.arr(i).flags and= not CUInt(SVF_RENDER_INT_POWER)
+    next i
+  elseif v.kind = VK_SCALAR then
+    v.scalarValue.flags and= not CUInt(SVF_RENDER_INT_POWER)
+  end if
 end sub
 
 private function HasBuiltinFlag(byval id as Integer, byval flagMask as UInteger) as Boolean
@@ -2806,10 +2830,15 @@ private function TryApplyScalarPowSpecialPaths(byref leftS as ScalarValue, byref
   return TryApplyRealScalarPowNegFractional(leftS, rightS.scalar, outV)
 end function
 
+private function FormatPlainDecimalUInt64(byval u as ULongInt) as String
+  return ULongIntToString(u)
+end function
+
 private function FormatSignedMagnitudeBase(byval iv as LongInt, byval baseN as Integer, byval asUnsigned as Boolean) as String
   dim prefix as String
   select case baseN
     case 16: prefix = FB_STR_PREFIX_HEX
+    case 10: prefix = ""
     case 8: prefix = FB_STR_PREFIX_OCT
     case else: prefix = FB_STR_PREFIX_BIN
   end select
@@ -2817,6 +2846,7 @@ private function FormatSignedMagnitudeBase(byval iv as LongInt, byval baseN as I
   if asUnsigned then
     select case baseN
       case 16: return prefix & Hex(CULngInt(iv))
+      case 10: return FormatPlainDecimalUInt64(CULngInt(iv))
       case 8: return prefix & Oct(CULngInt(iv))
       case else: return prefix & Bin(CULngInt(iv))
     end select
@@ -2825,6 +2855,7 @@ private function FormatSignedMagnitudeBase(byval iv as LongInt, byval baseN as I
   if iv = FB_I64_MIN then
     select case baseN
       case 16: return "-" & prefix & Hex(FB_I64_MIN_MAG_U)
+      case 10: return "-" & FormatPlainDecimalUInt64(FB_I64_MIN_MAG_U)
       case 8: return "-" & prefix & Oct(FB_I64_MIN_MAG_U)
       case else: return "-" & prefix & Bin(FB_I64_MIN_MAG_U)
     end select
@@ -2832,6 +2863,7 @@ private function FormatSignedMagnitudeBase(byval iv as LongInt, byval baseN as I
   if iv < 0 then
     select case baseN
       case 16: return "-" & prefix & Hex(CULngInt(-iv))
+      case 10: return "-" & FormatPlainDecimalUInt64(CULngInt(-iv))
       case 8: return "-" & prefix & Oct(CULngInt(-iv))
       case else: return "-" & prefix & Bin(CULngInt(-iv))
     end select
@@ -2839,6 +2871,7 @@ private function FormatSignedMagnitudeBase(byval iv as LongInt, byval baseN as I
 
   select case baseN
     case 16: return prefix & Hex(CULngInt(iv))
+    case 10: return FormatPlainDecimalUInt64(CULngInt(iv))
     case 8: return prefix & Oct(CULngInt(iv))
     case else: return prefix & Bin(CULngInt(iv))
   end select
@@ -2909,6 +2942,19 @@ private function TryFormatScalarByRenderBase(byref sv as ScalarValue, byval rend
         return TRUE
       end if
       return FormatBinScalar(sv.scalar, outText, asUnsigned)
+    case FB_RENDER_BASE_PLAIN_DEC
+      if sv.exactUInt64Valid then
+        outText = FormatPlainDecimalUInt64(sv.exactUInt64)
+        return TRUE
+      end if
+      if sv.exactInt64Valid then
+        outText = FormatSignedMagnitudeBase(sv.exactInt64, 10, asUnsigned)
+        return TRUE
+      end if
+      dim ivDec as LongInt
+      if TryGetExactInt64FromDouble(sv.scalar, ivDec) = FALSE then return FALSE
+      outText = FormatSignedMagnitudeBase(ivDec, 10, asUnsigned)
+      return TRUE
     case else
       return FALSE
   end select
@@ -2918,7 +2964,7 @@ end function
 private function TryFormatComplexScalarByRenderBase(byref sv as ScalarValue, byval renderBase as Integer, byval asUnsigned as Boolean, byref outText as String) as Boolean
   if Parser_SupportComplexNumbers = FALSE then return FALSE
   if ScalarHasNonzeroImaginaryPart(sv) = FALSE then return FALSE
-  if renderBase <> 16 andalso renderBase <> 8 andalso renderBase <> 2 then return FALSE
+  if renderBase <> 16 andalso renderBase <> 8 andalso renderBase <> 2 andalso renderBase <> FB_RENDER_BASE_PLAIN_DEC then return FALSE
 
   dim svRe as ScalarValue
   svRe = sv
@@ -2962,7 +3008,8 @@ private function TryFormatComplexScalarByRenderBase(byref sv as ScalarValue, byv
   else
     dim evMag as EvalValue
     ValueSetInt64(evMag, absIm)
-    if TryFormatScalarByRenderBase(evMag.scalarValue, renderBase, asUnsigned, tail) = FALSE then return FALSE
+    '' Imaginary coefficient stays signed magnitude; unsigned applies to the real part only.
+    if TryFormatScalarByRenderBase(evMag.scalarValue, renderBase, FALSE, tail) = FALSE then return FALSE
     tail = tail & FB_STR_I
   end if
 
@@ -8539,6 +8586,13 @@ end function
 
 private function ValidateBuiltinCallArgs(byval fnId as Integer, byref fnName as String, args() as EvalValue) as Boolean
   if HasBuiltinFlag(fnId, BUILTIN_FLAG_FORMAT) then
+    dim argI as Integer
+    for argI = lbound(args) to ubound(args)
+      if EvalValueInvolvesTime(args(argI)) then
+        SetIntegerValuesError(fnName)
+        return FALSE
+      end if
+    next argI
     return ValidateIntegerRepresentableArgs(args(), fnName, TRUE)
   end if
   if HasBuiltinFlag(fnId, BUILTIN_FLAG_INTEGER_ONLY) then
@@ -11083,6 +11137,7 @@ private function TryHandleBuiltinBaseFormat(byval fnId as Integer, byref fnName 
     end if
   end if
   ApplyBuiltinFormatRenderMeta(fnId, outV)
+  ClearBaseFormatIntPowerDisplay(outV)
   return TRUE
 end function
 
