@@ -10352,30 +10352,29 @@ bool timeComparedWithNonFinite(bool lTime, double l, bool rTime, double r) {
   return (lTime || rTime) && ((!lTime && !std::isfinite(l)) || (!rTime && !std::isfinite(r)));
 }
 
-bool tryUnorderedNanComparison(Expr::BinaryOp op, const EvalValue::ScalarValue& l,
-                               const EvalValue::ScalarValue& r, bool useCartesian, EvalValue& out) {
-  bool anyNan = false;
-#if SMARTMATH_COMPLEX_NUMBERS
-  if (useCartesian) {
-    double lr = 0.0;
-    double li = 0.0;
-    double rr = 0.0;
-    double ri = 0.0;
-    scalarLoadCartesian(l, lr, li);
-    scalarLoadCartesian(r, rr, ri);
-    anyNan = std::isnan(lr) || std::isnan(li) || std::isnan(rr) || std::isnan(ri);
-  } else
-#else
-  (void)useCartesian;
-#endif
-  {
-    anyNan = std::isnan(l.scalar) || std::isnan(r.scalar);
-  }
-  if (!anyNan) {
+// IEEE unordered NaN for comparison ops (not sort). Time values skip this check.
+bool scalarPairHasUnorderedNan(const EvalValue::ScalarValue& a, const EvalValue::ScalarValue& b,
+                               bool supportComplex) {
+#if SMARTMATH_TIME_VALUES
+  // Session time flag is enforced by callers; a Time kind still skips NaN unordered.
+  if (a.scalarKind == ScalarKind::Time || b.scalarKind == ScalarKind::Time) {
     return false;
   }
-  out = makeScalarInt(evalComparisonTruthWhenUnorderedNan(op) ? 1LL : 0LL);
-  return true;
+#endif
+#if SMARTMATH_COMPLEX_NUMBERS
+  if (supportComplex) {
+    double ar = 0.0;
+    double ai = 0.0;
+    double br = 0.0;
+    double bi = 0.0;
+    scalarLoadCartesian(a, ar, ai);
+    scalarLoadCartesian(b, br, bi);
+    return std::isnan(ar) || std::isnan(ai) || std::isnan(br) || std::isnan(bi);
+  }
+#else
+  (void)supportComplex;
+#endif
+  return std::isnan(a.scalar) || std::isnan(b.scalar);
 }
 
 }  // namespace
@@ -10473,19 +10472,11 @@ MathParser::EvalValue MathParser::evalExprScalar(
             ctx.fail(ParseErrorId::IncompatibleOperands);
             return makeScalar(0);
           }
-          if (!lTime && !rTime) {
-            EvalValue nanCmp;
-            if (tryUnorderedNanComparison(e.binaryOp, l.scalarValue, r.scalarValue,
-                                          getSupportComplexNumbers() && (lIm || rIm), nanCmp)) {
-              return nanCmp;
-            }
-          }
-          int cmp = 0;
-          if (!cmpScalarValuesForCompare(
-                  &ctx, l.scalarValue, r.scalarValue, cmp, CmpScalarIncompatiblePolicy::SetError)) {
+          EvalValue cmpOut;
+          if (!tryEvalComparisonOp(ctx, e.binaryOp, l, r, cmpOut)) {
             return makeScalar(0);
           }
-          return makeScalarInt(evalComparisonByOp(e.binaryOp, cmp) ? 1LL : 0LL);
+          return cmpOut;
         }
         case Expr::BinaryOp::Pow:
           return evalMappedBinaryOp(ctx, e.binaryOp, l, r);
@@ -10882,21 +10873,13 @@ MathParser::EvalValue MathParser::evalExpr(
             ctx.fail(ParseErrorId::IncompatibleOperands);
             return makeScalar(0);
           }
-          if (!lTime && !rTime)
 #endif
-          {
-            EvalValue nanCmp;
-            if (tryUnorderedNanComparison(e.binaryOp, l.scalarValue, r.scalarValue,
-                                          getSupportComplexNumbers(), nanCmp)) {
-              return std::move(nanCmp);
-            }
-          }
         }
-        int cmp = 0;
-        if (!tryLexicographicCompareEvalValues(ctx, l, r, cmp)) {
+        EvalValue cmpOut;
+        if (!tryEvalComparisonOp(ctx, e.binaryOp, l, r, cmpOut)) {
           return makeScalar(0);
         }
-        return makeScalarInt(evalComparisonByOp(e.binaryOp, cmp) ? 1LL : 0LL);
+        return cmpOut;
       }
       EvalValue l = evalExpr(*e.left, ctx, scopedVars);
       if (ctx.parseError) {
@@ -11971,7 +11954,8 @@ bool MathParser::tryLexicographicCompareEvalValues(
     EvalContext& ctx,
     const EvalValue& a,
     const EvalValue& b,
-    int& cmpOut) const {
+    int& cmpOut,
+    CmpScalarIncompatiblePolicy policy) const {
 #if SMARTMATH_COMPLEX_NUMBERS
   if (!getSupportComplexNumbers()) {
     if (evalValueHasNonzeroImaginary(a) || evalValueHasNonzeroImaginary(b)) {
@@ -11981,13 +11965,6 @@ bool MathParser::tryLexicographicCompareEvalValues(
     }
   }
 #endif
-  if (a.kind == ValueKind::Scalar && b.kind == ValueKind::Scalar) {
-    if (!cmpScalarValuesForCompare(
-            &ctx, a.scalarValue, b.scalarValue, cmpOut, CmpScalarIncompatiblePolicy::SetError)) {
-      return false;
-    }
-    return !ctx.parseError;
-  }
   const auto refAt = [](const EvalValue& v, std::size_t i) -> const EvalValue::ScalarValue& {
     return (v.kind == ValueKind::Scalar) ? v.scalarValue : v.arr[i];
   };
@@ -11996,8 +11973,7 @@ bool MathParser::tryLexicographicCompareEvalValues(
   const std::size_t n = (na < nb) ? na : nb;
   for (std::size_t i = 0; i < n; ++i) {
     int c = 0;
-    if (!cmpScalarValuesForCompare(
-            &ctx, refAt(a, i), refAt(b, i), c, CmpScalarIncompatiblePolicy::SetError)) {
+    if (!cmpScalarValuesForCompare(&ctx, refAt(a, i), refAt(b, i), c, policy)) {
       cmpOut = 0;
       return false;
     }
@@ -12017,6 +11993,59 @@ bool MathParser::tryLexicographicCompareEvalValues(
   } else {
     cmpOut = 0;
   }
+  return true;
+}
+
+bool MathParser::tryEvalComparisonOp(
+    EvalContext& ctx,
+    Expr::BinaryOp op,
+    const EvalValue& a,
+    const EvalValue& b,
+    EvalValue& out) const {
+#if SMARTMATH_COMPLEX_NUMBERS
+  if (!getSupportComplexNumbers()) {
+    if (evalValueHasNonzeroImaginary(a) || evalValueHasNonzeroImaginary(b)) {
+      ctx.fail(ParseErrorId::IncompatibleOperands);
+      return false;
+    }
+  }
+#endif
+  const auto refAt = [](const EvalValue& v, std::size_t i) -> const EvalValue::ScalarValue& {
+    return (v.kind == ValueKind::Scalar) ? v.scalarValue : v.arr[i];
+  };
+  const std::size_t na = (a.kind == ValueKind::Scalar) ? 1U : a.arr.size();
+  const std::size_t nb = (b.kind == ValueKind::Scalar) ? 1U : b.arr.size();
+  const std::size_t n = (na < nb) ? na : nb;
+  const bool supportComplex = getSupportComplexNumbers();
+  for (std::size_t i = 0; i < n; ++i) {
+    const EvalValue::ScalarValue& lsv = refAt(a, i);
+    const EvalValue::ScalarValue& rsv = refAt(b, i);
+    if (scalarPairHasUnorderedNan(lsv, rsv, supportComplex)) {
+      out = makeScalarInt(evalComparisonTruthWhenUnorderedNan(op) ? 1LL : 0LL);
+      return true;
+    }
+    int c = 0;
+    if (!cmpScalarValuesForCompare(
+            &ctx, lsv, rsv, c, CmpScalarIncompatiblePolicy::SetError)) {
+      return false;
+    }
+    if (ctx.parseError) {
+      return false;
+    }
+    if (c != 0) {
+      out = makeScalarInt(evalComparisonByOp(op, c) ? 1LL : 0LL);
+      return true;
+    }
+  }
+  int cmp = 0;
+  if (na < nb) {
+    cmp = -1;
+  } else if (na > nb) {
+    cmp = 1;
+  } else {
+    cmp = 0;
+  }
+  out = makeScalarInt(evalComparisonByOp(op, cmp) ? 1LL : 0LL);
   return true;
 }
 
@@ -12040,7 +12069,8 @@ bool MathParser::sortbyStableSortIndicesFromKeys(
               ctx,
               sortKeys[static_cast<std::size_t>(orderIdx[static_cast<std::size_t>(j)])],
               sortKeys[static_cast<std::size_t>(orderIdx[static_cast<std::size_t>(j - 1)])],
-              cmp)) {
+              cmp,
+              CmpScalarIncompatiblePolicy::SortLess)) {
         return false;
       }
       if (cmp < 0) {

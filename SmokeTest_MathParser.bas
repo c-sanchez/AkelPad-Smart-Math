@@ -3441,7 +3441,7 @@ private sub RunIifRandTests()
 end sub
 
 sub Main()
-  dim tests(1 to 1973) as SmokeCase
+  dim tests(1 to 1988) as SmokeCase
   ' Inline tag legend:
   ' [spec] = intended language behavior (primary contract)
   ' [regression-lock] = current behavior intentionally locked for compatibility
@@ -5491,6 +5491,23 @@ tests(134).expr = "atan2((1,2),3)":   tests(134).expected = "(0.3217505543966422
   tests(1971).expr = "ubin(1:00)": tests(1971).expectedErrContains = "ubin() expects integer values"
   tests(1972).expr = "dec(1:00)": tests(1972).expectedErrContains = "dec() expects integer values"
   tests(1973).expr = "udec(1:00)": tests(1973).expectedErrContains = "udec() expects integer values"
+
+  ' Array/mixed NaN comparisons: IEEE unordered (only != / <> true). [spec] not parser output.
+  tests(1974).expr = "flat(nan)==nan": tests(1974).expected = "0" ' [spec] 1-element array vs scalar nan
+  tests(1975).expr = "flat(nan)==flat(nan)": tests(1975).expected = "0" ' [spec] nan != nan even in arrays
+  tests(1976).expr = "(1,nan)==(1,nan)": tests(1976).expected = "0"
+  tests(1977).expr = "(1,nan)==(nan,1)": tests(1977).expected = "0" ' [spec] positional; nan also unordered
+  tests(1978).expr = "(5,nan)==(nan,-7)": tests(1978).expected = "0"
+  tests(1979).expr = "(1,nan)!=(1,nan)": tests(1979).expected = "1"
+  tests(1980).expr = "flat(nan)!=flat(nan)": tests(1980).expected = "1"
+  tests(1981).expr = "flat(nan)<flat(1)": tests(1981).expected = "0"
+  tests(1982).expr = "flat(nan)<=flat(nan)": tests(1982).expected = "0"
+  tests(1983).expr = "(1,nan)>=(1,2)": tests(1983).expected = "0"
+  tests(1984).expr = "(1,2)==(1,2)": tests(1984).expected = "1" ' [spec] non-nan unchanged
+  tests(1985).expr = "flat(inf)==inf": tests(1985).expected = "1" ' [spec] inf equals itself
+  tests(1986).expr = "f(x)=x; sortby((nan,2,1), f)": tests(1986).expected = "(nan, 1, 2)" ' [spec] NaN keys first like sort (named UDF; works with lambdas off)
+  tests(1987).expr = "f(x)=x; sortby((3,1,nan,2), f)": tests(1987).expected = "(nan, 1, 2, 3)" ' [spec] NaN first, then ascending
+  tests(1988).expr = "f(x)=x; sortby(flat(2:00,1:00,nan,1:30), f)": tests(1988).expected = "(nan, 01:00, 01:30, 02:00)" ' [spec] NaN first, then times by duration
 
   dim uniqueTotal as Integer
   dim duplicateTotal as Integer

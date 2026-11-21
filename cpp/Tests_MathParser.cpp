@@ -1921,6 +1921,55 @@ std::vector<TestCase> buildNanInfCases() {
                  MathParser p;
                  return expectEval(p, "nan>=nan", "0", why);
                }});
+  // Array/mixed NaN: IEEE unordered (only != / <> true). Spec / IEEE, not parser output.
+  t.push_back({"naninf/flat(nan)==nan false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "flat(nan)==nan", "0", why);
+               }});
+  t.push_back({"naninf/flat(nan)==flat(nan) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "flat(nan)==flat(nan)", "0", why);
+               }});
+  t.push_back({"naninf/(1,nan)==(1,nan) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "(1,nan)==(1,nan)", "0", why);
+               }});
+  t.push_back({"naninf/(1,nan)==(nan,1) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "(1,nan)==(nan,1)", "0", why);
+               }});
+  t.push_back({"naninf/(5,nan)==(nan,-7) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "(5,nan)==(nan,-7)", "0", why);
+               }});
+  t.push_back({"naninf/(1,nan)!=(1,nan) true", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "(1,nan)!=(1,nan)", "1", why);
+               }});
+  t.push_back({"naninf/flat(nan)!=flat(nan) true", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "flat(nan)!=flat(nan)", "1", why);
+               }});
+  t.push_back({"naninf/flat(nan)<flat(1) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "flat(nan)<flat(1)", "0", why);
+               }});
+  t.push_back({"naninf/flat(nan)<=flat(nan) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "flat(nan)<=flat(nan)", "0", why);
+               }});
+  t.push_back({"naninf/(1,nan)>=(1,2) false", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "(1,nan)>=(1,2)", "0", why);
+               }});
+  t.push_back({"naninf/(1,2)==(1,2) true", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "(1,2)==(1,2)", "1", why);
+               }});
+  t.push_back({"naninf/flat(inf)==inf true", [](std::string& why) {
+                 MathParser p;
+                 return expectEval(p, "flat(inf)==inf", "1", why);
+               }});
   t.push_back({"naninf/+inf == +inf", [kPosInf](std::string& why) {
                  MathParser p;
                  addConstTracked(p, "x", kPosInf);
@@ -3759,6 +3808,14 @@ std::vector<TestCase> buildSortbyRatioCases() {
                  if (!expectEval(p, "sortby((5,1,5,2,2,9,1), abs)", "(1,1,2,2,5,5,9)", why)) return false;
                  return true;
                }});
+  t.push_back({"sortby/ratio: NaN keys sort first like sort",
+               [](std::string& why) {
+                 MathParser p;
+                 // Named UDF (not a lambda) so this case runs with lambdas compiled out.
+                 if (!expectEval(p, "f(x)=x; sortby((nan,2,1), f)", "(nan,1,2)", why)) return false;
+                 if (!expectEval(p, "f(x)=x; sortby((3,1,nan,2), f)", "(nan,1,2,3)", why)) return false;
+                 return true;
+               }});
   t.push_back({"sortby/ratio: empty array passes through",
                [](std::string& why) {
                  MathParser p;
@@ -3865,6 +3922,13 @@ std::vector<TestCase> buildSortbyRatioCases() {
                  if (!expectEval(p, "sortby(flat(1:30, 91, 89), x: x)", "(89,01:30,91)", why)) return false;
 #endif
                  return true;
+               }});
+  t.push_back({"sortby/ratio: NaN keys with times sort first",
+               [](std::string& why) {
+                 MathParser p;
+                 // Named UDF so this runs with lambdas compiled out. NaN first, then duration order.
+                 return expectEval(p, "f(x)=x; sortby(flat(2:00,1:00,nan,1:30), f)",
+                                  "(nan,01:00,01:30,02:00)", why);
                }});
   t.push_back({"sortby/ratio: UDF divide duration via sortby",
                [](std::string& why) {

@@ -521,11 +521,19 @@ private:
       const std::string& fnName,
       const std::vector<EvalValue>& args,
       const std::unordered_map<std::string, EvalValue>* scopedVars);
+  enum class CmpScalarIncompatiblePolicy { SetError, SortUniqueReturnOne, SortLess, SortGreater };
   bool tryLexicographicCompareEvalValues(
       EvalContext& ctx,
       const EvalValue& a,
       const EvalValue& b,
-      int& cmpOut) const;
+      int& cmpOut,
+      CmpScalarIncompatiblePolicy policy = CmpScalarIncompatiblePolicy::SetError) const;
+  bool tryEvalComparisonOp(
+      EvalContext& ctx,
+      Expr::BinaryOp op,
+      const EvalValue& a,
+      const EvalValue& b,
+      EvalValue& out) const;
   bool sortbyStableSortIndicesFromKeys(
       EvalContext& ctx,
       const std::vector<EvalValue>& sortKeys,
@@ -620,7 +628,6 @@ private:
   bool scalarValueIsTime(const EvalValue::ScalarValue& s) const;
   bool evalValueInvolvesTime(const EvalValue& v) const;
 #endif
-  enum class CmpScalarIncompatiblePolicy { SetError, SortUniqueReturnOne, SortLess, SortGreater };
   bool cmpScalarValuesForCompare(
       EvalContext* ctx,
       const EvalValue::ScalarValue& sa,

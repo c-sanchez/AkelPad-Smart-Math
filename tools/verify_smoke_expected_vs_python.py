@@ -38,6 +38,11 @@ Float agreement uses the same tolerance as ``ScalarCloseEnough`` in
 Smart-Math rules plain Python does not model:
   * ``min`` / ``max`` skip ``nan`` once any non-NaN value is present (NaN is absence).
     ``clamp`` uses the same absence rules for a NaN value or a NaN bound.
+  * Comparisons are lexicographic: a scalar counts as length 1 (``flat(inf)==inf``),
+    and a ``nan`` in a compared element makes the whole compare unordered
+    (only ``!=`` / ``<>`` is true), including ``flat(nan)==flat(nan)`` and
+    ``(1,nan)!=(1,nan)``. Plain Python ``tuple`` equality is wrong here because
+    the ``math.nan`` singleton compares equal to itself by identity.
   * Arrays are flattened as they are built, so a result never contains a nested array.
   * No scalars left yields ``()`` (``sum(())``, ``prod(())``, ``sin(())``), not Python's
     ``sum([]) == 0`` or ``math.prod([]) == 1``. An empty ``range`` span is ``()``,
@@ -1292,26 +1297,85 @@ def dsl_or(a: Any, b: Any) -> int:
     return 1 if dsl_truth(a) or dsl_truth(b) else 0
 
 
-def dsl_cmp(op: str, a: Any, b: Any) -> int:
-    if op == "eq":
-        if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
-            return 0
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            return 1 if close_enough_str(str(a), str(b)) or a == b else 0
-        return 1 if a == b else 0
-    if op == "ne":
-        if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+def _cmp_as_seq(v: Any) -> tuple:
+    """Scalar counts as length 1; arrays stay flat sequences (Smart-Math lex compare)."""
+    if isinstance(v, tuple):
+        flat = _flatten_value(v)
+        return flat if isinstance(flat, tuple) else (flat,)
+    return (v,)
+
+
+def _cmp_pair_unordered_nan(a: Any, b: Any) -> bool:
+    """IEEE unordered NaN for compare ops. Time values skip this (parser parity)."""
+    if isinstance(a, Duration) or isinstance(b, Duration):
+        return False
+    return _has_nan_component(a) or _has_nan_component(b)
+
+
+def _cmp_elements(a: Any, b: Any) -> int:
+    """Three-way compare of one pair (-1 / 0 / 1). Caller already ruled out unordered NaN."""
+    if isinstance(a, Duration) or isinstance(b, Duration):
+        if a < b:
+            return -1
+        if a > b:
             return 1
-        return 1 - dsl_cmp("eq", a, b)
+        return 0
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if close_enough_str(str(a), str(b)) or a == b:
+            return 0
+        if a < b:
+            return -1
+        if a > b:
+            return 1
+        return 0
+    if a == b:
+        return 0
+    if a < b:
+        return -1
+    if a > b:
+        return 1
+    return 0
+
+
+def _cmp_op_truth(op: str, cmp: int) -> int:
+    if op == "eq":
+        return 1 if cmp == 0 else 0
+    if op == "ne":
+        return 1 if cmp != 0 else 0
     if op == "lt":
-        return 1 if a < b else 0
+        return 1 if cmp < 0 else 0
     if op == "le":
-        return 1 if a <= b else 0
+        return 1 if cmp <= 0 else 0
     if op == "gt":
-        return 1 if a > b else 0
+        return 1 if cmp > 0 else 0
     if op == "ge":
-        return 1 if a >= b else 0
+        return 1 if cmp >= 0 else 0
     raise ValueError(op)
+
+
+def dsl_cmp(op: str, a: Any, b: Any) -> int:
+    """
+    Smart-Math comparison: lexicographic over scalars-as-length-1 sequences.
+    A NaN in a compared element makes the whole compare unordered (only ``ne`` true).
+    Do not use plain Python ``tuple`` ``==``: the ``math.nan`` singleton compares
+    equal to itself by identity inside containers.
+    """
+    sa = _cmp_as_seq(a)
+    sb = _cmp_as_seq(b)
+    n = min(len(sa), len(sb))
+    for i in range(n):
+        if _cmp_pair_unordered_nan(sa[i], sb[i]):
+            return 1 if op == "ne" else 0
+        c = _cmp_elements(sa[i], sb[i])
+        if c != 0:
+            return _cmp_op_truth(op, c)
+    if len(sa) < len(sb):
+        cmp = -1
+    elif len(sa) > len(sb):
+        cmp = 1
+    else:
+        cmp = 0
+    return _cmp_op_truth(op, cmp)
 
 
 def dsl_neg(x: Any) -> Any:
