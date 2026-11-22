@@ -79,16 +79,25 @@ def run(args):
 def coder_function_names():
     path = ROOT / "AkelFiles" / "Plugs" / "Coder" / "smartmath.coder"
     names = []
+    in_vars = False
+    in_operators = False
     in_functions = False
     for line in path.read_text(encoding="utf-16").splitlines():
-        stripped = line.strip()
-        if not in_functions:
-            if stripped == "; functions:":
-                in_functions = True
+        stripped_line = line.strip()
+        if not in_vars and stripped_line == "; consts and vars:":
+            in_vars = True
             continue
-        if not stripped or stripped.startswith(";"):
-            break
-        names.append(stripped.split()[-1])
+        if not in_operators and stripped_line == "; operators:":
+            in_operators = True
+            continue
+        if not in_functions and stripped_line == "; functions:":
+            in_functions = True
+            continue
+        if in_vars or in_operators or in_functions:
+            if stripped_line and not stripped_line.startswith(";"):
+                names.append(stripped_line.split()[-1])
+            elif in_functions:
+                break
     if not names:
         sys.exit(f"error: no function names found in {path}")
     return names
