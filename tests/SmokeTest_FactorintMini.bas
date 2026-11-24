@@ -1,4 +1,4 @@
-#include once "Inc\MathParser.bi"
+#include once "..\Inc\MathParser.bi"
 
 sub Main()
   Parser_ClearVariables()

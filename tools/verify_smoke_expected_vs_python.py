@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-check SmokeTest_MathParser.bas numeric *expected* strings against a Python
+Cross-check tests/SmokeTest_MathParser.bas numeric *expected* strings against a Python
 reference (math + statistics + explicit Smart-Math-like rules).
 
 Expressions use the Smart Math surface syntax; we translate a large subset to
@@ -12,7 +12,7 @@ switch to a dedicated reference path:
     ``complex`` arithmetic, then compare after normalizing ``j`` <-> ``i`` spelling.
     Tuple + scalar / tuple * scalar / element-wise tuple/tuple uses the same
     broadcast lowering as the ``RunComplexNumberSupportOptionTests`` block in
-    ``SmokeTest_MathParser.bas``. Table rows are discovered from:
+    ``tests/SmokeTest_MathParser.bas``. Table rows are discovered from:
     ``StemCases``/``StemOk`` + ``StemExpect``; ``StemExpr`` + ``StemExpect`` (with
     ``&`` string concat via ``dim … as String`` constants); ``dim var`` +
     ``Parser_TryEvaluateEx(var,…) orelse rt <> varExpect``; inline literal probes;
@@ -32,7 +32,7 @@ switch to a dedicated reference path:
     enough to mirror the smoke *expected* strings for the time block.
 
 Float agreement uses the same tolerance as ``ScalarCloseEnough`` in
-``SmokeTest_MathParser.bas``:
+``tests/SmokeTest_MathParser.bas``:
   tol = max(256 * eps * max(1, |a|, |b|), 1e-14)
 
 Smart-Math rules plain Python does not model:
@@ -67,7 +67,7 @@ Sources parsed (in addition to ``tests(N)`` rows):
   * Paired ``*Ok``/``*Expect`` and ``*Expr``/``*Expect`` rows anywhere in smoke source
   * ``*Err`` / ``errExprs`` error-probe tables in smoke subs (time, complex, arity, …)
   * Inline ``Parser_TryEvaluateEx(...) orelse rt <> "..."`` numeric probes in smoke subs
-  * All ``Run*Tests`` subs in ``SmokeTest_MathParser.bas`` (paired ``*Ok/*Expect``,
+  * All ``Run*Tests`` subs in ``tests/SmokeTest_MathParser.bas`` (paired ``*Ok/*Expect``,
     ``*Cases/*Expect``, ``*Exprs/*Need``, ``*Expr/*Expect`` with ``&`` concat,
     error tables, inline ``rt <>`` probes)
   * ``RunComplexNumberSupportOptionTests`` (large complex-opt block)
@@ -476,7 +476,7 @@ def _dur_lit_compact(s: str) -> Duration:
 def duration_format_ms(ms: float) -> str:
     """
     Format ``ms`` into Smart-Math-like canonical strings used in smoke tests.
-    Heuristic but tuned to the SmokeTest_MathParser.bas time block.
+    Heuristic but tuned to the tests/SmokeTest_MathParser.bas time block.
     """
     if ms != ms:
         return "nan"
@@ -1008,7 +1008,7 @@ def _format_complex_smoke(z: complex) -> str:
 
 
 def smoke_tol(a: float, b: float) -> float:
-    """Mirror ``ScalarCloseEnough`` in ``SmokeTest_MathParser.bas``."""
+    """Mirror ``ScalarCloseEnough`` in ``tests/SmokeTest_MathParser.bas``."""
     scale = max(1.0, abs(a), abs(b))
     tol = 256.0 * EPS * scale
     if tol < 1e-14:
@@ -1064,7 +1064,7 @@ def _parse_smoke_imag_coeff(im_s: str) -> Optional[float]:
 
 
 def split_complex_text_smoke(s: str) -> Optional[tuple[str, str]]:
-    """Mirror ``SplitComplexText`` in ``SmokeTest_MathParser.bas``."""
+    """Mirror ``SplitComplexText`` in ``tests/SmokeTest_MathParser.bas``."""
     t = s.strip()
     if not t:
         return ("0", "0")
@@ -1821,7 +1821,7 @@ def results_match(
 
 
 def parse_smoke_cases(path: str) -> list[dict]:
-    """Parse tests(N) fields from SmokeTest_MathParser.bas (same-line assignments)."""
+    """Parse tests(N) fields from tests/SmokeTest_MathParser.bas (same-line assignments)."""
     text = open(path, encoding="utf-8", errors="replace").read()
     lines = text.splitlines()
     cases: dict[int, dict] = {}
@@ -1915,7 +1915,7 @@ _RE_RUN_SUB_BODY = re.compile(
     re.MULTILINE,
 )
 
-# SmokeTest_MathParser.bas Run* subs (Main() driver order).
+# tests/SmokeTest_MathParser.bas Run* subs (Main() driver order).
 SMOKE_RUN_SUB_SOURCES: dict[str, str] = {
     "RunRawResultApiTests": "raw_api",
     "RunOperatorPrecedenceDocTests": "precedence_doc",
@@ -2293,7 +2293,7 @@ def _unescape_fb(s: str) -> str:
 
 
 def parse_smoke_sub_array_cases(path: str) -> list[dict]:
-    """``precOk``/``precExpect`` and trig magnitude tables from SmokeTest_MathParser.bas."""
+    """``precOk``/``precExpect`` and trig magnitude tables from tests/SmokeTest_MathParser.bas."""
     text = open(path, encoding="utf-8", errors="replace").read()
     out: list[dict] = []
     seen: set[str] = set()
@@ -2517,7 +2517,7 @@ def _parse_expr_want_rows_in_block(block: str, *, source: str, add_case) -> None
 
 def parse_smoke_run_sub_cases(path: str) -> list[dict]:
     """
-    Parse every ``Run*Tests`` sub in ``SmokeTest_MathParser.bas``: paired tables,
+    Parse every ``Run*Tests`` sub in ``tests/SmokeTest_MathParser.bas``: paired tables,
     error tables, and inline numeric/error probes.
     """
     text = open(path, encoding="utf-8", errors="replace").read()
@@ -5832,7 +5832,7 @@ def main() -> int:
     root = __file__.rsplit("\\", 1)[0]
     if "/" in root and "\\" not in root:
         root = __file__.rsplit("/", 1)[0]
-    bas = root + "/../SmokeTest_MathParser.bas"
+    bas = root + "/../tests/SmokeTest_MathParser.bas"
     band = root + "/neg_band_cases_generated.bas"
     tools_dir = root
     argv = [a for a in sys.argv[1:] if not a.startswith("--")]

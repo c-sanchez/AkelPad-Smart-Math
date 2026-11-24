@@ -2,13 +2,13 @@
 
 Load when **adding or reviewing** test expectations, or when any test fails ("Handling a test mismatch"). Not needed when gates only run and pass (build-gates skill). For complex-domain cases, also read complex-support.
 
-## Coverage in `SmokeTest_MathParser.bas`
+## Coverage in `tests/SmokeTest_MathParser.bas`
 
 - Normal behavior; invalid arity/types; array/scalar combos when arrays apply; variadic min + extra args when applicable.
 - When a function or operator accepts arrays, include `()`. Those expectations come from empty-array-policy and `USAGE_AND_SYNTAX.md`. Python `sum([])` and `math.prod([])` are not the reference. An empty `range` span follows Python and is `()`.
 - 1-arg or variadic functions: one normal single-arg case, one single-arg edge, one overflow/range case when the domain has limits.
 - Regression cases for fixed defects (fix-behavior flow).
-- Match existing naming and assertion style. Mirror equivalent cases into `cpp/Tests_MathParser.cpp` (parity skill).
+- Match existing naming and assertion style. Mirror equivalent cases into `cpp/tests/Tests_MathParser.cpp` (parity skill).
 - The Basic main `tests(1 to N)` table and C++ `expectEval` **skip** a case whose signature duplicates an earlier one. Bump `N` when appending, and check each run's "Detected duplicate cases" count so a new case is not silently skipped.
 - C++ parity rows construct a fresh `MathParser` per case; multi-step state checks (assign, then read) need a dedicated test.
 - Feature flags: time values and lambdas are **on** by default, so ordinary duration and lambda cases belong in the main tables; their option suites (`RunTimeValuesSupportOptionTests`, `RunLambdaFunctionsSupportOptionTests` and the C++ equivalents) are for behavior that depends on the flag. Only complex support is off by default; complex cases follow complex-support isolation. In C++, any case that needs a feature also sits inside that feature's `#if SMARTMATH_*` guard (complex-support flow).
@@ -16,7 +16,7 @@ Load when **adding or reviewing** test expectations, or when any test fails ("Ha
 
 ## External reference for expected values (Required)
 
-Applies to every expectation: `SmokeTest_MathParser.bas`, `cpp/Tests_MathParser.cpp`, generated tables, coverage-audit batches.
+Applies to every expectation: `tests/SmokeTest_MathParser.bas`, `cpp/tests/Tests_MathParser.cpp`, generated tables, coverage-audit batches.
 
 - **Never** seed `expected` from current parser output (`Parser_TryEvaluateEx`, `parseAndEvaluate`, `calc.exe`, probes) — that locks bugs in.
 - Derive expectations from:
@@ -48,7 +48,7 @@ Both tolerant comparators treat an expected `0`, `±1`, or `±inf` strictly, com
 
 ### Generated tables
 
-Both test suites include generated tables: `tools/*_generated*.bas` in `SmokeTest_MathParser.bas`, and `tools/*_generated*.cpp.inc` in `cpp/Tests_MathParser.cpp`. Any `tools/gen_*.py` that calls `NegBandProbe.exe` or `Tests_MathParser.exe --eval` (currently `gen_neg_band_cases.py` and `gen_new_coverage_tests.py`) takes its expectations from **parser output**.
+Both test suites include generated tables: `tools/*_generated*.bas` in `tests/SmokeTest_MathParser.bas`, and `tools/*_generated*.cpp.inc` in `cpp/tests/Tests_MathParser.cpp`. Any `tools/gen_*.py` that calls `NegBandProbe.exe` or `Tests_MathParser.exe --eval` (currently `gen_neg_band_cases.py` and `gen_new_coverage_tests.py`) takes its expectations from **parser output**.
 
 - The generators do not build anything: before regenerating, rebuild `tools/NegBandProbe.exe` (`tools/build_neg_band_probe.bat`) and `cpp/Tests_MathParser.exe` (C++ test build) from the current sources. A missing or stale probe silently gives old-parser output, or falls back to C++.
 - Treat a regeneration as a draft: diff it, and confirm every changed row against Python before committing.

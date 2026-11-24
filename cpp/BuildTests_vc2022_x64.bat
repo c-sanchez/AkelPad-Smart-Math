@@ -19,7 +19,9 @@ call "%VC_ROOT%\Community\VC\Auxiliary\Build\vcvarsall.bat" %VCVARS_ARG%
 goto Building
 
 :Building
-cl /O2 /EHsc %* Tests_MathParser.cpp MathParser.cpp MathParserFactorInt.cpp MathParserRawResult.cpp /Fe:Tests_MathParser.exe
+cl /O2 /EHsc /I. %* tests\Tests_MathParser.cpp MathParser.cpp MathParserFactorInt.cpp MathParserRawResult.cpp /Fe:Tests_MathParser.exe
+if errorlevel 1 goto End
+del /q Tests_MathParser.obj MathParser.obj MathParserFactorInt.obj MathParserRawResult.obj >nul 2>&1
 goto End
 
 :ErrorNoVcVarsAll

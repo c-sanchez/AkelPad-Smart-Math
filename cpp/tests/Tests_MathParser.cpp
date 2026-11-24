@@ -5457,7 +5457,7 @@ static const ParityBasicCase kParityTimeFromSmokeCases[] = {
     {ParityBasicCase::Kind::Expected, "isnTime=x:isinstance(x, time); isnTime(1:30)", "1"} ,
     {ParityBasicCase::Kind::Expected, "isnTime=x:isinstance(x, time); isnTime(4)", "0"} ,
 #endif
-#include "../tools/smoke_parity_append_generated.cpp.inc"
+#include "../../tools/smoke_parity_append_generated.cpp.inc"
 };
 
 std::vector<TestCase> buildParityBasicFromSmokeCases() {
@@ -5847,31 +5847,31 @@ struct NegBandRow {
 };
 
 static const NegBandRow kNegBandRealRows[] = {
-#include "../tools/neg_band_cases_generated.cpp.inc"
+#include "../../tools/neg_band_cases_generated.cpp.inc"
 };
 
 #if SMARTMATH_COMPLEX_NUMBERS
 static const NegBandRow kNegBandComplexRows[] = {
-#include "../tools/neg_band_cases_generated_cx.cpp.inc"
+#include "../../tools/neg_band_cases_generated_cx.cpp.inc"
 };
 #endif
 
 static const NegBandRow kPosBandRealRows[] = {
-#include "../tools/pos_band_cases_generated.cpp.inc"
+#include "../../tools/pos_band_cases_generated.cpp.inc"
 };
 
 #if SMARTMATH_COMPLEX_NUMBERS
 static const NegBandRow kPosBandComplexRows[] = {
-#include "../tools/pos_band_cases_generated_cx.cpp.inc"
+#include "../../tools/pos_band_cases_generated_cx.cpp.inc"
 };
 #endif
 
 static const NegBandRow kFloatMagnitudeRows[] = {
-#include "../tools/float_magnitude_cases_generated.cpp.inc"
+#include "../../tools/float_magnitude_cases_generated.cpp.inc"
 };
 
 static const NegBandRow kComplexCoverageRows[] = {
-#include "../tools/complex_coverage_generated.cpp.inc"
+#include "../../tools/complex_coverage_generated.cpp.inc"
 };
 
 static bool runNegBandRowBatch(MathParser& p, const NegBandRow* rows, std::size_t count, std::string& why) {

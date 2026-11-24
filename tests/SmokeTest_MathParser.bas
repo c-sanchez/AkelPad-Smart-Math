@@ -1,9 +1,9 @@
-#include once "Inc\MathParser.bi"
-#include "tools\neg_band_cases_generated.bas"
-#include "tools\float_magnitude_cases_generated.bas"
-#include "tools\naninf_mirror_generated.bas"
-#include "tools\complex_coverage_generated.bas"
-#include "tools\smoke_parity_append_generated.bas"
+#include once "..\Inc\MathParser.bi"
+#include "..\tools\neg_band_cases_generated.bas"
+#include "..\tools\float_magnitude_cases_generated.bas"
+#include "..\tools\naninf_mirror_generated.bas"
+#include "..\tools\complex_coverage_generated.bas"
+#include "..\tools\smoke_parity_append_generated.bas"
 
 type SmokeCase
   expr as String

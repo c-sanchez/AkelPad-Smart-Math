@@ -10,7 +10,7 @@ echo SmartMath copy normalization tests
 echo ==========================================
 echo.
 echo [1/2] Compiling CopyRegressionTests.exe ...
-fbc "FormatterTest_Globals.bas" "CopyRegressionTests.bas" "SmartMath_CopyNormalize.bas" -x "CopyRegressionTests.exe"
+fbc "tests\FormatterTest_Globals.bas" "tests\CopyRegressionTests.bas" "SmartMath_CopyNormalize.bas" -x "CopyRegressionTests.exe"
 if errorlevel 1 goto :compile_failed
 
 echo.

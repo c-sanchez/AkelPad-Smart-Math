@@ -1,7 +1,7 @@
 ''
 '' Formatter regression tests for SmartMath_Format.bas (link with FormatterTest_Globals.bas + SmartMath_Format.bas).
 ''
-#include once "SmartMath_Globals.bi"
+#include once "..\SmartMath_Globals.bi"
 
 #ifndef LOCALE_SDECIMAL
 const LOCALE_SDECIMAL = &h0000000E

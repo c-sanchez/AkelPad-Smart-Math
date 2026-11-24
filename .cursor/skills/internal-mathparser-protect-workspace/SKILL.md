@@ -14,7 +14,7 @@ Load **before the first edit** to any source file or script you might change.
 
 ## Check
 
-Use `git status` for the **source files and scripts** you will touch: `MathParser*.bas`, `SmokeTest_MathParser.bas`, `cpp/MathParser*.cpp` / `.hpp`, `cpp/Tests_MathParser.cpp`, generated test data (`tools/*_generated*.bas`, `tools/*_generated*.cpp.inc`), other SmartMath/Basic/C++ sources, and scripts (`*.bat`, `tools/*.py`).
+Use `git status` for the **source files and scripts** you will touch: `MathParser*.bas`, `tests/SmokeTest_MathParser.bas` (and other `tests/*.bas`), `cpp/MathParser*.cpp` / `.hpp`, `cpp/tests/Tests_MathParser.cpp`, generated test data (`tools/*_generated*.bas`, `tools/*_generated*.cpp.inc`), other SmartMath/Basic/C++ sources, and scripts (`*.bat`, `tools/*.py`).
 
 Documentation needs no backup: `USAGE_AND_SYNTAX.md`, `README.md`, `docs/`, `changelog.txt`, and `.cursor/` skills, flows, and rules.
 

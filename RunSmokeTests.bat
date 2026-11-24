@@ -20,7 +20,7 @@ echo SmartMath parser smoke tests
 echo ==========================================
 echo.
 echo [1/3] Compiling SmokeTest_MathParser.bas ...
-fbc %FBC_ARCH% -strip -O 2 -Wc -O2 "SmokeTest_MathParser.bas" "MathParser.bas" -x "SmokeTest_MathParser.exe"
+fbc %FBC_ARCH% -strip -O 2 -Wc -O2 "tests\SmokeTest_MathParser.bas" "MathParser.bas" -x "SmokeTest_MathParser.exe"
 if errorlevel 1 goto :compile_failed
 
 echo.

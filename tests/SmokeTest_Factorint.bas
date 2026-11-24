@@ -3,7 +3,7 @@
 ''   SmokeTest_Factorint.exe           - run all cases (may hang without external timeout)
 ''   SmokeTest_Factorint.exe <index>   - run one case (1-based), exit 0 on success else 1
 
-#include once "Inc\MathParser.bi"
+#include once "..\Inc\MathParser.bi"
 
 const FACTORINT_TEST_COUNT as Integer = 29
 

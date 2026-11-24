@@ -23,18 +23,18 @@ Load when deciding which gates apply, immediately before any compile/test run, o
 
 **Formatter / copy test sources** (also trigger formatter/copy regression):
 
-- `FormatterRegressionTests.bas`, `FormatterTest_Globals.bas`, `CopyRegressionTests.bas`
+- `tests/FormatterRegressionTests.bas`, `tests/FormatterTest_Globals.bas`, `tests/CopyRegressionTests.bas`
 
 **Basic smoke triggers** (`RunSmokeTests.bat`):
 
-- `SmokeTest_MathParser.bas` or other Basic test modules
+- `tests/SmokeTest_MathParser.bas` or other Basic test modules under `tests/`
 - `MathParser.bas` or any module it includes (above)
 - generated Basic test data included by the smoke test: `tools/*_generated*.bas`
 - precaution: `SmartMath.bas` / `SmartMath_Format.bas`
 
 **C++ triggers** (`cpp/BuildTests_vc2022_x64.bat` then `cpp/Tests_MathParser.exe`):
 
-- `cpp/MathParser.cpp`, `cpp/MathParser.hpp`, `cpp/MathParserInternal.hpp`, `cpp/MathParserFactorInt.cpp`, `cpp/MathParserRawResult.cpp`, `cpp/Tests_MathParser.cpp`
+- `cpp/MathParser.cpp`, `cpp/MathParser.hpp`, `cpp/MathParserInternal.hpp`, `cpp/MathParserFactorInt.cpp`, `cpp/MathParserRawResult.cpp`, `cpp/tests/Tests_MathParser.cpp`
 - generated C++ test data included by the tests: `tools/*_generated*.cpp.inc`
 - plus any other C++ parser/test source or header under `cpp/`
 
@@ -45,7 +45,7 @@ Load when deciding which gates apply, immediately before any compile/test run, o
 
 **Factorint triggers** (`RunFactorintTimeoutTests.bat`, in addition to smoke):
 
-- `MathParserFactorInt.bas`, `SmokeTest_Factorint.bas`
+- `MathParserFactorInt.bas`, `tests/SmokeTest_Factorint.bas`
 
 **Docs index triggers** (`cpp/CheckDocsFunctionIndex.bat`):
 

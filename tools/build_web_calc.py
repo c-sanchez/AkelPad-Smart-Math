@@ -10,7 +10,7 @@ Output folder (default: tools/_site):
 Usage:
   python tools/build_web_calc.py [--out DIR] [--no-help] [--tests]
 
---tests also builds cpp/Tests_MathParser.cpp with Emscripten into tools/_wasm-tests/
+--tests also builds cpp/tests/Tests_MathParser.cpp with Emscripten into tools/_wasm-tests/
 and runs it with Node.js, so the WebAssembly build of the parser is checked against
 the same tests as the MSVC build.
 em++, pandoc and node are looked up on PATH. The tools this run will
@@ -146,8 +146,8 @@ def build_help(out_dir, pandoc):
 def run_tests(build_dir, emxx, node):
     build_dir.mkdir(parents=True, exist_ok=True)
     test_js = build_dir / "Tests_MathParser.js"
-    sources = [CPP / "Tests_MathParser.cpp"] + [CPP / s for s in PARSER_SOURCES]
-    run([emxx, "-std=c++14", *COMMON_EMCC_FLAGS, "-sENVIRONMENT=node",
+    sources = [CPP / "tests" / "Tests_MathParser.cpp"] + [CPP / s for s in PARSER_SOURCES]
+    run([emxx, "-std=c++14", *COMMON_EMCC_FLAGS, f"-I{CPP}", "-sENVIRONMENT=node",
          *sources, "-o", test_js])
     run([node, test_js])
 
