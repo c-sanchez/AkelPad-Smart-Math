@@ -2,7 +2,7 @@
 #include once "SmartMath_Globals.bi"
 
 #ifdef FORMATTER_TEST_BUILD
-function Parser_FormatTimeMs(byval totalMs as LongInt) as String
+function Parser_FormatTimeMs(byval totalMs as SmInt) as String
   '' Standalone formatter tests: minimal time placeholder (plugin uses MathParser.bas).
   return ltrim(str(totalMs)) & "ms"
 end function
@@ -33,19 +33,6 @@ const LOCALE_SDECIMAL = &h0000000E
 const LOCALE_USER_DEFAULT = &h0400
 #endif
 
-' The highest LongInt value
-const FB_I64_MAX as LongInt = 9223372036854775807
-' The highest LongInt value before multiplying by 10
-const FB_I64_MAX_DIV10 as LongInt = 922337203685477580
-' The maximum allowed digit if LongInt value is exactly equal to the threshold above
-const FB_I64_MAX_MOD10 as LongInt = 7
-
-'' IEEE-754 double masks (little-endian storage; same bit pattern as uint64).
-'' Defined behavior on Win32/Win64 IEEE-754 double layout (plugin targets).
-private const SM_DBL_EXP_MASK as ULongInt = &h7FF0000000000000
-private const SM_DBL_FRAC_MASK as ULongInt = &h000FFFFFFFFFFFFF
-private const SM_DBL_SIGN_MASK as ULongInt = &h8000000000000000
-
 ' UI spellings for non-finite values (parser ValueToString still uses nan/inf/-inf).
 const SM_FMT_NAN as String = "NaN"
 const SM_FMT_INF as String = "Inf"
@@ -56,9 +43,6 @@ private const SM_STR_ZERO_DOT as String = "0."
 private const SM_STR_SCI_ZERO_PAD_EXP as String = "0E+00"
 private const SM_STR_SCI_EXP_SUFFIX as String = "E+00"
 private const SM_STR_EXPLICIT_FLOAT_FRAC_DIGIT as String = "0"
-'' Same bound as MathParser FB_MAX_EXACT_INT_FROM_DOUBLE (2^53).
-private const SM_MAX_EXACT_INT_FROM_DOUBLE as Double = 9007199254740992.0
-private const SM_STR_FMT_SCIENTIFIC_16 as String = "%.15e"
 
 '' Lowercase tokens from parser scalar strings (ValueToString / classification).
 private const SM_TOK_NAN_LC as String = "nan"
@@ -72,12 +56,12 @@ dim shared g_fmtLocaleCacheSerial as Integer = 0
 '  Result Formatting
 ' -----------------------------------------------------------------------------
 
-private function Pow10Cached(byval n as Integer) as Double
-  static powTab(0 to 32) as Double
+private function Pow10Cached(byval n as Integer) as SmFloat
+  static powTab(0 to 32) as SmFloat
   static high as Integer = -1
   if n < 0 then return 1.0
   if n > 32 then
-    dim pFallback as Double = 1.0
+    dim pFallback as SmFloat = 1.0
     dim j as Integer
     for j = 1 to n
       pFallback *= 10.0
@@ -100,15 +84,11 @@ private const SM_NF_NAN as Integer = 1
 private const SM_NF_INF as Integer = 2
 private const SM_NF_NEGINF as Integer = 3
 
-private function ClassifyDoubleNonFinite(byval d as Double) as Integer
-  dim bits as ULongInt = *cast(ULongInt ptr, @d)
-  if (bits and SM_DBL_EXP_MASK) = SM_DBL_EXP_MASK then
-    if (bits and SM_DBL_FRAC_MASK) <> 0 then return SM_NF_NAN
-    if (bits and SM_DBL_SIGN_MASK) <> 0 then return SM_NF_NEGINF
-    return SM_NF_INF
-  end if
-  if d <> d then return SM_NF_NAN
-  if Not (d <= d) then return SM_NF_NAN
+'' No bit layout: CRT _isnan for NaN; infinities lie beyond the largest finite SmFloat.
+private function ClassifyFloatNonFinite(byval d as SmFloat) as Integer
+  if _isnan(d) <> 0 then return SM_NF_NAN
+  if d > SM_FLOAT_MAX then return SM_NF_INF
+  if d < -SM_FLOAT_MAX then return SM_NF_NEGINF
   return SM_NF_NONE
 end function
 
@@ -237,7 +217,7 @@ end sub
 '' The runtime stores it as a single C char in the output, so multi-byte LOCALE_SDECIMAL values
 '' may appear only as their first byte in s; normalize both the full string and that byte.
 '' Downstream logic assumes a single ASCII "." in the mantissa before g_sDecimalSeparator.
-private function FormatWithAsciiDecimal(byval d as Double, byref fmtExpr as String) as String
+private function FormatWithAsciiDecimal(byval d as SmFloat, byref fmtExpr as String) as String
   dim s as String = Format(d, fmtExpr)
   dim threadDec as String
   dim userDec as String
@@ -317,17 +297,17 @@ private function InsertThousandsIntPart(byref intPart as String, byref localThou
 end function
 
 '' Raw %.15e text. FormatNumericValue trims the mantissa and the exponent.
-private function FormatForcedScientific16(byval d as Double) as String
+private function FormatForcedScientific16(byval d as SmFloat) as String
   dim buf as zstring * 64
-  if sprintf(@buf, SM_STR_FMT_SCIENTIFIC_16, d) < 0 then return "0"
+  if sprintf(@buf, SM_FMT_SCIENTIFIC_FULL, d) < 0 then return "0"
   return buf
 end function
 
-private function FormatNumericValue(byval d as Double) as String
+private function FormatNumericValue(byval d as SmFloat) as String
   dim sRes as String
   dim eScanPos as Integer
 
-  dim nfCls as Integer = ClassifyDoubleNonFinite(d)
+  dim nfCls as Integer = ClassifyFloatNonFinite(d)
   if nfCls <> SM_NF_NONE then return NonFiniteTextFromClass(nfCls)
   if d = 0.0 then d = 0.0 '' positive zero (Str/Format(-0.0) may yield "-0")
 
@@ -336,14 +316,14 @@ private function FormatNumericValue(byval d as Double) as String
     eScanPos = IndexOfExponentLetter(sRes)
     '' Above 2^53 a bare integer is not an exact int. Keep the same scientific form as other auto floats.
     if eScanPos = 0 andalso PositionOfNumericDecimal(sRes) = 0 then
-      if d <> 0.0 andalso Abs(d) > SM_MAX_EXACT_INT_FROM_DOUBLE then
+      if d <> 0.0 andalso Abs(d) > SM_MAX_EXACT_INT_FROM_FLOAT then
         sRes = FormatForcedScientific16(d)
         eScanPos = IndexOfExponentLetter(sRes)
       end if
     end if
   else
     dim useScientific as Boolean = FALSE
-    dim ad as Double = Abs(d)
+    dim ad as SmFloat = Abs(d)
 
     if ad > 0 then
       dim leadingZeroDigits as Integer = g_nDecimals \ 2
@@ -351,7 +331,7 @@ private function FormatNumericValue(byval d as Double) as String
         if ad < 1.0 / Pow10Cached(leadingZeroDigits) then useScientific = TRUE
       end if
 
-      dim isInt64Like as Boolean = FALSE
+      dim isSIntLike as Boolean = FALSE
       '
       ' Note: the Formatter must not do this;
       ' instead, rely on the parser to preserve exact integers.
@@ -359,10 +339,10 @@ private function FormatNumericValue(byval d as Double) as String
       ' const I64_MAX_D as Double = 9223372036854775807.0
       ' const I64_MIN_D as Double = -9223372036854775808.0
       ' if d >= I64_MIN_D andalso d <= I64_MAX_D then
-      '   if d = Fix(d) then isInt64Like = TRUE
+      '   if d = Fix(d) then isSIntLike = TRUE
       ' end if
 
-      if isInt64Like = FALSE then
+      if isSIntLike = FALSE then
         if ad >= Pow10Cached(g_nDecimals + 6) then useScientific = TRUE
       end if
     end if
@@ -431,8 +411,8 @@ function AddThousandsSeparator(byref sRes as String) as String
   return sRes
 end function
 
-private function FormatNonFiniteFromDouble(byval d as Double) as String
-  return NonFiniteTextFromClass(ClassifyDoubleNonFinite(d))
+private function FormatNonFiniteFromFloat(byval d as SmFloat) as String
+  return NonFiniteTextFromClass(ClassifyFloatNonFinite(d))
 end function
 
 private function ScanNumericStringChars(byval wantExponent as Boolean, byval wantFracSep as Boolean, byref s as String) as Boolean
@@ -464,8 +444,8 @@ private function ContainsDecimalSepOrExponent(byref s as String) as Boolean
 end function
 
 '' Raw RSK_FLOATING display: append explicit fractional digit when none is shown.
-private function FormatRawFloatingValue(byval d as Double) as String
-  dim nf as String = FormatNonFiniteFromDouble(d)
+private function FormatRawFloatingValue(byval d as SmFloat) as String
+  dim nf as String = FormatNonFiniteFromFloat(d)
   if Len(nf) > 0 then return nf
   dim s as String = FormatNumericValue(d)
   if ContainsDecimalSepOrExponent(s) = FALSE then
@@ -511,9 +491,9 @@ private function FormatRawCartesianComponentText(byref c as RawCartesianScalar) 
   select case c.kind
   case RSK_TIME
     return Parser_FormatTimeMs(c.intValue)
-  case RSK_INT64
+  case RSK_SINT
     return AddThousandsSeparator(ltrim(str(c.intValue)))
-  case RSK_UINT64
+  case RSK_UINT
     return AddThousandsSeparator(ltrim(str(c.uintValue)))
   case RSK_RATIONAL
     if c.ratDen = 1 then return AddThousandsSeparator(ltrim(str(c.ratNum)))
@@ -532,14 +512,14 @@ end function
 
 private function RawCartesianIsZeroForComplexReal(byref c as RawCartesianScalar) as Boolean
   if c.kind = RSK_FLOATING then
-    if Len(FormatNonFiniteFromDouble(c.floatValue)) > 0 then return FALSE
+    if Len(FormatNonFiniteFromFloat(c.floatValue)) > 0 then return FALSE
   end if
   return RawCartesianIsZero(c)
 end function
 
 private function RawCartesianIsNaN(byref c as RawCartesianScalar) as Boolean
   if c.kind <> RSK_FLOATING then return FALSE
-  return FormatNonFiniteFromDouble(c.floatValue) = SM_FMT_NAN
+  return FormatNonFiniteFromFloat(c.floatValue) = SM_FMT_NAN
 end function
 
 private function RawComplexHasNaNComponent(byref s as RawScalar) as Boolean
@@ -609,6 +589,6 @@ function FormatRawEvaluationResult(byref raw as RawResult) as String
   return FormatRawResultForDisplay(raw)
 end function
 
-function FormatResult(byval d as Double) as String
+function FormatResult(byval d as SmFloat) as String
   return SMARTMATH_RESULT_PREFIX & FormatRawFloatingValue(d)
 end function

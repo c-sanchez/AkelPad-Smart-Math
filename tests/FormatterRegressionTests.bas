@@ -2,6 +2,7 @@
 '' Formatter regression tests for SmartMath_Format.bas (link with FormatterTest_Globals.bas + SmartMath_Format.bas).
 ''
 #include once "..\SmartMath_Globals.bi"
+#include once "WidthGenericDecimal.bi"
 
 #ifndef LOCALE_SDECIMAL
 const LOCALE_SDECIMAL = &h0000000E
@@ -79,7 +80,7 @@ private function CountCharAsc(byref s as String, byval chAsc as Integer) as Inte
   return c
 end function
 
-private sub FormatterTestInitRawScalarFloat(byref s as RawScalar, byval v as Double)
+private sub FormatterTestInitRawScalarFloat(byref s as RawScalar, byval v as SmFloat)
   s.kind = RSK_FLOATING
   s.real.kind = RSK_FLOATING
   s.real.floatValue = v
@@ -88,16 +89,16 @@ private sub FormatterTestInitRawScalarFloat(byref s as RawScalar, byval v as Dou
   s.renderUnsigned = FALSE
 end sub
 
-private sub FormatterTestInitRawScalarInt64(byref s as RawScalar, byval v as LongInt)
-  s.kind = RSK_INT64
-  s.real.kind = RSK_INT64
+private sub FormatterTestInitRawScalarSInt(byref s as RawScalar, byval v as SmInt)
+  s.kind = RSK_SINT
+  s.real.kind = RSK_SINT
   s.real.intValue = v
   RawCartesianScalarClear(s.imag)
   s.renderBase = 0
   s.renderUnsigned = FALSE
 end sub
 
-private sub FormatterTestSetRawFloatArray(byref r as RawResult, vals() as Double)
+private sub FormatterTestSetRawFloatArray(byref r as RawResult, vals() as SmFloat)
   RawResultClear(r)
   r.kind = RRK_ARRAY
   dim lb as Integer = lbound(vals)
@@ -109,7 +110,7 @@ private sub FormatterTestSetRawFloatArray(byref r as RawResult, vals() as Double
   next i
 end sub
 
-private sub FormatterTestSetRawInt64Array(byref r as RawResult, vals() as LongInt)
+private sub FormatterTestSetRawSIntArray(byref r as RawResult, vals() as SmInt)
   RawResultClear(r)
   r.kind = RRK_ARRAY
   dim lb as Integer = lbound(vals)
@@ -117,7 +118,7 @@ private sub FormatterTestSetRawInt64Array(byref r as RawResult, vals() as LongIn
   redim r.arr(0 to ub - lb)
   dim i as Integer
   for i = lb to ub
-    FormatterTestInitRawScalarInt64 r.arr(i - lb), vals(i)
+    FormatterTestInitRawScalarSInt r.arr(i - lb), vals(i)
   next i
 end sub
 
@@ -139,8 +140,8 @@ private sub RunArrayDisplayTests(byref failCount as Integer)
   FormatterTestSetup()
   g_sArrayOutputSeparator = ";"
   dim rawFast as RawResult
-  dim intsFast(0 to 1) as LongInt = {10, 20}
-  FormatterTestSetRawInt64Array rawFast, intsFast()
+  dim intsFast(0 to 1) as SmInt = {10, 20}
+  FormatterTestSetRawSIntArray rawFast, intsFast()
   dim rFast as String = FormatTestRawArray(rawFast)
   AssertEq("arr/fast/semicolon elem sep", rFast, SMARTMATH_RESULT_PREFIX & "(10; 20)", failCount)
 
@@ -151,7 +152,7 @@ private sub RunArrayDisplayTests(byref failCount as Integer)
   g_sArrayOutputSeparator = ","
   '' Use values that keep a non-zero fractional part after rounding/trim (avoids all-integer tuple).
   dim rawDot as RawResult
-  dim floatsDot(0 to 2) as Double = {12.345, 1.444, 7.890}
+  dim floatsDot(0 to 2) as SmFloat = {12.345, 1.444, 7.890}
   FormatterTestSetRawFloatArray rawDot, floatsDot()
   dim rDot as String = FormatTestRawArray(rawDot)
   AssertTrue("arr/fixed/dot-dec/has prefix", Left(rDot, Len(SMARTMATH_RESULT_PREFIX)) = SMARTMATH_RESULT_PREFIX, failCount)
@@ -166,7 +167,7 @@ private sub RunArrayDisplayTests(byref failCount as Integer)
   g_sDecimalSeparator = ","
   g_sArrayOutputSeparator = ","
   dim rawThou as RawResult
-  dim floatsThou(0 to 2) as Double = {1024.333, 2048.666, 4096.999}
+  dim floatsThou(0 to 2) as SmFloat = {1024.333, 2048.666, 4096.999}
   FormatterTestSetRawFloatArray rawThou, floatsThou()
   dim rThou as String = FormatTestRawArray(rawThou)
   AssertTrue("arr/thou-comma/thou marks", CountCharAsc(rThou, 39) >= 3, failCount)
@@ -180,7 +181,7 @@ private sub RunArrayDisplayTests(byref failCount as Integer)
   '' Alternate array separator with same numeric styling
   g_sArrayOutputSeparator = "|"
   dim rawPipe as RawResult
-  dim floatsPipe(0 to 1) as Double = {1024.333, 2048.666}
+  dim floatsPipe(0 to 1) as SmFloat = {1024.333, 2048.666}
   FormatterTestSetRawFloatArray rawPipe, floatsPipe()
   dim rPipe as String = FormatTestRawArray(rawPipe)
   AssertTrue("arr/pipe-elem/has pipe-space", InStr(1, rPipe, "| ") > 0, failCount)
@@ -255,8 +256,8 @@ private sub RunSeparatorMatrix(byref failCount as Integer)
           AssertNoSubstr(tag & !"/no double-dec glitch", r, dch & dch, failCount)
 
           dim rawArr as RawResult
-          dim intsArr(0 to 2) as LongInt = {1, 2, 3}
-          FormatterTestSetRawInt64Array rawArr, intsArr()
+          dim intsArr(0 to 2) as SmInt = {1, 2, 3}
+          FormatterTestSetRawSIntArray rawArr, intsArr()
           dim a as String = FormatTestRawArray(rawArr)
           AssertTrue(tag & !"/array has sep", InStr(1, a, ach) > 0, failCount)
         end if
@@ -276,10 +277,10 @@ print !""
 FormatterTestSetup()
 
 '' --- Non-finite ---
-dim nanv as Double
+dim nanv as SmFloat
 nanv = 0.0 / 0.0
-dim pInf as Double = 1.0e200 * 1.0e200
-dim nInf as Double = -pInf
+dim pInf as SmFloat = 1.0e200 * 1.0e200
+dim nInf as SmFloat = -pInf
 
 AssertEq("NaN display", FormatResult(nanv), SMARTMATH_RESULT_PREFIX & FMT_NAN, failures)
 AssertEq("+Inf display", FormatResult(pInf), SMARTMATH_RESULT_PREFIX & FMT_INF, failures)
@@ -316,11 +317,67 @@ AssertTrue("sci uses e", InStr(1, LCase(rSci), "e") > 0, failures)
 
 RunArrayDisplayTests(failures)
 
+'' Inserts sep between every group of three digits counted from the right.
+private function GroupThousandsText(byref digits as String, byref sep as String) as String
+  dim r as String
+  dim n as Integer = len(digits)
+  for i as Integer = 1 to n
+    r &= mid(digits, i, 1)
+    if i < n andalso ((n - i) mod 3) = 0 then r &= sep
+  next i
+  return r
+end function
+
+'' Width-generic display checks: expectations come from independent decimal arithmetic (WidthGenericDecimal.bi).
+private sub RunWidthGenericFormatTests(byref failCount as Integer)
+  dim r as RawResult
+  dim v as SmFloat
+  dim digits as String
+  dim grouped as String
+  dim sci as String
+  dim sciTail as String
+  dim got as String
+
+  '' 2^(mantissa-1) is exactly representable and below the exact limit: integer digits plus ".0".
+  v = SM_MAX_EXACT_INT_FROM_FLOAT / 2
+  digits = WgDecPow2(SM_FLOAT_MANT_DIGITS - 1)
+  grouped = GroupThousandsText(digits, "'")
+  FormatterTestSetup()
+  g_bUseThousandsSeparator = TRUE
+  g_sThousandsSeparator = "'"
+  RawResultClear(r)
+  r.kind = RRK_SCALAR
+  FormatterTestInitRawScalarFloat r.scalar, v
+  AssertEq("width raw float integer-like shows .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & grouped & ".0", failCount)
+
+  FormatterTestSetup()
+  g_nDecimals = -1
+  g_bUseThousandsSeparator = FALSE
+  ApplySeparatorDefaults()
+  RawResultClear(r)
+  r.kind = RRK_SCALAR
+  r.scalar.kind = RSK_COMPLEX
+  r.scalar.real.kind = RSK_FLOATING
+  r.scalar.real.floatValue = v
+  r.scalar.imag.kind = RSK_FLOATING
+  r.scalar.imag.floatValue = 2.0
+  AssertEq("width raw complex float integer-like shows .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & digits & ".0 + 2.0i", failCount)
+
+  '' 2^(mantissa+1) is beyond the exact limit: scientific notation starting with the true leading digits.
+  v = SM_MAX_EXACT_INT_FROM_FLOAT * 2
+  digits = WgDecPow2(SM_FLOAT_MANT_DIGITS + 1)
+  sci = SMARTMATH_RESULT_PREFIX & left(digits, 1) & "." & mid(digits, 2, 3)
+  sciTail = "e+" & str(len(digits) - 1)
+  got = FormatResult(v)
+  AssertTrue("width raw float above exact limit uses scientific", left(got, len(sci)) = sci andalso right(got, len(sciTail)) = sciTail, failCount)
+  if left(got, len(sci)) <> sci orelse right(got, len(sciTail)) <> sciTail then print "    got: [" & got & "] want prefix [" & sci & "] suffix [" & sciTail & "]"
+end sub
+
 private sub RunRawResultFormatTests(byref failCount as Integer)
   FormatterTestSetup()
-  dim nanv as Double
+  dim nanv as SmFloat
   nanv = 0.0 / 0.0
-  dim pInf as Double = 1.0e200 * 1.0e200
+  dim pInf as SmFloat = 1.0e200 * 1.0e200
   dim r as RawResult
   RawResultClear(r)
   r.kind = RRK_SCALAR
@@ -334,9 +391,9 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   RawResultClear(r)
   r.kind = RRK_SCALAR
   r.scalar.kind = RSK_COMPLEX
-  r.scalar.real.kind = RSK_INT64
+  r.scalar.real.kind = RSK_SINT
   r.scalar.real.intValue = 10
-  r.scalar.imag.kind = RSK_INT64
+  r.scalar.imag.kind = RSK_SINT
   r.scalar.imag.intValue = 5
   AssertEq("raw format complex int", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "10 + 5i", failCount)
 
@@ -375,12 +432,13 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   r.arr(0).real.ratNum = 1
   r.arr(0).real.ratDen = 2
   RawCartesianScalarClear(r.arr(0).imag)
-  r.arr(1).kind = RSK_INT64
-  r.arr(1).real.kind = RSK_INT64
+  r.arr(1).kind = RSK_SINT
+  r.arr(1).real.kind = RSK_SINT
   r.arr(1).real.intValue = 3
   RawCartesianScalarClear(r.arr(1).imag)
   AssertEq("raw format array mix", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "(1/2, 3)", failCount)
 
+#ifdef SM_BASELINE_WIDTHS  '' 64-bit / binary64 text; width-generic equivalents: RunWidthGenericFormatTests
   FormatterTestSetup()
   g_bUseThousandsSeparator = TRUE
   g_sThousandsSeparator = "'"
@@ -388,13 +446,15 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   r.kind = RRK_SCALAR
   FormatterTestInitRawScalarFloat r.scalar, 2147483647.0
   AssertEq("raw float integer-like shows .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "2'147'483'647.0", failCount)
+#endif
 
   FormatterTestSetup()
   RawResultClear(r)
   r.kind = RRK_SCALAR
-  FormatterTestInitRawScalarInt64 r.scalar, 2147483647
+  FormatterTestInitRawScalarSInt r.scalar, 2147483647
   AssertEq("raw int64 integer-like no .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "2147483647", failCount)
 
+#ifdef SM_BASELINE_WIDTHS
   FormatterTestSetup()
   g_nDecimals = -1
   g_bUseThousandsSeparator = FALSE
@@ -403,7 +463,9 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   AssertEq("raw float hidden fraction shows .0", FormatResult(4285714285714285.5), SMARTMATH_RESULT_PREFIX & "4285714285714286.0", failCount)
   '' Python format((2**53)*1.1, '.15e') is 9.907919180215092e+15; auto mode strips the padded exponent.
   AssertEq("raw float above 2^53 uses scientific", FormatResult(9007199254740992.0 * 1.1), SMARTMATH_RESULT_PREFIX & "9.907919180215092e+15", failCount)
+#endif
 
+#ifdef SM_BASELINE_WIDTHS
   RawResultClear(r)
   r.kind = RRK_SCALAR
   r.scalar.kind = RSK_COMPLEX
@@ -412,6 +474,7 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
   r.scalar.imag.kind = RSK_FLOATING
   r.scalar.imag.floatValue = 2.0
   AssertEq("raw complex float integer-like shows .0", FormatRawResultForDisplay(r), SMARTMATH_RESULT_PREFIX & "2147483647.0 + 2.0i", failCount)
+#endif
 
   RawResultClear(r)
   r.kind = RRK_ARRAY
@@ -419,6 +482,7 @@ private sub RunRawResultFormatTests(byref failCount as Integer)
 end sub
 
 RunRawResultFormatTests(failures)
+RunWidthGenericFormatTests(failures)
 
 '' --- Locale emulation via SetThreadLocale ---
 dim savedLc as DWORD = GetThreadLocale()
@@ -444,13 +508,13 @@ private function FormatterTryEvaluateAndFormat(byref expr as String, byref fmtOu
   return TRUE
 end function
 
-private sub AssertRawComplexInt64Parts(byref caseName as String, byref raw as RawResult, byref failCount as Integer)
+private sub AssertRawComplexSIntParts(byref caseName as String, byref raw as RawResult, byref failCount as Integer)
   if raw.scalar.kind <> RSK_COMPLEX then
     print !"[FAIL] "; caseName; !" — expected RSK_COMPLEX, kind="; raw.scalar.kind
     failCount += 1
     exit sub
   end if
-  if raw.scalar.real.kind <> RSK_INT64 orelse raw.scalar.imag.kind <> RSK_INT64 then
+  if raw.scalar.real.kind <> RSK_SINT orelse raw.scalar.imag.kind <> RSK_SINT then
     print !"[FAIL] "; caseName; !" — expected int64 real/imag, got re="; raw.scalar.real.kind; !" im="; raw.scalar.imag.kind
     failCount += 1
   else
@@ -458,9 +522,9 @@ private sub AssertRawComplexInt64Parts(byref caseName as String, byref raw as Ra
   end if
 end sub
 
-private sub AssertRawScalarInt64(byref caseName as String, byref raw as RawResult, byref failCount as Integer)
-  if raw.scalar.kind <> RSK_INT64 then
-    print !"[FAIL] "; caseName; !" — expected RSK_INT64 scalar, kind="; raw.scalar.kind
+private sub AssertRawScalarSInt(byref caseName as String, byref raw as RawResult, byref failCount as Integer)
+  if raw.scalar.kind <> RSK_SINT then
+    print !"[FAIL] "; caseName; !" — expected RSK_SINT scalar, kind="; raw.scalar.kind
     failCount += 1
   else
     print !"[PASS] "; caseName; !" raw int64 scalar"
@@ -471,8 +535,8 @@ private sub AssertRawFactorintIntPowerTerm( _
   byref caseName as String, _
   byref raw as RawResult, _
   byval termIdx as Integer, _
-  byval baseV as LongInt, _
-  byval expV as ULongInt, _
+  byval baseV as SmInt, _
+  byval expV as SmUInt, _
   byref failCount as Integer _
 )
   if raw.kind <> RRK_ARRAY then
@@ -679,7 +743,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
     failCount += 1
   else
     AssertEq("parser-fmt/factorint(40); dec", fmt, SMARTMATH_RESULT_PREFIX & "(8, 5)", failCount)
-    if raw.kind <> RRK_ARRAY orelse ubound(raw.arr) < 0 orelse raw.arr(0).kind <> RSK_INT64 then
+    if raw.kind <> RRK_ARRAY orelse ubound(raw.arr) < 0 orelse raw.arr(0).kind <> RSK_SINT then
       print !"[FAIL] parser-fmt/factorint(40); dec — expected int64 digits, not 2**n"
       failCount += 1
     end if
@@ -689,7 +753,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
     failCount += 1
   else
     AssertEq("parser-fmt/hex(factorint(40))", fmt, SMARTMATH_RESULT_PREFIX & "(0x8, 0x5)", failCount)
-    if raw.kind <> RRK_ARRAY orelse ubound(raw.arr) < 0 orelse raw.arr(0).kind <> RSK_INT64 then
+    if raw.kind <> RRK_ARRAY orelse ubound(raw.arr) < 0 orelse raw.arr(0).kind <> RSK_SINT then
       print !"[FAIL] parser-fmt/hex(factorint(40)) — expected int64 hex digits, not 2**n"
       failCount += 1
     end if
@@ -725,7 +789,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
       failCount += 1
     else
       AssertEq(tagBare, fmt, bareWant(bi), failCount)
-      AssertRawComplexInt64Parts(tagBare & "/raw", raw, failCount)
+      AssertRawComplexSIntParts(tagBare & "/raw", raw, failCount)
       AssertNoSubstr(tagBare & "/no-sci", fmt, "e+", failCount)
       AssertNoSubstr(tagBare & "/no-sci", fmt, "e-", failCount)
       AssertNoSubstr(tagBare & "/no-sci", fmt, "E+", failCount)
@@ -755,16 +819,16 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
       AssertNoSubstr(tagFn & "/no-sci", fmt, "e+", failCount)
       AssertNoSubstr(tagFn & "/no-sci", fmt, "e-", failCount)
       if fi = 1 orelse fi = 2 orelse fi = 5 orelse fi = 6 then
-        AssertRawScalarInt64(tagFn & "/raw", raw, failCount)
+        AssertRawScalarSInt(tagFn & "/raw", raw, failCount)
       else
-        AssertRawComplexInt64Parts(tagFn & "/raw", raw, failCount)
+        AssertRawComplexSIntParts(tagFn & "/raw", raw, failCount)
       end if
     end if
   next fi
 
   if FormatterTryEvaluateAndFormat("6*(1/2)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/6*(1/2)", fmt, SMARTMATH_RESULT_PREFIX & "3", failCount)
-    AssertRawScalarInt64("parser-fmt/exact-mul/6*(1/2)/raw", raw, failCount)
+    AssertRawScalarSInt("parser-fmt/exact-mul/6*(1/2)/raw", raw, failCount)
   else
     print !"[FAIL] parser-fmt/exact-mul/6*(1/2) — evaluate failed"
     failCount += 1
@@ -772,7 +836,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("6*(1/3)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/6*(1/3)", fmt, SMARTMATH_RESULT_PREFIX & "2", failCount)
-    AssertRawScalarInt64("parser-fmt/exact-mul/6*(1/3)/raw", raw, failCount)
+    AssertRawScalarSInt("parser-fmt/exact-mul/6*(1/3)/raw", raw, failCount)
   else
     print !"[FAIL] parser-fmt/exact-mul/6*(1/3) — evaluate failed"
     failCount += 1
@@ -800,7 +864,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("0xFFFFFFFFFFFFFFFF*(1/5)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/0xFFFFFFFFFFFFFFFF*(1/5)", fmt, SMARTMATH_RESULT_PREFIX & "3689348814741910323", failCount)
-    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_UINT64 andalso raw.scalar.kind <> RSK_INT64) then
+    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_UINT andalso raw.scalar.kind <> RSK_SINT) then
       print !"[FAIL] parser-fmt/exact-mul/0xFFFFFFFFFFFFFFFF*(1/5)/raw — expected integer scalar"
       failCount += 1
     else
@@ -813,7 +877,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("0x7FFFFFFFFFFFFFFF*(1/7)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/0x7FFFFFFFFFFFFFFF*(1/7)", fmt, SMARTMATH_RESULT_PREFIX & "1317624576693539401", failCount)
-    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_INT64 andalso raw.scalar.kind <> RSK_UINT64) then
+    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_SINT andalso raw.scalar.kind <> RSK_UINT) then
       print !"[FAIL] parser-fmt/exact-mul/0x7FFFFFFFFFFFFFFF*(1/7)/raw — expected integer scalar"
       failCount += 1
     else
@@ -865,7 +929,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("-0x7FFFFFFFFFFFFFFF*(1/7)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/-0x7FFFFFFFFFFFFFFF*(1/7)", fmt, SMARTMATH_RESULT_PREFIX & "-1317624576693539401", failCount)
-    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_INT64 andalso raw.scalar.kind <> RSK_UINT64) then
+    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_SINT andalso raw.scalar.kind <> RSK_UINT) then
       print !"[FAIL] parser-fmt/exact-mul/-0x7FFFFFFFFFFFFFFF*(1/7)/raw — expected integer scalar"
       failCount += 1
     else
@@ -878,7 +942,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("0x7FFFFFFFFFFFFFFF*(-1/7)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/0x7FFFFFFFFFFFFFFF*(-1/7)", fmt, SMARTMATH_RESULT_PREFIX & "-1317624576693539401", failCount)
-    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_INT64 andalso raw.scalar.kind <> RSK_UINT64) then
+    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_SINT andalso raw.scalar.kind <> RSK_UINT) then
       print !"[FAIL] parser-fmt/exact-mul/0x7FFFFFFFFFFFFFFF*(-1/7)/raw — expected integer scalar"
       failCount += 1
     else
@@ -891,7 +955,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("-2**52*(1/2)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/-2**52*(1/2)", fmt, SMARTMATH_RESULT_PREFIX & "-2251799813685248", failCount)
-    AssertRawScalarInt64("parser-fmt/exact-mul/-2**52*(1/2)/raw", raw, failCount)
+    AssertRawScalarSInt("parser-fmt/exact-mul/-2**52*(1/2)/raw", raw, failCount)
   else
     print !"[FAIL] parser-fmt/exact-mul/-2**52*(1/2) — evaluate failed"
     failCount += 1
@@ -899,7 +963,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("2**52*(-1/2)", fmt, raw) then
     AssertEq("parser-fmt/exact-mul/2**52*(-1/2)", fmt, SMARTMATH_RESULT_PREFIX & "-2251799813685248", failCount)
-    AssertRawScalarInt64("parser-fmt/exact-mul/2**52*(-1/2)/raw", raw, failCount)
+    AssertRawScalarSInt("parser-fmt/exact-mul/2**52*(-1/2)/raw", raw, failCount)
   else
     print !"[FAIL] parser-fmt/exact-mul/2**52*(-1/2) — evaluate failed"
     failCount += 1
@@ -933,7 +997,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("1317624576693539401/(1/11)", fmt, raw) then
     AssertEq("parser-fmt/exact-div/1317624576693539401/(1/11)", fmt, SMARTMATH_RESULT_PREFIX & "14493870343628933411", failCount)
-    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_INT64 andalso raw.scalar.kind <> RSK_UINT64) then
+    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_SINT andalso raw.scalar.kind <> RSK_UINT) then
       print !"[FAIL] parser-fmt/exact-div/1317624576693539401/(1/11)/raw — expected integer scalar"
       failCount += 1
     else
@@ -946,7 +1010,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("1317624576693539401/(1/7)", fmt, raw) then
     AssertEq("parser-fmt/exact-div/1317624576693539401/(1/7)", fmt, SMARTMATH_RESULT_PREFIX & "9223372036854775807", failCount)
-    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_INT64 andalso raw.scalar.kind <> RSK_UINT64) then
+    if raw.kind <> RRK_SCALAR orelse (raw.scalar.kind <> RSK_SINT andalso raw.scalar.kind <> RSK_UINT) then
       print !"[FAIL] parser-fmt/exact-div/1317624576693539401/(1/7)/raw — expected integer scalar"
       failCount += 1
     else
@@ -959,7 +1023,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
 
   if FormatterTryEvaluateAndFormat("-1317624576693539401/(1/7)", fmt, raw) then
     AssertEq("parser-fmt/exact-div/-1317624576693539401/(1/7)", fmt, SMARTMATH_RESULT_PREFIX & "-9223372036854775807", failCount)
-    AssertRawScalarInt64("parser-fmt/exact-div/-1317624576693539401/(1/7)/raw", raw, failCount)
+    AssertRawScalarSInt("parser-fmt/exact-div/-1317624576693539401/(1/7)/raw", raw, failCount)
   else
     print !"[FAIL] parser-fmt/exact-div/-1317624576693539401/(1/7) — evaluate failed"
     failCount += 1
@@ -1031,7 +1095,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
       failCount += 1
     else
       AssertEq(tagIniBare, fmt, iniBareWant(bi), failCount)
-      AssertRawComplexInt64Parts(tagIniBare & "/raw", raw, failCount)
+      AssertRawComplexSIntParts(tagIniBare & "/raw", raw, failCount)
       AssertNoSubstr(tagIniBare & "/no-sci", fmt, "e+", failCount)
       AssertNoSubstr(tagIniBare & "/no-sci", fmt, "e-", failCount)
     end if
@@ -1050,7 +1114,7 @@ private sub RunParserFormatterIntegrationTests(byref failCount as Integer)
       failCount += 1
     else
       AssertEq(tagIniFn, fmt, iniFnWant(fi), failCount)
-      AssertRawScalarInt64(tagIniFn & "/raw", raw, failCount)
+      AssertRawScalarSInt(tagIniFn & "/raw", raw, failCount)
       AssertNoSubstr(tagIniFn & "/no-sci", fmt, "e+", failCount)
       AssertNoSubstr(tagIniFn & "/no-sci", fmt, "e-", failCount)
     end if
@@ -1095,7 +1159,9 @@ end sub
 #endif
 
 #ifdef PARSER_FORMATTER_INTEGRATION
+#ifdef SM_BASELINE_WIDTHS  '' the suites expect 64-bit / binary64 text (parser display is covered width-generically by the smoke tests)
 RunParserFormatterIntegrationTests(failures)
+#endif
 #endif
 
 print !""

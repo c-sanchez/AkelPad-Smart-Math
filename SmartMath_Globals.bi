@@ -102,7 +102,7 @@ declare sub LoadSettings()
 declare sub SaveSettings()
 declare function LoadSettings_ActiveFrames(wszActiveFrameFiles() as UShort) as Integer
 declare sub SaveSettings_ActiveFrames(wszActiveFrameFiles() as UShort, byval nLen as Integer)
-declare function FormatResult(byval d as Double) as String
+declare function FormatResult(byval d as SmFloat) as String
 declare function FormatNonFiniteDisplayFromParserScalar(byref s as String) as String
 declare function FormatRawResultForDisplay(byref r as RawResult) as String
 declare function FormatRawEvaluationResult(byref raw as RawResult) as String

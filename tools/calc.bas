@@ -211,7 +211,7 @@ end sub
 private function EvaluateAndPrint(byref expression as String, _
                                   byref errorLabel as const String = "", _
                                   byval lineNumber as Integer = 0) as Boolean
-  dim value as Double
+  dim value as SmFloat
   dim resultText as String
   dim isArray as Boolean
   if Parser_TryEvaluateEx(expression, value, resultText, isArray) then

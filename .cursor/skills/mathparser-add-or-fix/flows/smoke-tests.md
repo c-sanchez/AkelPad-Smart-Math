@@ -22,13 +22,13 @@ Applies to every expectation: `tests/SmokeTest_MathParser.bas`, `cpp/tests/Tests
 - Derive expectations from:
   1. **Python** (`math` / `cmath` / `statistics` / project rules) — prefer `tools/verify_smoke_expected_vs_python.py` when it translates the expression; else a short script.
   2. `USAGE_AND_SYNTAX.md` for intentional project semantics Python does not model (percent postfix, time values, exact-int promotion, error policy). When the docs and Python disagree on plain math, verify by hand and fix whichever is wrong.
-  3. IEEE / exact-integer rules when both are silent (e.g. `nan==nan` → `0`, int64 overflow promotion).
+  3. IEEE / exact-integer rules when both are silent (e.g. `nan==nan` → `0`, SmInt overflow promotion).
 - After setting expectations, run both harnesses and handle every failure with "Handling a test mismatch" below.
 
 ### Expected string format
 
 - **Floats:** C++ prints `'%.16g'` with the exponent padded to at least 3 digits. Convert Python accordingly: `'%.16g' % x` gives `1e-05` → write `1e-005`; `1.5e+20` → `1.5e+020`. Basic (FreeBASIC `str()`) matches except on exact decimal ties (parity skill), which is a floating-point display difference under "Handling a test mismatch"; keep tie inputs such as `1e15+0.5` out of exact-string tables.
-- **Exact integers** (int64/uint64 metadata) print every digit, not `%.16g` (`2**63` → `9223372036854775808`).
+- **Exact integers** (SmInt/SmUInt metadata) print every digit, not `%.16g` (`2**63` → `9223372036854775808`).
 - **Non-finite:** `nan`, `inf`, `-inf`.
 - **Complex:** real and imaginary parts each formatted as above, joined by `+`/`-`, suffix `i`; a zero part is omitted (`2i`, `3`); a unit coefficient prints as `i` / `-i` (`1+i`, `-i`).
 - **Special display rules** override `%.16g` where documented. Rules that differ between Basic and C++ (the `±2^63` cases) are listed in the parity skill's known differences and use tolerant comparison.
@@ -42,7 +42,7 @@ Applies to every expectation: `tests/SmokeTest_MathParser.bas`, `cpp/tests/Tests
 
 Both tolerant comparators treat an expected `0`, `±1`, or `±inf` strictly, compare complex results (last character `i`) part by part, and compare array results element by element with the same rules. Keep the two comparators identical; a change to one is a mirrored harness change. Limits to keep in mind when choosing where a case goes:
 
-- The tolerance compares numeric values only. Near `2^53` it spans about ±32, and an exact integer equals a float with the same double value (`9223372036854775808` matches `9.223372036854776e+018`). Exact-integer results that must be checked digit for digit (int64/uint64 metadata, values above `2^53`) belong in an exact-string table or are checked through `hex` / `uhex`.
+- The tolerance compares numeric values only. Near `2^53` it spans about ±32, and an exact integer equals a float with the same double value (`9223372036854775808` matches `9.223372036854776e+018`). Exact-integer results that must be checked digit for digit (SmInt/SmUInt metadata, values above `2^53`) belong in an exact-string table or are checked through `hex` / `uhex`.
 - The tolerance is relative, so tiny values are checked as strictly as large ones (`1e-20` does not match `5e-20`, and `1e-20` does not match `0`); they belong in tolerant tables like any float.
 - Exact-string tables are only for display/format checks (exponent width, base prefix, separators, duration, rational form) and digit-exact integers. Do not put general float results there: a last-digit floating-point difference would fail them (see "Handling a test mismatch").
 

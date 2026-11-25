@@ -30,12 +30,12 @@ C++ also compiles features in or out: `SMARTMATH_COMPLEX_NUMBERS`, `SMARTMATH_TI
 
 Treat real-only and complex-enabled behavior as one design surface. Apply both directions unless semantics truly differ (document why in code/tests).
 
-- **Real → complex:** fixes, policies, and helpers on a real-only path (exact-int verification after `sqr`, float vs int64 export, non-finite handling, domain errors such as `log(0, b)`) are reused or mirrored on the complex path when complex mode can hit the same case. Prefer one shared helper; complex-only wrappers must not weaken rules the real path enforces.
+- **Real → complex:** fixes, policies, and helpers on a real-only path (exact-int verification after `sqr`, float vs SmInt export, non-finite handling, domain errors such as `log(0, b)`) are reused or mirrored on the complex path when complex mode can hit the same case. Prefer one shared helper; complex-only wrappers must not weaken rules the real path enforces.
 - **Complex → real:** fixes on a complex path are checked on the real-only path for purely real operands (imag = 0). Do not leave real-only code on an older divergent branch.
 - **`deg` and `rad` stay real-only** when complex support is on. Do not scale both components. A nonzero imaginary part is `incompatible operands`. `deg(pi)` stays `180` and `rad(180)` stays `pi`.
 
 ### Before finishing
 
 - Name the real dispatch and the complex dispatch (if any), and the shared helpers or the documented asymmetry.
-- Exact int64 on one side and float on the other for the same numeric situation is a bug unless tests lock different semantics. A part whose magnitude is greater than `MAX_MAGNITUDE` is not that situation: do not promote the double so the sides match.
-- Mirror display-kind expectations (`RSK_INT64` vs `RSK_FLOATING`) in Basic, C++, and formatter/raw-export tests when affected.
+- Exact SmInt on one side and float on the other for the same numeric situation is a bug unless tests lock different semantics. A part whose magnitude is greater than `MAX_MAGNITUDE` is not that situation: do not promote the double so the sides match.
+- Mirror display-kind expectations (`RSK_SINT` vs `RSK_FLOATING`) in Basic, C++, and formatter/raw-export tests when affected.

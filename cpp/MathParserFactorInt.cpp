@@ -4,77 +4,89 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <type_traits>
 #include <vector>
 
 #if SMARTMATH_FACTORINT
 
-using smartmath_internal::gcdUInt64;
+using smartmath::SmFloat;
+using smartmath::SmInt;
+using smartmath::SmUInt;
+using smartmath::kIntMax;
+using smartmath::kIntMin;
+using smartmath::kIntMinMag;
+using smartmath_internal::gcdUInt;
 using smartmath_internal::makeScalar;
 using smartmath_internal::makeScalarInt;
 using smartmath_internal::setFactorintPowerTerm;
 using smartmath_internal::setFactorintTermValue;
-using smartmath_internal::tryExtractExactInt64FromDoubleStrict;
-using smartmath_internal::tryPowUInt64Checked;
+using smartmath_internal::tryExtractExactSIntFromFloatStrict;
+using smartmath_internal::tryPowUIntChecked;
 using smartmath_internal::EvalValue;
 using smartmath_internal::ValueKind;
 
 namespace smartmath_internal {
 void setFactorintTermValue(
     EvalValue::ScalarValue& sv,
-    long long signedValueI,
-    std::uint64_t valueU,
+    SmInt signedValueI,
+    SmUInt valueU,
     bool hasUIntValue) {
   sv.setRenderIntPower(false);
-  sv.imagExactInt64 = 0;
-  sv.imagExactUInt64 = 0;
+  sv.imagExactSInt = 0;
+  sv.imagExactUInt = 0;
   if (hasUIntValue) {
-    sv.scalar = static_cast<double>(valueU);
-    sv.setExactUInt64Valid(true);
-    sv.exactUInt64 = valueU;
-    if (valueU <= static_cast<std::uint64_t>(std::numeric_limits<long long>::max())) {
-      sv.setExactInt64Valid(true);
-      sv.exactInt64 = static_cast<long long>(valueU);
+    sv.scalar = static_cast<SmFloat>(valueU);
+    sv.setExactUIntValid(true);
+    sv.exactUInt = valueU;
+    if (valueU <= static_cast<SmUInt>(kIntMax)) {
+      sv.setExactSIntValid(true);
+      sv.exactSInt = static_cast<SmInt>(valueU);
     } else {
-      sv.setExactInt64Valid(false);
-      sv.exactInt64 = 0;
+      sv.setExactSIntValid(false);
+      sv.exactSInt = 0;
     }
-    sv.scalarKind = ScalarKind::UInt64;
+    sv.scalarKind = ScalarKind::UInt;
     return;
   }
-  sv.scalar = static_cast<double>(signedValueI);
-  sv.setExactInt64Valid(true);
-  sv.exactInt64 = signedValueI;
+  sv.scalar = static_cast<SmFloat>(signedValueI);
+  sv.setExactSIntValid(true);
+  sv.exactSInt = signedValueI;
   if (signedValueI >= 0) {
-    sv.setExactUInt64Valid(true);
-    sv.exactUInt64 = static_cast<std::uint64_t>(signedValueI);
+    sv.setExactUIntValid(true);
+    sv.exactUInt = static_cast<SmUInt>(signedValueI);
   } else {
-    sv.setExactUInt64Valid(false);
-    sv.exactUInt64 = 0;
+    sv.setExactUIntValid(false);
+    sv.exactUInt = 0;
   }
-  sv.scalarKind = ScalarKind::Int64;
+  sv.scalarKind = ScalarKind::SInt;
 }
 
 void setFactorintPowerTerm(
     EvalValue::ScalarValue& sv,
-    std::uint64_t baseU,
+    SmUInt baseU,
     int expV,
-    long long signedValueI,
-    std::uint64_t valueU,
+    SmInt signedValueI,
+    SmUInt valueU,
     bool hasUIntValue) {
   setFactorintTermValue(sv, signedValueI, valueU, hasUIntValue);
   if (expV <= 1) {
     return;
   }
   sv.setRenderIntPower(true);
-  long long displayBase = static_cast<long long>(baseU);
+  SmInt displayBase = static_cast<SmInt>(baseU);
   if (signedValueI < 0 &&
-      baseU <= static_cast<std::uint64_t>(std::numeric_limits<long long>::max())) {
-    displayBase = -static_cast<long long>(baseU);
+      baseU <= static_cast<SmUInt>(kIntMax)) {
+    displayBase = -static_cast<SmInt>(baseU);
   }
-  sv.imagExactInt64 = displayBase;
-  sv.imagExactUInt64 = static_cast<std::uint64_t>(expV);
+  sv.imagExactSInt = displayBase;
+  sv.imagExactUInt = static_cast<SmUInt>(expV);
 }
 }  // namespace smartmath_internal
+
+// SM_FIXED_WIDTH_BEGIN: the factorization algorithm works on a fixed 64-bit domain (deterministic Miller-Rabin
+// bases and mulmod are proven/implemented for it), independent of SmUInt. Wider SmUInt inputs are rejected
+// in builtinFactorint; narrower ones always fit.
+using FactorUInt = std::uint64_t;
 
 struct FactorintPrimeEntry {
   std::uint64_t baseU = 0;
@@ -82,6 +94,8 @@ struct FactorintPrimeEntry {
 };
 
 namespace {
+
+constexpr const char* STR_FACTORINT_INPUT_LIMITED_TO_64_BITS = " input is limited to 64 bits";
 
 constexpr int kFactorintPollardMaxOuter = 48;
 constexpr int kFactorintRhoMaxIters = 400000;
@@ -394,7 +408,7 @@ std::uint64_t pollardRhoU64(std::uint64_t n) {
       if (diff == 0u) {
         continue;
       }
-      d = gcdUInt64(diff, n);
+      d = gcdUInt(diff, n);
       if (d == n) {
         y = x;
         d = 1;
@@ -555,75 +569,89 @@ void sortFactorintEntries(std::vector<FactorintPrimeEntry>& entries) {
   entries.resize(w);
 }
 }  // namespace
+// SM_FIXED_WIDTH_END
+
+namespace {
+// True when a SmUInt value is beyond the 64-bit factorization domain. Tag dispatch keeps the always-false
+// 64-bit configuration free of constant-condition warnings (the build is C++14: no if constexpr).
+template <typename U>
+bool exceedsFactorDomain(U v, std::true_type) {
+  return v > static_cast<U>(~static_cast<FactorUInt>(0));
+}
+template <typename U>
+bool exceedsFactorDomain(U, std::false_type) {
+  return false;
+}
+}  // namespace
 
 bool MathParser::tryGetFactorintInput(
     const EvalValue& v,
     bool& isNegative,
-    std::uint64_t& absU) const {
+    SmUInt& absU) const {
   if (v.kind != ValueKind::Scalar) {
     return false;
   }
   const auto& sv = v.scalarValue;
-  if (sv.hasExactInt64()) {
-    const long long iv = sv.exactInt64;
+  if (sv.hasExactSInt()) {
+    const SmInt iv = sv.exactSInt;
     if (iv < 0) {
       isNegative = true;
-      if (iv == std::numeric_limits<long long>::min()) {
-        absU = 9223372036854775808ull;
+      if (iv == kIntMin) {
+        absU = kIntMinMag;
       } else {
-        absU = static_cast<std::uint64_t>(-iv);
+        absU = static_cast<SmUInt>(-iv);
       }
       return true;
     }
     isNegative = false;
-    absU = static_cast<std::uint64_t>(iv);
+    absU = static_cast<SmUInt>(iv);
     return true;
   }
-  if (sv.hasExactUInt64() || sv.scalarKind == ScalarKind::UInt64) {
+  if (sv.hasExactUInt() || sv.scalarKind == ScalarKind::UInt) {
     isNegative = false;
-    absU = sv.exactUInt64;
+    absU = sv.exactUInt;
     return true;
   }
-  long long li = 0;
-  if (!tryExtractExactInt64FromDoubleStrict(sv.scalar, li)) {
+  SmInt li = 0;
+  if (!tryExtractExactSIntFromFloatStrict(sv.scalar, li)) {
     return false;
   }
   if (li < 0) {
     isNegative = true;
-    if (li == std::numeric_limits<long long>::min()) {
-      absU = 9223372036854775808ull;
+    if (li == kIntMin) {
+      absU = kIntMinMag;
     } else {
-      absU = static_cast<std::uint64_t>(-li);
+      absU = static_cast<SmUInt>(-li);
     }
     return true;
   }
   isNegative = false;
-  absU = static_cast<std::uint64_t>(li);
+  absU = static_cast<SmUInt>(li);
   return true;
 }
 
 void appendFactorintScalarTerm(
     std::vector<EvalValue::ScalarValue>& out,
-    std::uint64_t baseU,
+    SmUInt baseU,
     int expV,
     bool& applySign) {
-  std::uint64_t valueU = baseU;
-  if (expV > 1 && !tryPowUInt64Checked(baseU, static_cast<std::uint64_t>(expV), valueU)) {
+  SmUInt valueU = baseU;
+  if (expV > 1 && !tryPowUIntChecked(baseU, static_cast<SmUInt>(expV), valueU)) {
     return;
   }
-  const std::uint64_t kInt64MaxU = static_cast<std::uint64_t>(std::numeric_limits<long long>::max());
-  long long signedI = 0;
+  const SmUInt kSIntMaxU = static_cast<SmUInt>(kIntMax);
+  SmInt signedI = 0;
   bool hasUInt = false;
   if (applySign) {
     applySign = false;
     // A negative input has magnitude <= 2^63, so the signed term always fits.
-    signedI = (valueU == (1ull << 63))
-        ? (std::numeric_limits<long long>::min)()
-        : -static_cast<long long>(valueU);
-  } else if (valueU > kInt64MaxU) {
+    signedI = (valueU == kIntMinMag)
+        ? kIntMin
+        : -static_cast<SmInt>(valueU);
+  } else if (valueU > kSIntMaxU) {
     hasUInt = true;
   } else {
-    signedI = static_cast<long long>(valueU);
+    signedI = static_cast<SmInt>(valueU);
   }
   EvalValue::ScalarValue sv{};
   if (expV > 1) {
@@ -636,7 +664,7 @@ void appendFactorintScalarTerm(
 
 EvalValue buildFactorintFromAbsU(
     bool isNegative,
-    std::uint64_t absU) {
+    SmUInt absU) {
   EvalValue outV{};
   std::vector<EvalValue::ScalarValue> terms;
   if (absU == 0u) {
@@ -649,7 +677,7 @@ EvalValue buildFactorintFromAbsU(
     terms.push_back(std::move(sv));
   } else {
     std::vector<FactorintPrimeEntry> entries;
-    factorizeU64IntoEntries(absU, entries);
+    factorizeU64IntoEntries(static_cast<FactorUInt>(absU), entries);
     if (entries.empty()) {
       return makeScalar(0);
     }
@@ -657,7 +685,7 @@ EvalValue buildFactorintFromAbsU(
     for (std::size_t ei = 0; ei < entries.size(); ++ei) {
       bool applySign = isNegative && ei == 0;
       appendFactorintScalarTerm(
-          terms, entries[ei].baseU, static_cast<int>(entries[ei].expV), applySign);
+          terms, static_cast<SmUInt>(entries[ei].baseU), static_cast<int>(entries[ei].expV), applySign);
     }
   }
   if (terms.empty()) {
@@ -682,9 +710,14 @@ MathParser::EvalValue MathParser::builtinFactorint(
     return makeScalar(0);
   }
   bool isNegative = false;
-  std::uint64_t absU = 0;
+  SmUInt absU = 0;
   if (!tryGetFactorintInput(args[0], isNegative, absU)) {
     ctx.failCall(CallErrorId::IntegerValues, fnName);
+    return makeScalar(0);
+  }
+  // The factorization domain is 64 bits (see FactorUInt). Only a wider SmUInt can exceed it.
+  if (exceedsFactorDomain(absU, std::integral_constant<bool, (sizeof(SmUInt) > sizeof(FactorUInt))>())) {
+    ctx.fail(fnName + STR_FACTORINT_INPUT_LIMITED_TO_64_BITS);
     return makeScalar(0);
   }
   EvalValue out = buildFactorintFromAbsU(isNegative, absU);

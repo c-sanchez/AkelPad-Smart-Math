@@ -9,10 +9,10 @@ void MathParser::RawResult::CartesianScalar::clear() {
 
 bool MathParser::RawResult::CartesianScalar::isZero() const {
   switch (kind) {
-  case ScalarKind::Int64:
+  case ScalarKind::SInt:
   case ScalarKind::Time:
     return intValue == 0;
-  case ScalarKind::UInt64:
+  case ScalarKind::UInt:
     return uintValue == 0;
   case ScalarKind::Rational:
 #if SMARTMATH_FACTORINT

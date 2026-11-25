@@ -7,13 +7,14 @@
 #include <unordered_map>
 #include <vector>
 
+#include "MathParserTypes.hpp"
 #include "MathParserInternal.hpp"
 
 class MathParser {
 public:
   struct RawResult {
     enum class Kind { None, Scalar, Array };
-    enum class ScalarKind { FloatingPoint, Int64, UInt64, Rational,
+    enum class ScalarKind { FloatingPoint, SInt, UInt, Rational,
 #if SMARTMATH_FACTORINT
                             IntPower,
 #endif
@@ -23,12 +24,12 @@ public:
     struct CartesianScalar {
       ScalarKind kind = ScalarKind::FloatingPoint;
       union {
-        double floatingPoint;    // FloatingPoint
-        long long intValue;      // Int64 and Time (total milliseconds)
-        std::uint64_t uintValue; // UInt64
+        smartmath::SmFloat floatingPoint;    // FloatingPoint
+        smartmath::SmInt intValue;      // SInt and Time (total milliseconds)
+        smartmath::SmUInt uintValue; // UInt
         struct {
-          long long numerator;       // Rational numerator; IntPower base
-          std::uint64_t denominator; // Rational denominator; IntPower exponent
+          smartmath::SmInt numerator;       // Rational numerator; IntPower base
+          smartmath::SmUInt denominator; // Rational denominator; IntPower exponent
         } rational;
       };
 
@@ -38,8 +39,8 @@ public:
       bool isZero() const;
 
       bool isFloatingPoint() const { return kind == ScalarKind::FloatingPoint; }
-      bool isInt64() const { return kind == ScalarKind::Int64; }
-      bool isUInt64() const { return kind == ScalarKind::UInt64; }
+      bool isSInt() const { return kind == ScalarKind::SInt; }
+      bool isUInt() const { return kind == ScalarKind::UInt; }
       bool isRational() const { return kind == ScalarKind::Rational; }
 #if SMARTMATH_FACTORINT
       bool isIntPower() const { return kind == ScalarKind::IntPower; }
@@ -58,8 +59,8 @@ public:
 
       bool isComplex() const { return kind == ScalarKind::Complex; }
       bool isFloatingPoint() const { return !isComplex() && real.isFloatingPoint(); }
-      bool isInt64() const { return !isComplex() && real.isInt64(); }
-      bool isUInt64() const { return !isComplex() && real.isUInt64(); }
+      bool isSInt() const { return !isComplex() && real.isSInt(); }
+      bool isUInt() const { return !isComplex() && real.isUInt(); }
       bool isRational() const { return !isComplex() && real.isRational(); }
       bool isTime() const { return !isComplex() && real.isTime(); }
     };
@@ -111,8 +112,8 @@ public:
   void setSupportLambdaFunctions(bool enabled);
   bool getSupportLambdaFunctions() const;
 
-  void addConst(const std::string& constName, long long intValue);
-  void addConst(const std::string& constName, double dblValue);
+  void addConst(const std::string& constName, smartmath::SmInt intValue);
+  void addConst(const std::string& constName, smartmath::SmFloat dblValue);
   std::string addUserFunction(const std::string& mathExpression);
 
 private:
@@ -130,7 +131,7 @@ private:
   using ScalarKind = smartmath_internal::ScalarKind;
   using RenderBase = smartmath_internal::RenderBase;
   using EvalValue = smartmath_internal::EvalValue;
-  using ExactSignedInt64Policy = smartmath_internal::ExactSignedInt64Policy;
+  using ExactSignedIntPolicy = smartmath_internal::ExactSignedIntPolicy;
   using ScalarExactKind = smartmath_internal::ScalarExactKind;
   using ExactCartesianComponent = smartmath_internal::ExactCartesianComponent;
 
@@ -334,9 +335,9 @@ private:
     bool hasStart = false;
     bool hasStop = false;
     bool hasStep = false;
-    long long startIdx = 0;
-    long long stopIdx = 0;
-    long long stepIdx = 1;
+    smartmath::SmInt startIdx = 0;
+    smartmath::SmInt stopIdx = 0;
+    smartmath::SmInt stepIdx = 1;
   };
   bool tryEvalSliceBounds(
       EvalContext& ctx,
@@ -358,7 +359,7 @@ private:
       const EvalValue& right,
       char op) const;
 #endif
-  bool rejectInt64BinaryOperands(
+  bool RejectSIntBinaryOperands(
       EvalContext& ctx,
       const EvalValue& left,
       const EvalValue& right,
@@ -370,7 +371,7 @@ private:
       const std::vector<EvalValue>& args,
       bool rejectComplexOperands,
       bool numericErrorOnMapFailure) const;
-  bool acceptProducedItemCount(EvalContext& ctx, const std::string& fnName, std::uint64_t count) const;
+  bool acceptProducedItemCount(EvalContext& ctx, const std::string& fnName, smartmath::SmUInt count) const;
 
   bool tryCompileSingleExpressionProgram(EvalContext& ctx, std::vector<AstStatement>& out);
   bool parseProgram(EvalContext& ctx, std::vector<AstStatement>& out);
@@ -428,7 +429,7 @@ private:
       bool rhsIsDirectPostfixPercent,
       const EvalValue& left,
       EvalValue& right) const;
-  EvalValue evalInt64BinaryOp(
+  EvalValue evalSIntBinaryOp(
       EvalContext& ctx,
       const EvalValue& left,
       const EvalValue& right,
@@ -567,7 +568,7 @@ private:
       EvalContext& ctx,
       const std::string& fnName,
       const std::vector<EvalValue>& args) const;
-  bool tryGetFactorintInput(const EvalValue& v, bool& isNegative, std::uint64_t& absU) const;
+  bool tryGetFactorintInput(const EvalValue& v, bool& isNegative, smartmath::SmUInt& absU) const;
 #endif
   EvalValue builtinDegRad(
       EvalContext& ctx,
@@ -638,16 +639,16 @@ private:
   bool rejectBuiltinArgsWithComplexImaginary(EvalContext& ctx, const std::vector<EvalValue>& args) const;
 #endif
 #if SMARTMATH_TIME_VALUES
-  bool scalarMsForCompare(const EvalValue::ScalarValue& sv, long long& outMs) const;
+  bool scalarMsForCompare(const EvalValue::ScalarValue& sv, smartmath::SmInt& outMs) const;
   EvalValue mapTimeUnitOverArray(
       EvalContext& ctx,
       const std::string& fnName,
       BuiltinFunctionId id,
       const EvalValue& inV) const;
-  EvalValue evalValueFromTimeMs(BuiltinFunctionId id, long long ms) const;
+  EvalValue evalValueFromTimeMs(BuiltinFunctionId id, smartmath::SmInt ms) const;
 #endif
   bool tryUnaryComplexBuiltinSupport(BuiltinFunctionId id, const EvalValue::ScalarValue& sv, EvalValue& out) const;
-  /** Unary minus with exact int/uint preservation; LLONG_MIN -> double. */
+  /** Unary minus with exact int/uint preservation; the most negative SmInt -> SmFloat. */
 
 #if SMARTMATH_TIME_VALUES
   bool tryApplyTimeBinaryScalars(
@@ -672,7 +673,7 @@ private:
 
 namespace smartmath_internal {
 
-MathParser::RawResult::CartesianScalar rawCartesianAssignReducedRational(long long num, std::uint64_t den);
+MathParser::RawResult::CartesianScalar rawCartesianAssignReducedRational(smartmath::SmInt num, smartmath::SmUInt den);
 MathParser::RawResult::CartesianScalar toRawCartesianScalar(const EvalValue::ScalarValue& v, bool imagPart);
 MathParser::RawResult::Scalar toRawScalar(const EvalValue::ScalarValue& v);
 MathParser::RawResult toRawResult(const EvalValue& v);

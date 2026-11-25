@@ -2,6 +2,12 @@
 #ifndef __MATHPARSER_FACTORINT_BODY__
 #define __MATHPARSER_FACTORINT_BODY__
 
+'' SM_FIXED_WIDTH_BEGIN: the factorization algorithm works on a fixed 64-bit domain (deterministic Miller-Rabin
+'' bases and mulmod are proven/implemented for it), independent of SmUInt. Wider SmUInt inputs are rejected in
+'' TryApplyFactorint; narrower ones always fit.
+type FactorUInt as ULongInt
+const FACTORINT_DOMAIN_MAX as FactorUInt = &hFFFFFFFFFFFFFFFFULL
+
 const FACTORINT_SMALL_PRIME_COUNT as Integer = 1229
 const FACTORINT_SMALL_MAX_PRIME as ULongInt = 10007ull
 static shared factorintSmallPrimes(0 to FACTORINT_SMALL_PRIME_COUNT - 1) as ULong = { _
@@ -408,95 +414,103 @@ private sub SortFactorintEntries(entries() as FactorintPrimeEntry, byref cnt as 
   wend
 end sub
 
-private function TryGetFactorintInput(byref v as EvalValue, byref isNegative as Boolean, byref absU as ULongInt) as Boolean
+'' SM_FIXED_WIDTH_END
+
+'' True when absU does not fit the 64-bit factorization domain (only possible when SmUInt is wider than 64 bits).
+private function FactorintInputExceedsDomain(byval absU as SmUInt) as Boolean
+  if SM_INT_BITS <= 64 then return FALSE
+  return absU > cast(SmUInt, FACTORINT_DOMAIN_MAX)
+end function
+
+private function TryGetFactorintInput(byref v as EvalValue, byref isNegative as Boolean, byref absU as SmUInt) as Boolean
   if v.kind <> VK_SCALAR then return FALSE
   dim sv as ScalarValue = v.scalarValue
   ScalarRepairExactMetadata(sv)
-  if ScalarExactInt64Valid(sv) then
-    if sv.exactInt64 < 0 then
+  if ScalarExactSIntValid(sv) then
+    if sv.exactSInt < 0 then
       isNegative = TRUE
-      if sv.exactInt64 = FB_I64_MIN then
-        absU = 9223372036854775808ull
+      if sv.exactSInt = SM_INT_MIN then
+        absU = SM_INT_MIN_MAG
       else
-        absU = CULngInt(-sv.exactInt64)
+        absU = SmCUInt(-sv.exactSInt)
       end if
       return TRUE
     end if
     isNegative = FALSE
-    absU = CULngInt(sv.exactInt64)
+    absU = SmCUInt(sv.exactSInt)
     return TRUE
   end if
-  if ScalarExactUInt64Valid(sv) orelse sv.scalarStorageKind = SSK_UINT64 then
+  if ScalarExactUIntValid(sv) orelse sv.scalarStorageKind = SSK_UINT then
     isNegative = FALSE
-    absU = sv.exactUInt64
+    absU = sv.exactUInt
     return TRUE
   end if
-  dim li as LongInt
-  if TryGetExactInt64FromDouble(sv.scalar, li) = FALSE then return FALSE
+  dim li as SmInt
+  if TryGetExactSIntFromFloat(sv.scalar, li) = FALSE then return FALSE
   if li < 0 then
     isNegative = TRUE
-    if li = FB_I64_MIN then
-      absU = 9223372036854775808ull
+    if li = SM_INT_MIN then
+      absU = SM_INT_MIN_MAG
     else
-      absU = CULngInt(-li)
+      absU = SmCUInt(-li)
     end if
     return TRUE
   end if
   isNegative = FALSE
-  absU = CULngInt(li)
+  absU = SmCUInt(li)
   return TRUE
 end function
 
 private sub ScalarClearIntPowerRender(byref sv as ScalarValue)
   sv.flags and= not CUInt(SVF_RENDER_INT_POWER)
-  sv.imagExactInt64 = 0
-  sv.imagExactUInt64 = 0
+  sv.imagExactSInt = 0
+  sv.imagExactUInt = 0
 end sub
 
-private sub ScalarSetFactorintTermValue(byref sv as ScalarValue, byval valueI as LongInt, byval valueU as ULongInt, byval hasUIntValue as Boolean)
+private sub ScalarSetFactorintTermValue(byref sv as ScalarValue, byval valueI as SmInt, byval valueU as SmUInt, byval hasUIntValue as Boolean)
   ScalarClearIntPowerRender(sv)
-  sv.scalar = CDbl(IIf(hasUIntValue, valueU, valueI))
+  sv.scalar = SmCFloat(IIf(hasUIntValue, valueU, valueI))
   if hasUIntValue then
-    ScalarSyncExactUInt64WithIntMirror(sv, valueU)
-    sv.scalarStorageKind = SSK_UINT64
+    ScalarSyncExactUIntWithIntMirror(sv, valueU)
+    sv.scalarStorageKind = SSK_UINT
   else
-    ScalarSyncExactInt64WithUIntMirror(sv, valueI)
-    sv.scalarStorageKind = SSK_INT64
+    ScalarSyncExactSIntWithUIntMirror(sv, valueI)
+    sv.scalarStorageKind = SSK_SINT
   end if
 end sub
 
-private sub ScalarSetFactorintPowerTerm(byref sv as ScalarValue, byval baseU as ULongInt, byval expV as Integer, byval signedValueI as LongInt, byval valueU as ULongInt, byval hasUIntValue as Boolean)
+private sub ScalarSetFactorintPowerTerm(byref sv as ScalarValue, byval baseU as SmUInt, byval expV as Integer, byval signedValueI as SmInt, byval valueU as SmUInt, byval hasUIntValue as Boolean)
   ScalarSetFactorintTermValue(sv, signedValueI, valueU, hasUIntValue)
   if expV <= 1 then exit sub
   sv.flags or= SVF_RENDER_INT_POWER
-  dim displayBase as LongInt = CLngInt(baseU)
-  if signedValueI < 0 andalso baseU <= CULngInt(FB_I64_MAX) then displayBase = -CLngInt(baseU)
-  sv.imagExactInt64 = displayBase
-  sv.imagExactUInt64 = CULngInt(expV)
+  dim displayBase as SmInt = SmCInt(baseU)
+  if signedValueI < 0 andalso baseU <= SmCUInt(SM_INT_MAX) then displayBase = -SmCInt(baseU)
+  sv.imagExactSInt = displayBase
+  sv.imagExactUInt = SmCUInt(expV)
 end sub
 
 private sub FactorintAppendScalarTerm( _
   outArr() as ScalarValue, _
   byref outCount as Integer, _
-  byval baseU as ULongInt, _
+  byval baseU as SmUInt, _
   byval expV as Integer, _
   byref applySign as Boolean _
 )
-  dim valueU as ULongInt = baseU
+  dim valueU as SmUInt = baseU
   if expV > 1 then
-    if TryPowULong(baseU, CULngInt(expV), valueU) = FALSE then exit sub
+    if TryPowULong(baseU, SmCUInt(expV), valueU) = FALSE then exit sub
   end if
-  dim signedI as LongInt = CLngInt(valueU)
+  dim signedI as SmInt = SmCInt(valueU)
   dim hasUInt as Boolean = FALSE
   if applySign then
     applySign = FALSE
     '' A negative input has magnitude <= 2^63, so the signed term always fits.
-    if valueU = FB_I64_MIN_MAG_U then
-      signedI = FB_I64_MIN
+    if valueU = SM_INT_MIN_MAG then
+      signedI = SM_INT_MIN
     else
-      signedI = -CLngInt(valueU)
+      signedI = -SmCInt(valueU)
     end if
-  elseif valueU > FB_I64_MAX_U then
+  elseif valueU > SM_INT_MAX_U then
     hasUInt = TRUE
     signedI = 0
   end if
@@ -509,11 +523,16 @@ private sub FactorintAppendScalarTerm( _
   end if
 end sub
 
-function TryApplyFactorint(byref v as EvalValue, byref outV as EvalValue) as Boolean
+function TryApplyFactorint(byref v as EvalValue, byref outV as EvalValue, byref inputTooWide as Boolean) as Boolean
+  inputTooWide = FALSE
   if v.kind = VK_ARRAY then return FALSE
   dim isNegative as Boolean
-  dim absU as ULongInt
+  dim absU as SmUInt
   if TryGetFactorintInput(v, isNegative, absU) = FALSE then return FALSE
+  if FactorintInputExceedsDomain(absU) then
+    inputTooWide = TRUE
+    return FALSE
+  end if
 
   dim terms() as ScalarValue
   dim termCount as Integer = 0
@@ -534,14 +553,14 @@ function TryApplyFactorint(byref v as EvalValue, byref outV as EvalValue) as Boo
     dim entries() as FactorintPrimeEntry
     dim entryCount as Integer = 0
     dim entryCap as Integer = 0
-    FactorizeU64IntoEntries(absU, entries(), entryCount, entryCap)
+    FactorizeU64IntoEntries(cast(FactorUInt, absU), entries(), entryCount, entryCap)
     if entryCount = 0 then return FALSE
     SortFactorintEntries(entries(), entryCount)
     dim ei as Integer
     for ei = 0 to entryCount - 1
       dim applySign as Boolean = (isNegative andalso ei = 0)
       dim expV as Integer = CInt(entries(ei).expV)
-      FactorintAppendScalarTerm(terms(), termCount, entries(ei).baseU, expV, applySign)
+      FactorintAppendScalarTerm(terms(), termCount, cast(SmUInt, entries(ei).baseU), expV, applySign)
     next ei
   end if
 

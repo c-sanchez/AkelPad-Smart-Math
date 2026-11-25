@@ -11,7 +11,7 @@ function main() as Integer
   end if
   if len(expr) = 0 then return 1
   if useComplex then Parser_SetSupportComplexNumbers(TRUE)
-  dim r as Double
+  dim r as SmFloat
   dim rt as String
   dim ia as Boolean
   if Parser_TryEvaluateEx(expr, r, rt, ia) then

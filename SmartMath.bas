@@ -267,7 +267,7 @@ private sub RestoreAnsFromCachedRender(byref sRender as String)
   dim sExpr as String = mid(sRender, Len(SMARTMATH_RESULT_PREFIX) + 1)
   if len(trim(sExpr)) = 0 then exit sub
 
-  dim dResult as Double
+  dim dResult as SmFloat
   dim sResult as String
   dim bIsArray as Boolean
   Parser_TryEvaluateEx(sExpr, dResult, sResult, bIsArray)
@@ -684,8 +684,8 @@ end function
 private function RawCartesianScalarToString(byref scalar as RawCartesianScalar) as String
   dim s as String = "kind=" & ltrim(str(scalar.kind))
   select case scalar.kind
-    case RSK_INT64: s &= " int64=" & ltrim(str(scalar.intValue))
-    case RSK_UINT64: s &= " uint64=" & ltrim(str(scalar.uintValue))
+    case RSK_SINT: s &= " int64=" & ltrim(str(scalar.intValue))
+    case RSK_UINT: s &= " uint64=" & ltrim(str(scalar.uintValue))
     case RSK_FLOATING: s &= " float=" & ltrim(str(scalar.floatValue))
     case RSK_RATIONAL: s &= " ratio=" & ltrim(str(scalar.ratNum)) & "/" & ltrim(str(scalar.ratDen))
     case else: s &= " ..."

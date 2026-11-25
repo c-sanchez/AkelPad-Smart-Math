@@ -1,3 +1,12 @@
+// The suites below expect 64-bit integer / binary64 float text and run only for the default types.
+// Any /DSMARTMATH_FLOAT_TYPE, /DSMARTMATH_INT_TYPE or /DSMARTMATH_UINT_TYPE build runs the width-generic
+// suite (buildWidthGenericCases) instead. Decided before MathParser.hpp defines the default macros.
+#if !defined(SMARTMATH_FLOAT_TYPE) && !defined(SMARTMATH_INT_TYPE) && !defined(SMARTMATH_UINT_TYPE)
+#define SMARTMATH_BASELINE_WIDTHS 1
+#else
+#define SMARTMATH_BASELINE_WIDTHS 0
+#endif
+
 #include "MathParser.hpp"
 
 #include <cctype>
@@ -35,7 +44,7 @@ static bool g_skipDuplicate = false;
 static std::size_t g_duplicateCount = 0;
 static std::unordered_map<const MathParser*, std::vector<std::string>> g_parserConstDedupState;
 
-std::string formatTrackedDouble(const double value) {
+std::string formatTrackedFloat(const double value) {
   if (std::isnan(value)) {
     return "NaN";
   }
@@ -52,13 +61,13 @@ void trackConstForDedup(const MathParser& p, const std::string& name, const std:
 }
 
 void addConstTracked(MathParser& p, const std::string& name, const long long value) {
-  p.addConst(name, value);
+  p.addConst(name, static_cast<smartmath::SmInt>(value));
   trackConstForDedup(p, name, "i:" + std::to_string(value));
 }
 
 void addConstTracked(MathParser& p, const std::string& name, const double value) {
-  p.addConst(name, value);
-  trackConstForDedup(p, name, "d:" + formatTrackedDouble(value));
+  p.addConst(name, static_cast<smartmath::SmFloat>(value));
+  trackConstForDedup(p, name, "d:" + formatTrackedFloat(value));
 }
 
 std::string getParserConstDedupSignature(const MathParser& p) {
@@ -116,7 +125,7 @@ std::string trimSmokeToken(std::string s) {
   return s.substr(i);
 }
 
-bool tryParseFullDouble(const std::string& s, double& out) {
+bool tryParseFullFloat(const std::string& s, double& out) {
   const char* p = s.c_str();
   char* e = nullptr;
   out = std::strtod(p, &e);
@@ -182,7 +191,7 @@ bool smokeStrictScalarMatch(const std::string& actual, const std::string& expect
     }
     double da = 0.0;
     double de = 0.0;
-    if (!tryParseFullDouble(actual, da) || !tryParseFullDouble(expected, de)) {
+    if (!tryParseFullFloat(actual, da) || !tryParseFullFloat(expected, de)) {
       return false;
     }
     return da == 0.0 && de == 0.0;
@@ -196,7 +205,7 @@ bool smokeStrictScalarMatch(const std::string& actual, const std::string& expect
     }
     double da = 0.0;
     double de = 0.0;
-    if (!tryParseFullDouble(actual, da) || !tryParseFullDouble(expected, de)) {
+    if (!tryParseFullFloat(actual, da) || !tryParseFullFloat(expected, de)) {
       return false;
     }
     if (smokeOneSignFromLiteral(expected) > 0) {
@@ -240,7 +249,7 @@ bool smokeScalarCloseEnough(const std::string& actual, const std::string& expect
   }
   double da = 0.0;
   double de = 0.0;
-  if (!tryParseFullDouble(ea, da) || !tryParseFullDouble(ee, de)) {
+  if (!tryParseFullFloat(ea, da) || !tryParseFullFloat(ee, de)) {
     return false;
   }
   if (da == de) {
@@ -412,6 +421,7 @@ bool expectEvalErrorContains(
   return true;
 }
 
+#if SMARTMATH_BASELINE_WIDTHS
 std::vector<TestCase> buildUnitCases() {
   std::vector<TestCase> t;
 
@@ -566,7 +576,7 @@ std::vector<TestCase> buildUnitCases() {
                    return false;
                  }
                  MathParser::RawResult r = p.getRawResult();
-                 if (!r.isScalar() || !r.scalar.real.isInt64() || r.scalar.real.intValue != 5LL) {
+                 if (!r.isScalar() || !r.scalar.real.isSInt() || r.scalar.real.intValue != 5LL) {
                    why = "expected scalar int64=5";
                    return false;
                  }
@@ -617,8 +627,8 @@ std::vector<TestCase> buildUnitCases() {
                    return false;
                  }
                  r = p.getRawResult();
-                 if (!r.isArray() || r.array.size() != 2 || !r.array[0].real.isInt64() || r.array[0].real.intValue != 60000LL ||
-                     !r.array[1].real.isInt64() || r.array[1].real.intValue != 120000LL) {
+                 if (!r.isArray() || r.array.size() != 2 || !r.array[0].real.isSInt() || r.array[0].real.intValue != 60000LL ||
+                     !r.array[1].real.isSInt() || r.array[1].real.intValue != 120000LL) {
                    why = "expected time array converted to int64 ms via milliseconds()";
                    return false;
                  }
@@ -637,7 +647,7 @@ std::vector<TestCase> buildUnitCases() {
                    why = "expected array[3]";
                    return false;
                  }
-                 if (!r.array[0].real.isInt64() || r.array[0].real.intValue != 1LL) {
+                 if (!r.array[0].real.isSInt() || r.array[0].real.intValue != 1LL) {
                    why = "array[0] mismatch";
                    return false;
                  }
@@ -646,7 +656,7 @@ std::vector<TestCase> buildUnitCases() {
                    why = "array[1] mismatch";
                    return false;
                  }
-                 if (!r.array[2].real.isInt64() || r.array[2].real.intValue != 3LL) {
+                 if (!r.array[2].real.isSInt() || r.array[2].real.intValue != 3LL) {
                    why = "array[2] mismatch";
                    return false;
                  }
@@ -724,7 +734,7 @@ std::vector<TestCase> buildUnitCases() {
                  using Cart = MathParser::RawResult::CartesianScalar;
                  using Kind = MathParser::RawResult::ScalarKind;
                  Cart c;
-                 c.kind = Kind::Int64;
+                 c.kind = Kind::SInt;
                  c.intValue = 0;
                  if (!c.isZero()) {
                    why = "int64 zero";
@@ -737,7 +747,7 @@ std::vector<TestCase> buildUnitCases() {
                  }
 
                  c.clear();
-                 c.kind = Kind::UInt64;
+                 c.kind = Kind::UInt;
                  c.uintValue = 0;
                  if (!c.isZero()) {
                    why = "uint64 zero";
@@ -818,10 +828,10 @@ std::vector<TestCase> buildUnitCases() {
                  MathParser::RawResult r;
                  r.kind = MathParser::RawResult::Kind::Array;
                  r.array.push_back(MathParser::RawResult::Scalar{});
-                 r.scalar.kind = Kind::Int64;
-                 r.scalar.real.kind = Kind::Int64;
+                 r.scalar.kind = Kind::SInt;
+                 r.scalar.real.kind = Kind::SInt;
                  r.scalar.real.intValue = 4;
-                 r.scalar.imag.kind = Kind::UInt64;
+                 r.scalar.imag.kind = Kind::UInt;
                  r.scalar.imag.uintValue = 7;
                  r.clear();
                  if (r.hasValue() || !r.array.empty() || r.scalar.kind != Kind::FloatingPoint ||
@@ -839,7 +849,7 @@ std::vector<TestCase> buildUnitCases() {
                    why = p.getError();
                    return false;
                  }
-                 if (!r.isScalar() || !r.scalar.real.isInt64() || r.scalar.real.intValue != 30LL) {
+                 if (!r.isScalar() || !r.scalar.real.isSInt() || r.scalar.real.intValue != 30LL) {
                    why = "expected scalar int64=30";
                    return false;
                  }
@@ -1295,7 +1305,7 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                  return expectEval(p, "k+1", "9007199254740992", why);
                }});
 
-  // --- LLONG_MAX / LLONG_MIN neighbors (exact int path) ---
+  // --- kIntMax / kIntMin neighbors (exact int path) ---
   t.push_back({"edge/ll const max minus one plus one", [kLLMax](std::string& why) {
                  MathParser p;
                  addConstTracked(p, "k", kLLMax - 1);
@@ -1384,7 +1394,7 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                  return true;
                }});
 
-  // LLONG_MAX as double loses precision vs ll const (platform IEEE round)
+  // kIntMax as double loses precision vs ll const (platform IEEE round)
   t.push_back({"edge/double ll max const differs from ll max", [kLLMax](std::string& why) {
                  MathParser pLl;
                  MathParser pD;
@@ -1424,11 +1434,11 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                  }
                  const std::string actual = p.getResult();
                  const MathParser::RawResult raw = p.getRawResult();
-                 if (!raw.isScalar() || !raw.scalar.real.isInt64() ||
+                 if (!raw.isScalar() || !raw.scalar.real.isSInt() ||
                      raw.scalar.real.intValue != 9223372030926249001LL) {
                    why = "expected exact int64 square in raw, got result=\"" + actual + "\" kind=" +
                          std::to_string(static_cast<int>(raw.scalar.real.kind));
-                   if (raw.isScalar() && raw.scalar.real.isInt64()) {
+                   if (raw.isScalar() && raw.scalar.real.isSInt()) {
                      why += " intValue=" + std::to_string(raw.scalar.real.intValue);
                    } else if (raw.isScalar() && raw.scalar.real.isFloatingPoint()) {
                      why += " fp=" + std::to_string(raw.scalar.real.floatingPoint);
@@ -1465,7 +1475,7 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                    return false;
                  }
                  const MathParser::RawResult raw = p.getRawResult();
-                 if (!raw.isScalar() || raw.scalar.real.isInt64() || raw.scalar.real.isUInt64()) {
+                 if (!raw.isScalar() || raw.scalar.real.isSInt() || raw.scalar.real.isUInt()) {
                    why = "expected floating raw for non-perfect-square sqrt";
                    return false;
                  }
@@ -1485,7 +1495,7 @@ std::vector<TestCase> buildEdgeIntFloatCases() {
                    return false;
                  }
                  const MathParser::RawResult raw = p.getRawResult();
-                 if (!raw.isScalar() || !raw.scalar.real.isInt64() || raw.scalar.real.intValue != 9LL) {
+                 if (!raw.isScalar() || !raw.scalar.real.isSInt() || raw.scalar.real.intValue != 9LL) {
                    why = "expected int64 9 in raw for sqrt(81)";
                    return false;
                  }
@@ -5917,7 +5927,7 @@ std::vector<TestCase> buildTrigAngleReductionCases() {
                      return false;
                    }
                    double v = 0.0;
-                   if (!tryParseFullDouble(p.getResult(), v)) {
+                   if (!tryParseFullFloat(p.getResult(), v)) {
                      why = "non-numeric result: " + p.getResult();
                      return false;
                    }
@@ -5938,7 +5948,7 @@ std::vector<TestCase> buildTrigAngleReductionCases() {
                      return false;
                    }
                    double v = 0.0;
-                   if (!tryParseFullDouble(p.getResult(), v)) {
+                   if (!tryParseFullFloat(p.getResult(), v)) {
                      why = "non-numeric result: " + p.getResult();
                      return false;
                    }
@@ -6723,8 +6733,8 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    return false;
                  }
                  MathParser::RawResult r = p.getRawResult();
-                 if (!r.isScalar() || !r.scalar.isComplex() || !r.scalar.real.isInt64() || r.scalar.real.intValue != 10LL ||
-                     !r.scalar.imag.isInt64() || r.scalar.imag.intValue != 5LL) {
+                 if (!r.isScalar() || !r.scalar.isComplex() || !r.scalar.real.isSInt() || r.scalar.real.intValue != 10LL ||
+                     !r.scalar.imag.isSInt() || r.scalar.imag.intValue != 5LL) {
                    why = "expected complex int64 10+5i";
                    return false;
                  }
@@ -6755,7 +6765,7 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
                    return false;
                  }
                  const bool imagTenInt =
-                     r.scalar.imag.isInt64() && r.scalar.imag.intValue == 10LL;
+                     r.scalar.imag.isSInt() && r.scalar.imag.intValue == 10LL;
                  const bool imagTenRat = r.scalar.imag.isRational() && r.scalar.imag.rational.numerator == 10LL &&
                                          r.scalar.imag.rational.denominator == 1ULL;
                  if (!imagTenInt && !imagTenRat) {
@@ -7241,6 +7251,8 @@ std::vector<TestCase> buildComplexNumberSupportOptionCases() {
   return t;
 }
 
+#endif  // SMARTMATH_BASELINE_WIDTHS
+
 void runSuite(const std::string& title, const std::vector<TestCase>& cases, TestState& s) {
   std::cout << "=== " << title << " ===\n";
   std::unordered_set<std::string> seen;
@@ -7282,6 +7294,7 @@ void runSuite(const std::string& title, const std::vector<TestCase>& cases, Test
   clearParserConstDedupState();
 }
 
+#if SMARTMATH_BASELINE_WIDTHS
 std::vector<TestCase> buildFilterCases() {
   std::vector<TestCase> t;
   t.push_back({"filter: named predicates and truthiness", [](std::string& why) {
@@ -7425,6 +7438,8 @@ std::vector<TestCase> buildFilterCases() {
   return t;
 }
 
+#endif  // SMARTMATH_BASELINE_WIDTHS
+
 std::vector<TestCase> buildIifRandCases() {
   std::vector<TestCase> t;
   t.push_back({"iif rand: false branch only", [](std::string& why) {
@@ -7498,6 +7513,306 @@ std::vector<TestCase> buildIifRandCases() {
   return t;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Width-generic suite. Every expectation is derived from the configured SmFloat/SmInt/SmUInt widths by
+// independent decimal arithmetic (schoolbook doubling/multiplication on digit strings), never from the
+// library's own limit tables or text helpers, so it runs for every SMARTMATH_*_TYPE configuration.
+// The suites above expect 64-bit / binary64 text and are compiled only when SMARTMATH_BASELINE_WIDTHS is 1.
+// ---------------------------------------------------------------------------------------------
+namespace widthgeneric {
+
+using smartmath::SmFloat;
+using smartmath::SmInt;
+using smartmath::SmUInt;
+
+// Decimal digits of 2^n (most significant digit first).
+std::string decimalPow2(int n) {
+  std::string d = "1";
+  for (int i = 0; i < n; ++i) {
+    int carry = 0;
+    for (std::size_t k = d.size(); k-- > 0;) {
+      const int v = (d[k] - '0') * 2 + carry;
+      d[k] = static_cast<char>('0' + v % 10);
+      carry = v / 10;
+    }
+    if (carry != 0) {
+      d.insert(d.begin(), static_cast<char>('0' + carry));
+    }
+  }
+  return d;
+}
+
+// 2^n - 1: 2^n never ends in 0, so only the last digit changes.
+std::string decimalPow2Minus1(int n) {
+  std::string d = decimalPow2(n);
+  d.back() = static_cast<char>(d.back() - 1);
+  return d;
+}
+
+std::string decimalPow10(int e) {
+  return "1" + std::string(static_cast<std::size_t>(e), '0');
+}
+
+std::string decimalMul(const std::string& a, int m) {
+  std::string r = a;
+  int carry = 0;
+  for (std::size_t k = r.size(); k-- > 0;) {
+    const int v = (r[k] - '0') * m + carry;
+    r[k] = static_cast<char>('0' + v % 10);
+    carry = v / 10;
+  }
+  while (carry != 0) {
+    r.insert(r.begin(), static_cast<char>('0' + carry % 10));
+    carry /= 10;
+  }
+  return r;
+}
+
+std::string decimalFactorial(int n) {
+  std::string f = "1";
+  for (int i = 2; i <= n; ++i) {
+    f = decimalMul(f, i);
+  }
+  return f;
+}
+
+bool decimalLessOrEqual(const std::string& a, const std::string& b) {
+  if (a.size() != b.size()) {
+    return a.size() < b.size();
+  }
+  return a <= b;
+}
+
+int intBits() { return static_cast<int>(sizeof(SmInt) * 8U); }
+
+std::string intMaxText() { return decimalPow2Minus1(intBits() - 1); }
+std::string intMinMagText() { return decimalPow2(intBits() - 1); }
+std::string uintMaxText() { return decimalPow2Minus1(intBits()); }
+
+// Largest n with n! <= SmInt max.
+int referenceMaxFactorialArg() {
+  const std::string limit = intMaxText();
+  int n = 0;
+  while (decimalLessOrEqual(decimalFactorial(n + 1), limit)) {
+    ++n;
+  }
+  return n;
+}
+
+// Largest e with 10^e <= bound.
+int referenceMaxPow10Exponent(const std::string& bound) {
+  int e = 0;
+  while (decimalLessOrEqual(decimalPow10(e + 1), bound)) {
+    ++e;
+  }
+  return e;
+}
+
+bool expectExact(MathParser& p, const std::string& expr, const std::string& expected, std::string& why) {
+  p.parseAndEvaluate(expr);
+  if (!p.getError().empty()) {
+    why = expr + " -> error: " + p.getError();
+    return false;
+  }
+  if (p.getResult() != expected) {
+    why = expr + " -> \"" + p.getResult() + "\", expected \"" + expected + "\"";
+    return false;
+  }
+  return true;
+}
+
+// 10^e by plain repeated multiplication/division in long double (no libm pow: some runtimes, e.g. emscripten,
+// evaluate long double pow in double precision).
+long double referencePow10(int e) {
+  long double r = 1.0L;
+  const int n = (e < 0) ? -e : e;
+  for (int i = 0; i < n; ++i) {
+    r *= 10.0L;
+  }
+  return (e < 0) ? (1.0L / r) : r;
+}
+
+// Accuracy of a printed-then-reparsed SmFloat. emscripten prints/parses long double through double precision.
+long double printRoundTripTolerance() {
+#ifdef __EMSCRIPTEN__
+  if (sizeof(SmFloat) > sizeof(double)) {
+    return 1e-15L;
+  }
+#endif
+  return referencePow10(-(smartmath::kFloatDigits10 - 1));
+}
+
+// Compares values that are compile-time constants for a given configuration. Going through a call keeps
+// /W4 (C4127) and /analyze (C6326) from flagging the comparison in configurations where it folds.
+template <typename T>
+bool same(T a, T b) {
+  return a == b;
+}
+
+template <typename T>
+bool greater(T a, T b) {
+  return a > b;
+}
+
+bool check(bool cond, const std::string& what, std::string& why) {
+  if (!cond) {
+    why = what;
+  }
+  return cond;
+}
+
+}  // namespace widthgeneric
+
+std::vector<TestCase> buildWidthGenericCases() {
+  using namespace widthgeneric;
+  std::vector<TestCase> t;
+
+  t.push_back({"width: integer limit helpers match decimal arithmetic", [](std::string& why) {
+                 if (!check(smartmath::kIntBits == intBits(), "kIntBits", why)) return false;
+                 if (!check(smartmath::intToString(smartmath::kIntMax) == intMaxText(), "intToString(kIntMax)", why)) return false;
+                 if (!check(smartmath::intToString(smartmath::kIntMin) == "-" + intMinMagText(), "intToString(kIntMin)", why)) return false;
+                 if (!check(smartmath::uintToString(smartmath::kUIntMax) == uintMaxText(), "uintToString(kUIntMax)", why)) return false;
+                 if (!check(smartmath::uintToString(smartmath::kIntMinMag) == intMinMagText(), "uintToString(kIntMinMag)", why)) return false;
+                 if (!check(smartmath::intToString(0) == "0" && smartmath::intToString(-7) == "-7", "intToString small", why)) return false;
+                 if (!check(smartmath::kMaxShift == intBits() - 1, "kMaxShift", why)) return false;
+                 if (!check(smartmath::kUIntDigits10 == static_cast<int>(uintMaxText().size()), "kUIntDigits10", why)) return false;
+                 if (!check(same(smartmath::kPow10UIntCount, smartmath::kUIntDigits10), "kPow10UIntCount", why)) return false;
+                 if (!check(smartmath::kMaxPow10ExponentOfInt == referenceMaxPow10Exponent(intMaxText()), "kMaxPow10ExponentOfInt", why)) return false;
+                 for (int i = 0; i < smartmath::kPow10UIntCount; ++i) {
+                   if (!check(smartmath::uintToString(smartmath::pow10UInt(i)) == decimalPow10(i), "pow10UInt(" + std::to_string(i) + ")", why)) return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"width: factorial table and limit match decimal arithmetic", [](std::string& why) {
+                 const int maxArg = referenceMaxFactorialArg();
+                 if (!check(smartmath::kMaxFactorialArg == maxArg, "kMaxFactorialArg", why)) return false;
+                 for (int i = 0; i <= smartmath::kMaxFactorialArg; ++i) {
+                   if (!check(smartmath::intToString(smartmath::factorialInt(i)) == decimalFactorial(i), "factorialInt(" + std::to_string(i) + ")", why)) return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"width: float bounds, range helpers and tolerances", [](std::string& why) {
+                 const SmFloat one = static_cast<SmFloat>(1);
+                 const SmFloat zero = static_cast<SmFloat>(0);
+                 const SmFloat inf = std::numeric_limits<SmFloat>::infinity();
+                 const SmFloat sBound = std::ldexp(one, intBits() - 1);
+                 const SmFloat uBound = std::ldexp(one, intBits());
+                 if (!check(smartmath::kFloatSIntBound == sBound, "kFloatSIntBound", why)) return false;
+                 if (!check(smartmath::kFloatUIntBound == uBound, "kFloatUIntBound", why)) return false;
+                 if (!check(smartmath::kMaxExactIntFromFloat == std::ldexp(one, smartmath::kFloatMantDigits), "kMaxExactIntFromFloat", why)) return false;
+                 // Signed range is [-2^(b-1), 2^(b-1)): the upper bound itself is outside (the old <= check accepted it).
+                 if (!check(!smartmath::isFloatInSIntRange(sBound), "2^(b-1) not in SInt range", why)) return false;
+                 if (!check(smartmath::isFloatInSIntRange(std::nextafter(sBound, zero)), "below 2^(b-1) in SInt range", why)) return false;
+                 if (!check(smartmath::isFloatInSIntRange(-sBound), "-2^(b-1) in SInt range", why)) return false;
+                 if (!check(!smartmath::isFloatInSIntRange(std::nextafter(-sBound, -inf)), "below -2^(b-1) not in SInt range", why)) return false;
+                 if (!check(!smartmath::isFloatInUIntRange(uBound), "2^b not in UInt range", why)) return false;
+                 if (!check(smartmath::isFloatInUIntRange(std::nextafter(uBound, zero)), "below 2^b in UInt range", why)) return false;
+                 if (!check(smartmath::isFloatInUIntRange(zero), "0 in UInt range", why)) return false;
+                 if (!check(!smartmath::isFloatInUIntRange(-one), "-1 not in UInt range", why)) return false;
+                 if (!smartmath::kExactLimitCoversUInt) {
+                   if (!check(smartmath::isMagBelowExactFloatLimit(smartmath::kExactLimitMag - 1), "limit-1 below exact limit", why)) return false;
+                   if (!check(!smartmath::isMagBelowExactFloatLimit(smartmath::kExactLimitMag), "limit not below exact limit", why)) return false;
+                 } else if (!check(smartmath::isMagBelowExactFloatLimit(smartmath::kUIntMax), "uint max below exact limit", why)) {
+                   return false;
+                 }
+                 const SmFloat half = one / static_cast<SmFloat>(2);
+                 if (!check(smartmath::roundFloatToSInt(static_cast<SmFloat>(2) + half) == 3, "round(2.5)", why)) return false;
+                 if (!check(smartmath::roundFloatToSInt(-static_cast<SmFloat>(2) - half) == -3, "round(-2.5)", why)) return false;
+                 if (!check(smartmath::roundFloatToSInt(std::numeric_limits<SmFloat>::quiet_NaN()) == smartmath::kIntMin, "round(nan)", why)) return false;
+                 if (!check(smartmath::roundFloatToSInt(sBound) == smartmath::kIntMin, "round(2^(b-1))", why)) return false;
+                 // Tolerances: 10^-(digits10 - lost), strictly growing with the lost digits.
+                 const SmFloat tolerances[] = {smartmath::kTolLost0, smartmath::kTolLost1, smartmath::kTolLost2, smartmath::kTolLost3, smartmath::kTolLost6};
+                 const int lost[] = {0, 1, 2, 3, 6};
+                 for (int i = 0; i < 5; ++i) {
+                   const long double expected = referencePow10(lost[i] - smartmath::kFloatDigits10);
+                   const long double rel = std::fabs(static_cast<long double>(tolerances[i]) - expected) / expected;
+                   if (!check(rel <= 4.0L * static_cast<long double>(std::numeric_limits<SmFloat>::epsilon()), "tolerance " + std::to_string(lost[i]), why)) return false;
+                   if (i > 0 && !check(tolerances[i] > tolerances[i - 1], "tolerances grow", why)) return false;
+                 }
+                 if (!check(same(smartmath::kFloatDisplayDigits, smartmath::kFloatDigits10 + 1), "kFloatDisplayDigits", why)) return false;
+                 if (!check(greater(smartmath::kHypotDirectMax, one) && greater(one, smartmath::kHypotDirectMin) &&
+                                std::isfinite(smartmath::kHypotDirectMax * smartmath::kHypotDirectMax * static_cast<SmFloat>(2)) &&
+                                std::isfinite(smartmath::kHugeSentinel * static_cast<SmFloat>(10000000)) &&
+                                greater(smartmath::kHugeSentinel, static_cast<SmFloat>(1000000)),
+                            "hypot thresholds / sentinel", why)) return false;
+                 return true;
+               }});
+  t.push_back({"width: integer extremes parse and print exactly", [](std::string& why) {
+                 MathParser p;
+                 if (!expectExact(p, intMaxText(), intMaxText(), why)) return false;
+                 if (!expectExact(p, uintMaxText(), uintMaxText(), why)) return false;
+                 if (!expectExact(p, "-" + intMaxText() + " - 1", "-" + intMinMagText(), why)) return false;
+                 if (!expectExact(p, intMaxText() + " + 1", intMinMagText(), why)) return false;
+                 std::string uintMaxMinus1 = uintMaxText();
+                 uintMaxMinus1.back() = static_cast<char>(uintMaxMinus1.back() - 1);  // 2^b - 1 never ends in 0
+                 return expectExact(p, uintMaxText() + " - 1", uintMaxMinus1, why);
+               }});
+  t.push_back({"width: shifts and powers at the integer limits", [](std::string& why) {
+                 MathParser p;
+                 const std::string maxShift = std::to_string(intBits() - 1);
+                 if (!expectExact(p, "1 << " + maxShift, intMinMagText(), why)) return false;
+                 if (!expectExact(p, uintMaxText() + " >> " + maxShift, "1", why)) return false;
+                 if (!expectExact(p, "2 ** " + maxShift, intMinMagText(), why)) return false;
+                 const int e = referenceMaxPow10Exponent(intMaxText());
+                 if (!expectExact(p, "10 ** " + std::to_string(e), decimalPow10(e), why)) return false;
+                 if (e + 1 <= referenceMaxPow10Exponent(uintMaxText())) {
+                   if (!expectExact(p, "10 ** " + std::to_string(e + 1), decimalPow10(e + 1), why)) return false;
+                 }
+                 if (smartmath::kFloatMantDigits < intBits()) {
+                   if (!expectExact(p, "2 ** " + std::to_string(smartmath::kFloatMantDigits), decimalPow2(smartmath::kFloatMantDigits), why)) return false;
+                 }
+                 return true;
+               }});
+  t.push_back({"width: factorial at and beyond the exact limit", [](std::string& why) {
+                 MathParser p;
+                 const int maxArg = referenceMaxFactorialArg();
+                 if (!expectExact(p, "factorial(" + std::to_string(maxArg) + ")", decimalFactorial(maxArg), why)) return false;
+                 // One past the limit leaves the exact range: the result is a float close to (maxArg+1)!.
+                 p.parseAndEvaluate("factorial(" + std::to_string(maxArg + 1) + ")");
+                 if (!p.getError().empty()) {
+                   why = p.getError();
+                   return false;
+                 }
+                 long double ref = 1.0L;
+                 for (int i = 2; i <= maxArg + 1; ++i) {
+                   ref *= static_cast<long double>(i);
+                 }
+                 const long double got = std::strtold(p.getResult().c_str(), nullptr);
+                 const long double rel = std::fabs(got - ref) / ref;
+                 if (!check(rel <= printRoundTripTolerance(), "float factorial " + p.getResult(), why)) return false;
+                 return check(p.getResult() != decimalFactorial(maxArg + 1), "factorial past the limit must not claim an exact integer", why);
+               }});
+  t.push_back({"width: non-exact floats print digits10+1 significant digits", [](std::string& why) {
+                 MathParser p;
+                 // 1/3 prints as 0.333...3 with kFloatDisplayDigits threes (a runtime that prints long double through
+                 // double precision shows only ~17 digits, so compare the common prefix there).
+                 std::string third = "0." + std::string(static_cast<std::size_t>(smartmath::kFloatDisplayDigits), '3');
+#ifdef __EMSCRIPTEN__
+                 if (sizeof(SmFloat) > sizeof(double)) {
+                   p.parseAndEvaluate("1/3");
+                   if (!check(p.getError().empty() && p.getResult().compare(0, 17, "0.333333333333333") == 0, "1/3 -> " + p.getResult(), why)) return false;
+                   third.clear();
+                 }
+#endif
+                 if (!third.empty() && !expectExact(p, "1/3", third, why)) return false;
+                 if (!expectExact(p, "7/2", "3.5", why)) return false;
+                 if (!expectExact(p, "round(2.5)", "3", why)) return false;
+                 if (!expectExact(p, "floor(-2.5)", "-3", why)) return false;
+                 return expectExact(p, "27 ** (1/3)", "3", why);
+               }});
+#if SMARTMATH_FACTORINT
+  t.push_back({"width: factorint domain", [](std::string& why) {
+                 MathParser p;
+                 if (!expectExact(p, "factorint(12)", "(2**2, 3)", why)) return false;
+                 if (greater(smartmath::kIntBits, 64)) {
+                   // factorint keeps a 64-bit domain: wider exact inputs get an explicit error.
+                   return expectEvalErrorContains(p, "factorint(" + decimalPow2(64) + ")", "limited to 64 bits", why);
+                 }
+                 return true;
+               }});
+#endif
+  return t;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -7519,6 +7834,7 @@ int main(int argc, char** argv) {
 
   TestState s;
 
+#if SMARTMATH_BASELINE_WIDTHS
   const auto unit = buildUnitCases();
   const auto edgeIntFloat = buildEdgeIntFloatCases();
   const auto nanInf = buildNanInfCases();
@@ -7570,6 +7886,9 @@ int main(int argc, char** argv) {
   runSuite("Clamp preserve integer metadata", clampPreserveIntegerMetadata, s);
   runSuite("Clamp inverted bounds", clampInvertedBounds, s);
   runSuite("Clamp NaN bounds", clampNanBound, s);
+#endif  // SMARTMATH_BASELINE_WIDTHS
+  const auto widthGeneric = buildWidthGenericCases();
+  runSuite("Width-generic (SmFloat/SmInt/SmUInt)", widthGeneric, s);
   const auto iifRand = buildIifRandCases();
   runSuite("iif rand", iifRand, s);
 
