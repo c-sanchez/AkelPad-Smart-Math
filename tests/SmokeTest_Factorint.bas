@@ -3,7 +3,7 @@
 ''   SmokeTest_Factorint.exe           - run all cases (may hang without external timeout)
 ''   SmokeTest_Factorint.exe <index>   - run one case (1-based), exit 0 on success else 1
 
-#include once "Inc\MathParser.bi"
+#include once "..\Inc\MathParser.bi"
 
 const FACTORINT_TEST_COUNT as Integer = 29
 
@@ -55,10 +55,10 @@ private function CasePassed(byref c as FactorintCase, byval ok as Boolean, byref
   return ok andalso (len(errText) = 0) andalso (trim(actual) = trim(c.expected))
 end function
 
-private function RunCaseIndex(byval idx as Integer, byref elapsedSec as Double) as Integer
+private function RunCaseIndex(byval idx as Integer, byref elapsedSec as SmFloat) as Integer
   dim c as FactorintCase = g_cases(idx)
-  dim t0 as Double = timer
-  dim result as Double
+  dim t0 as SmFloat = timer
+  dim result as SmFloat
   dim resultText as String
   dim isArray as Boolean
   dim ok as Boolean = Parser_TryEvaluateEx(c.expr, result, resultText, isArray)
@@ -84,6 +84,12 @@ private function RunCaseIndex(byval idx as Integer, byref elapsedSec as Double) 
 end function
 
 sub Main()
+#ifndef SM_BASELINE_WIDTHS
+  '' The cases use inputs up to 64 bits (factorint's fixed domain), which a narrower SmInt cannot hold;
+  '' the width-generic factorint check lives in SmokeTest_MathParser.bas.
+  print "factorint isolated tests skipped: they require 64-bit SmInt (SM_BASELINE_WIDTHS)."
+  end 0
+#endif
   InitFactorintCases()
   Parser_ClearVariables()
 
@@ -94,7 +100,7 @@ sub Main()
       print "Invalid case index: " & arg1 & " (use 1.." & FACTORINT_TEST_COUNT & ")"
       end 2
     end if
-    dim elapsed as Double
+    dim elapsed as SmFloat
     dim rc as Integer = RunCaseIndex(onlyIdx, elapsed)
     end rc
   end if
@@ -103,7 +109,7 @@ sub Main()
   dim failCount as Integer = 0
   dim i as Integer
   for i = 1 to FACTORINT_TEST_COUNT
-    dim elapsed as Double
+    dim elapsed as SmFloat
     if RunCaseIndex(i, elapsed) <> 0 then failCount += 1
   next i
   print "=== Result: failed " & failCount & " / " & FACTORINT_TEST_COUNT & " ==="

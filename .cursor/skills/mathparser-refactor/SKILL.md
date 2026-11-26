@@ -1,0 +1,81 @@
+---
+name: mathparser-refactor
+description: >-
+  Review and refactor Basic/C++ parser code for reusability and cleanup. Use
+  when the user asks to extract duplicate code, reuse/update helpers, simplify
+  without behavior or performance regressions, improve maintainability, or
+  remove legacy/unused/dead parser code. User-defined functions and lambdas
+  are one callable: refactoring, reviewing, or optimizing either surface
+  includes the other and keeps their shared body and parameter helpers shared.
+---
+
+# Refactor MathParser (Behavior-Preserving)
+
+## Purpose
+
+Behavior-preserving, efficiency-safe cleanup/refactor of `MathParser.bas` (and the modules it includes), `cpp/MathParser.cpp`, `cpp/MathParser.hpp`, and `cpp/MathParserInternal.hpp`.
+
+User-defined functions and lambdas are two surfaces of the same callable. Analyzing, verifying, testing, correcting, optimizing, refactoring, or otherwise changing either surface does the same for the other, and reuses their shared code. A change on one surface can change the other.
+
+Maintenance only. For new builtins/constants or behavior fixes, use `mathparser-add-or-fix`. If thinking finds a rejection, a limit, or a mathematical mismatch, raise it per raise-concerns and fix it only when asked, through that skill's fix-behavior flow.
+
+## Agent loading rules
+
+Read on demand:
+
+| When | Read |
+|---|---|
+| Before first edit | `.cursor/skills/internal-mathparser-protect-workspace/SKILL.md` |
+| Planning or reviewing behavior, including a defect found during the refactor | `.cursor/skills/mathparser-add-or-fix/flows/raise-concerns.md` |
+| Editing helpers / int metadata / string constants / non-finite handling | `.cursor/skills/mathparser-add-or-fix/flows/coding-standards.md` |
+| Analyzing, verifying, testing, correcting, optimizing, refactoring, or changing a user-defined function or a lambda (either surface, including a shared body or parameter helper) | `.cursor/skills/mathparser-add-or-fix/flows/user-functions-and-lambdas.md` |
+| Editing `cpp/MathParser.hpp` / `.cpp`, or moving C++ functions off `MathParser` | `.cursor/skills/mathparser-add-or-fix/flows/cpp-class-design.md` |
+| Changing real/complex operator or builtin paths | `.cursor/skills/mathparser-add-or-fix/flows/complex-support.md` |
+| Adding or changing test expectations, or a test fails | `.cursor/skills/mathparser-add-or-fix/flows/smoke-tests.md` |
+| Mirroring Basic↔C++, or editing `cpp/calc.cpp` / `tools/calc.bas` | `.cursor/skills/internal-mathparser-basic-cpp-parity/SKILL.md` |
+| Before compile/test or choosing gates | `.cursor/skills/internal-mathparser-build-gates/SKILL.md` |
+
+Do not load the full `mathparser-add-or-fix` skill unless the task becomes a feature add or fix.
+
+## What to optimize
+
+1. Extract/reuse helpers for duplicate logic (repeated loops, branches, validation, error text); extend existing helpers before adding new ones. User-function and lambda rules already share helpers; extend those, and do not leave a second copy on the other surface (user-functions-and-lambdas flow).
+2. Simplify control flow; cut maintenance burden.
+3. Remove dead/unused code only with evidence.
+
+All of it within the hard constraints below.
+
+## Hard constraints
+
+- No behavior change unless explicitly requested. Keep the exact-int/exact-uint behavior the path already had; do not add metadata it did not keep.
+- User functions and lambdas stay one callable. Edit the shared helper, then review both surfaces (user-functions-and-lambdas flow). A cleanup of one surface that leaves the other with its own copy is incomplete.
+- Do not change `()` results. Behavior changes go through mathparser-add-or-fix and its empty-array policy.
+- No user-visible error message drift unless explicitly requested.
+- C++: follow cpp-class-design, including its cleanup order (one cluster at a time). Leave Basic's procedure layout as it is.
+- No UB; keep Basic/C++ parity; string constants per coding-standards.
+- No runtime slowdown: avoid extra allocations/copies on hot paths. Do not replace iterator-style walks with eager flattening unless semantics require it.
+- If the user approved a behavior change on a touched operator/builtin path, apply the coding-standards non-finite rule and lock it with tests.
+
+## Refactor workflow
+
+1. Protect-workspace before the first edit.
+2. Inventory duplicates (impact / risk / testability).
+3. Choose helper strategy (reuse → extend → narrow new helper) per coding-standards and cpp-class-design.
+4. Preserve efficiency: single-pass walks, pre-count + one allocation, scratch-buffer reuse in C++, no extra hot-path temps. For hot-path clusters, record a perf baseline before the first edit and compare after (build-gates "Performance").
+5. Apply one logical cluster at a time. Between clusters, compile the side you touched when practical (build-gates compile discipline on failure).
+6. Remove dead code only when unused/unreachable/superseded is confirmed; otherwise list it as a candidate.
+7. Mirror and reflect via the parity skill, then run the required build-gates once for the final diff; all of them must pass before completion.
+
+## Dead/unused code criteria
+
+Removable only if:
+
+- No references/call sites in the repo and not part of the required external API, or
+- Provably unreachable under enclosing guards, or
+- Fully superseded helper with no remaining use.
+
+Record a short justification per removal.
+
+## Completion report format
+
+Report: files changed; duplicates eliminated; helper reuse/extraction; when a user function or a lambda was in scope, both surfaces checked and which shared helper owns the rule; dead code removed + reason; dead-code candidates kept (and why); efficiency notes (why no slowdown, with perf baseline numbers when measured); concerns raised to the user, and the decision for each, or that none were identified; one pass/fail line per gate that ran; defects found but not fixed.

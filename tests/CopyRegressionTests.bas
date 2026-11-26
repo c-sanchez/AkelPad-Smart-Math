@@ -1,7 +1,7 @@
 ''
 '' Regression tests for double-click clipboard normalization (SmartMath_CopyNormalize.bas).
 ''
-#include once "SmartMath_Globals.bi"
+#include once "..\SmartMath_Globals.bi"
 
 private sub ApplySepDefaults()
   g_sDecimalSeparator = SMARTMATH_DECIMAL_SEPARATOR_DEFAULT

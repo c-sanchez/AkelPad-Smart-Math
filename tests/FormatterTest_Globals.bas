@@ -1,5 +1,5 @@
 '' Minimal shared state for SmartMath_Format.bas when linked outside SmartMath.dll.
-#include once "SmartMath_Globals.bi"
+#include once "..\SmartMath_Globals.bi"
 
 dim shared lpEditProcData as WNDPROCDATA ptr = 0
 dim shared g_bSmartMathActive as BOOL = FALSE

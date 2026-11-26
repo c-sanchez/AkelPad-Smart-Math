@@ -10,7 +10,7 @@ echo SmartMath formatter regression tests
 echo ==========================================
 echo.
 echo [1/4] Compiling FormatterRegressionTests.exe (unit) ...
-fbc -d FORMATTER_TEST_BUILD -strip -O 2 -Wc -O2 "FormatterTest_Globals.bas" "FormatterRegressionTests.bas" "SmartMath_Format.bas" "MathParserRawResult.bas" -x "FormatterRegressionTests.exe"
+fbc -d FORMATTER_TEST_BUILD -strip -O 2 -Wc -O2 "tests\FormatterTest_Globals.bas" "tests\FormatterRegressionTests.bas" "SmartMath_Format.bas" "MathParserRawResult.bas" -x "FormatterRegressionTests.exe"
 if errorlevel 1 goto :compile_failed
 
 echo.
@@ -22,7 +22,7 @@ if not "%UNIT_EXIT%"=="0" goto :tests_failed
 
 echo.
 echo [3/4] Compiling FormatterParserIntegrationTests.exe ...
-fbc -d PARSER_FORMATTER_INTEGRATION -strip -O 2 -Wc -O2 "FormatterTest_Globals.bas" "FormatterRegressionTests.bas" "SmartMath_Format.bas" "MathParser.bas" -x "FormatterParserIntegrationTests.exe"
+fbc -d PARSER_FORMATTER_INTEGRATION -strip -O 2 -Wc -O2 "tests\FormatterTest_Globals.bas" "tests\FormatterRegressionTests.bas" "SmartMath_Format.bas" "MathParser.bas" -x "FormatterParserIntegrationTests.exe"
 if errorlevel 1 goto :compile_failed
 
 echo.

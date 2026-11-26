@@ -1,3 +1,16 @@
+SmartMath 1.5
+-------------
+- internal improvements and bug-fixes for edge cases
+- corrected: floating-point vs. exact-integer results
+* changed: an empty array result is shown as `()`
+* changed: `a[n] = x` is an assignment (it updates the array `a`)
+* changed: user-defined functions and lambdas are evaluated only when called
++ new functions: filter, iif, isinstance, dec, udec
++ added: "cpp\calc.cpp" (C++) and "tools\calc.bas" (FreeBasic)
++ added: SmartMath Online (web version of the calculator)
+* maintenance: improved AI skills
+
+
 SmartMath 1.4
 -------------
 * usability improvements

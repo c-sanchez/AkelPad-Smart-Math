@@ -1,8 +1,8 @@
-#include once "Inc\MathParser.bi"
+#include once "..\Inc\MathParser.bi"
 
 sub Main()
   Parser_ClearVariables()
-  dim result as Double
+  dim result as SmFloat
   dim resultText as String
   dim isArray as Boolean
 
@@ -14,7 +14,7 @@ sub Main()
   end if
 
   print "evaluating factorint(33)..."
-  dim t0 as Double = timer
+  dim t0 as SmFloat = timer
   if Parser_TryEvaluateEx("factorint(33)", result, resultText, isArray) then
     print "ok (" & (timer - t0) & "s): " & resultText
   else

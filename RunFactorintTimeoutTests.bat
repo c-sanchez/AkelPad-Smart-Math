@@ -23,7 +23,7 @@ echo ==========================================
 echo.
 
 echo [1/2] Compiling %EXE% ...
-fbc %FBC_ARCH% -strip -O 2 -Wc -O2 "SmokeTest_Factorint.bas" "MathParser.bas" -x "%EXE%"
+fbc %FBC_ARCH% -strip -O 2 -Wc -O2 "tests\SmokeTest_Factorint.bas" "MathParser.bas" -x "%EXE%"
 if errorlevel 1 goto :compile_failed
 
 echo.
@@ -40,7 +40,7 @@ for /L %%I in (1,1,%CASE_COUNT%) do (
   if "!RC!"=="124" (
     echo.
     echo TIMEOUT: case %%I exceeded %TIMEOUT_SEC% seconds.
-    echo Expression: see case list in SmokeTest_Factorint.bas
+    echo Expression: see case list in tests\SmokeTest_Factorint.bas
     exit /b 124
   )
   if not "!RC!"=="0" (

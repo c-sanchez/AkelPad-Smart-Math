@@ -9,24 +9,28 @@
 
 namespace {
 
-long long rawCartesianToInt64(const MathParser::RawResult::CartesianScalar& s) {
+long long rawCartesianToSInt(const MathParser::RawResult::CartesianScalar& s) {
   switch (s.kind) {
     case MathParser::RawResult::ScalarKind::Time:
-    case MathParser::RawResult::ScalarKind::Int64:
+    case MathParser::RawResult::ScalarKind::SInt:
       return s.intValue;
-    case MathParser::RawResult::ScalarKind::UInt64:
+    case MathParser::RawResult::ScalarKind::UInt:
       return static_cast<long long>(s.uintValue);
     case MathParser::RawResult::ScalarKind::Rational:
       return static_cast<long long>(static_cast<double>(s.rational.numerator) /
                                     static_cast<double>(s.rational.denominator));
+#if SMARTMATH_FACTORINT
+    case MathParser::RawResult::ScalarKind::IntPower:
+      return s.rational.numerator;
+#endif
     case MathParser::RawResult::ScalarKind::FloatingPoint:
     default:
       return static_cast<long long>(s.floatingPoint);
   }
 }
 
-long long rawScalarToInt64(const MathParser::RawResult::Scalar& s) {
-  return rawCartesianToInt64(s.real);
+long long rawScalarToSInt(const MathParser::RawResult::Scalar& s) {
+  return rawCartesianToSInt(s.real);
 }
 
 long long benchResultChecksum(const MathParser::RawResult& r) {
@@ -34,11 +38,11 @@ long long benchResultChecksum(const MathParser::RawResult& r) {
     return 0;
   }
   if (r.isScalar()) {
-    return rawScalarToInt64(r.scalar);
+    return rawScalarToSInt(r.scalar);
   }
   long long sum = 0;
   for (const auto& item : r.array) {
-    sum += rawScalarToInt64(item);
+    sum += rawScalarToSInt(item);
   }
   return sum;
 }
@@ -152,7 +156,7 @@ void runPhaseProfileBench(std::uint64_t iterations) {
     if (!compiled || !r.hasValue() || !r.isScalar()) {
       ++errors;
     } else {
-      checksum += rawScalarToInt64(r.scalar);
+      checksum += rawScalarToSInt(r.scalar);
     }
   }
 
@@ -280,7 +284,7 @@ int main(int argc, char** argv) {
       if (!r.hasValue() || !r.isScalar()) {
         ++errors;
       } else {
-        checksum += rawScalarToInt64(r.scalar);
+        checksum += rawScalarToSInt(r.scalar);
       }
     }
     const auto t1 = std::chrono::steady_clock::now();

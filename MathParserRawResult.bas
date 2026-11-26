@@ -35,9 +35,9 @@ end function
 
 function RawCartesianIsZero(byref c as RawCartesianScalar) as Boolean
   select case c.kind
-  case RSK_INT64
+  case RSK_SINT
     return c.intValue = 0
-  case RSK_UINT64
+  case RSK_UINT
     return c.uintValue = 0
   case RSK_RATIONAL
     return c.ratNum = 0

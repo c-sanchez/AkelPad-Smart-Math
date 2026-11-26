@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-check SmokeTest_MathParser.bas numeric *expected* strings against a Python
+Cross-check tests/SmokeTest_MathParser.bas numeric *expected* strings against a Python
 reference (math + statistics + explicit Smart-Math-like rules).
 
 Expressions use the Smart Math surface syntax; we translate a large subset to
@@ -12,14 +12,17 @@ switch to a dedicated reference path:
     ``complex`` arithmetic, then compare after normalizing ``j`` <-> ``i`` spelling.
     Tuple + scalar / tuple * scalar / element-wise tuple/tuple uses the same
     broadcast lowering as the ``RunComplexNumberSupportOptionTests`` block in
-    ``SmokeTest_MathParser.bas``. Table rows are discovered from:
+    ``tests/SmokeTest_MathParser.bas``. Table rows are discovered from:
     ``StemCases``/``StemOk`` + ``StemExpect``; ``StemExpr`` + ``StemExpect`` (with
     ``&`` string concat via ``dim … as String`` constants); ``dim var`` +
     ``Parser_TryEvaluateEx(var,…) orelse rt <> varExpect``; inline literal probes;
     and ``*ErrExpr`` error tables. ``hex``/``bin``/``oct``/``uhex``/``uoct``/``ubin``
-    are evaluated for reference strings (uppercase ``0x``). DSL-only forms
-    (``unique``, ``unpack``, ``sort``, trailing ``uhex`` command, user ``f(x)=``) stay
-    skipped when not comparable.
+    are evaluated for reference strings (uppercase ``0x``). User functions,
+    ``ratio()``, unsigned display, array indexing, and wide integer ``mod``
+    are evaluated. Rows that only record an error string stay skipped.
+    A bare trailing formatter (``hex``/``oct``/``bin``/
+    ``deg``/``rad`` and the unsigned names, optional empty ``()``), including a
+    final ``;``, is rewritten to ``name(ans)``.
   * **Real (recent exact-int math):** ``sqrt``/``sqr`` use Smart-Math-style exact
     integer rules; ``tests(1150)``..``1156`` and ``raw-api/sqrt-non-perfect-square``
     are included. ``hex(sqr(9))`` etc. use the same display builtins as smoke.
@@ -29,8 +32,29 @@ switch to a dedicated reference path:
     enough to mirror the smoke *expected* strings for the time block.
 
 Float agreement uses the same tolerance as ``ScalarCloseEnough`` in
-``SmokeTest_MathParser.bas``:
+``tests/SmokeTest_MathParser.bas``:
   tol = max(256 * eps * max(1, |a|, |b|), 1e-14)
+
+Smart-Math rules plain Python does not model:
+  * ``min`` / ``max`` skip ``nan`` once any non-NaN value is present (NaN is absence).
+    ``clamp`` uses the same absence rules for a NaN value or a NaN bound.
+  * Comparisons are lexicographic: a scalar counts as length 1 (``flat(inf)==inf``),
+    and a ``nan`` in a compared element makes the whole compare unordered
+    (only ``!=`` / ``<>`` is true), including ``flat(nan)==flat(nan)`` and
+    ``(1,nan)!=(1,nan)``. Plain Python ``tuple`` equality is wrong here because
+    the ``math.nan`` singleton compares equal to itself by identity.
+  * Arrays are flattened as they are built, so a result never contains a nested array.
+  * No scalars left yields ``()`` (``sum(())``, ``prod(())``, ``sin(())``), not Python's
+    ``sum([]) == 0`` or ``math.prod([]) == 1``. An empty ``range`` span is ``()``,
+    matching Python ``range``.
+  * A bare trailing formatter is ``name(ans)``; a final ``;`` still yields that result.
+  * Postfix ``%`` binds under ``**`` and unary ``+ - ~ !``, and over ``* /`` modulo.
+    ``2%**3`` is ``(2%)**3``. A ``+``/``-`` whose whole right-hand side is a percent
+    term scales that side by the left (``200+15%``, ``10+2**3%``).
+  * ``name[index] = value`` updates that array element (an empty value deletes it).
+    ``(name)[index] = value`` and ``name[index] == value`` stay comparisons.
+  * ``iif`` evaluates only the chosen branch. ``isinstance(value, type)`` uses a
+    bare type name (``int``, ``float``, ``time``, ``complex``, ``array`` / ``list``).
 
 Sources parsed (in addition to ``tests(N)`` rows):
   * ``tools/neg_band_cases_generated.bas`` (neg/pos real + complex magnitude bands)
@@ -43,7 +67,7 @@ Sources parsed (in addition to ``tests(N)`` rows):
   * Paired ``*Ok``/``*Expect`` and ``*Expr``/``*Expect`` rows anywhere in smoke source
   * ``*Err`` / ``errExprs`` error-probe tables in smoke subs (time, complex, arity, …)
   * Inline ``Parser_TryEvaluateEx(...) orelse rt <> "..."`` numeric probes in smoke subs
-  * All ``Run*Tests`` subs in ``SmokeTest_MathParser.bas`` (paired ``*Ok/*Expect``,
+  * All ``Run*Tests`` subs in ``tests/SmokeTest_MathParser.bas`` (paired ``*Ok/*Expect``,
     ``*Cases/*Expect``, ``*Exprs/*Need``, ``*Expr/*Expect`` with ``&`` concat,
     error tables, inline ``rt <>`` probes)
   * ``RunComplexNumberSupportOptionTests`` (large complex-opt block)
@@ -65,8 +89,10 @@ import statistics
 import sys
 import threading
 import time
+import warnings
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 from typing import Any, Optional
 
 EPS = 2.2204460492503131e-16
@@ -88,6 +114,82 @@ class Duration:
 
     ms: float
 
+    def __neg__(self) -> "Duration":
+        return Duration(-self.ms)
+
+    def _other_ms(self, other: object) -> Optional[float]:
+        if isinstance(other, Duration):
+            return other.ms
+        if isinstance(other, bool) or not isinstance(other, (int, float)):
+            return None
+        return float(other) * _SECOND_MS
+
+    def __add__(self, other: object) -> Any:
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return Duration(self.ms + extra)
+
+    def __radd__(self, other: object) -> Any:
+        return self.__add__(other)
+
+    def __sub__(self, other: object) -> Any:
+        if isinstance(other, Duration):
+            return Duration(self.ms - other.ms)
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return Duration(self.ms - extra)
+
+    def __rsub__(self, other: object) -> Any:
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return Duration(extra - self.ms)
+
+    def __mul__(self, other: object) -> Any:
+        if isinstance(other, bool) or not isinstance(other, (int, float)):
+            return NotImplemented
+        return Duration(self.ms * float(other))
+
+    def __rmul__(self, other: object) -> Any:
+        return self.__mul__(other)
+
+    def __lt__(self, other: object) -> Any:
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return self.ms < extra
+
+    def __le__(self, other: object) -> Any:
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return self.ms <= extra
+
+    def __gt__(self, other: object) -> Any:
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return self.ms > extra
+
+    def __ge__(self, other: object) -> Any:
+        extra = self._other_ms(other)
+        if extra is None:
+            return NotImplemented
+        return self.ms >= extra
+
+    def __truediv__(self, other: object) -> Any:
+        if isinstance(other, Duration):
+            if other.ms == 0.0:
+                return math.nan
+            return self.ms / other.ms
+        if isinstance(other, bool) or not isinstance(other, (int, float)):
+            return NotImplemented
+        if other == 0:
+            return Duration(math.copysign(math.inf, self.ms) if self.ms != 0 else math.nan)
+        return Duration(self.ms / float(other))
+
 
 @dataclass(frozen=True)
 class ExactComplex:
@@ -99,49 +201,102 @@ class ExactComplex:
     def conjugate(self) -> "ExactComplex":
         return ExactComplex(self.real, -self.imag)
 
-    def __add__(self, other: object) -> "Duration":
-        if isinstance(other, Duration):
-            return Duration(self.ms + other.ms)
-        if isinstance(other, (int, float)):
-            return Duration(self.ms + float(other) * _SECOND_MS)
-        return NotImplemented
+    def __add__(self, other: object) -> Any:
+        pair = _exact_complex_pair(other)
+        if pair is None:
+            return NotImplemented
+        br, bi, exact = pair
+        return _exact_complex_make(self.real + br, self.imag + bi, exact)
 
-    def __radd__(self, other: object) -> "Duration":
-        return self.__add__(other)  # type: ignore[arg-type]
+    def __radd__(self, other: object) -> Any:
+        return self.__add__(other)
 
-    def __sub__(self, other: object) -> "Duration":
-        if isinstance(other, Duration):
-            return Duration(self.ms - other.ms)
-        if isinstance(other, (int, float)):
-            return Duration(self.ms - float(other) * _SECOND_MS)
-        return NotImplemented
+    def __sub__(self, other: object) -> Any:
+        pair = _exact_complex_pair(other)
+        if pair is None:
+            return NotImplemented
+        br, bi, exact = pair
+        return _exact_complex_make(self.real - br, self.imag - bi, exact)
 
-    def __rsub__(self, other: object) -> "Duration":
-        if isinstance(other, Duration):
-            return Duration(other.ms - self.ms)
-        if isinstance(other, (int, float)):
-            return Duration(float(other) * _SECOND_MS - self.ms)
-        return NotImplemented
+    def __rsub__(self, other: object) -> Any:
+        pair = _exact_complex_pair(other)
+        if pair is None:
+            return NotImplemented
+        br, bi, exact = pair
+        return _exact_complex_make(br - self.real, bi - self.imag, exact)
 
-    def __mul__(self, other: object) -> "Duration":
-        if isinstance(other, (int, float)):
-            return Duration(self.ms * float(other))
-        return NotImplemented
+    def __mul__(self, other: object) -> Any:
+        pair = _exact_complex_pair(other)
+        if pair is None:
+            return NotImplemented
+        br, bi, exact = pair
+        rr = self.real * br - self.imag * bi
+        ii = self.real * bi + self.imag * br
+        return _exact_complex_make(rr, ii, exact)
 
-    def __rmul__(self, other: object) -> "Duration":
-        return self.__mul__(other)  # type: ignore[arg-type]
+    def __rmul__(self, other: object) -> Any:
+        return self.__mul__(other)
 
-    def __truediv__(self, other: object) -> float:
-        if isinstance(other, Duration):
-            if other.ms == 0:
-                raise ZeroDivisionError
-            return self.ms / other.ms
-        if isinstance(other, (int, float)):
-            return self.ms / float(other)
-        return NotImplemented
+    def __truediv__(self, other: object) -> Any:
+        pair = _exact_complex_pair(other)
+        if pair is None:
+            return NotImplemented
+        br, bi, exact = pair
+        den = br * br + bi * bi
+        if den == 0:
+            raise ZeroDivisionError
+        nr = self.real * br + self.imag * bi
+        ni = self.imag * br - self.real * bi
+        if exact and isinstance(den, int) and nr % den == 0 and ni % den == 0:
+            return ExactComplex(nr // den, ni // den)
+        return complex(nr / den, ni / den)
 
-    def __neg__(self) -> "Duration":
-        return Duration(-self.ms)
+    def __rtruediv__(self, other: object) -> Any:
+        pair = _exact_complex_pair(other)
+        if pair is None:
+            return NotImplemented
+        br, bi, exact = pair
+        den = self.real * self.real + self.imag * self.imag
+        if den == 0:
+            raise ZeroDivisionError
+        nr = br * self.real + bi * self.imag
+        ni = bi * self.real - br * self.imag
+        if exact and nr % den == 0 and ni % den == 0:
+            return ExactComplex(nr // den, ni // den)
+        return complex(nr / den, ni / den)
+
+    def __neg__(self) -> "ExactComplex":
+        return ExactComplex(-self.real, -self.imag)
+
+    def __abs__(self) -> float:
+        return math.hypot(self.real, self.imag)
+
+
+def _exact_complex_pair(other: object) -> Optional[tuple[Any, Any, bool]]:
+    """Return (real, imag, both_components_are_ints) or None."""
+    if isinstance(other, ExactComplex):
+        return other.real, other.imag, True
+    if isinstance(other, complex):
+        return other.real, other.imag, False
+    if isinstance(other, bool):
+        return int(other), 0, True
+    if isinstance(other, int):
+        return other, 0, True
+    if isinstance(other, float):
+        return other, 0.0, False
+    return None
+
+
+def _exact_complex_make(real: Any, imag: Any, exact: bool) -> Any:
+    if (
+        exact
+        and isinstance(real, int)
+        and isinstance(imag, int)
+        and not isinstance(real, bool)
+        and not isinstance(imag, bool)
+    ):
+        return ExactComplex(real, imag)
+    return complex(float(real), float(imag))
 
 
 def _parse_colon_groups(groups: list[str]) -> Duration:
@@ -184,7 +339,6 @@ def dur_parse_compact(s: str) -> Duration:
     if not tokens:
         raise ValueError("empty compact time")
     total = 0.0
-    last_rank = -1
     for tok in tokens:
         m = re.fullmatch(r"(-?)(\d+)(ms|[dhms])", tok)
         if not m:
@@ -192,10 +346,7 @@ def dur_parse_compact(s: str) -> Duration:
         sign = -1.0 if m.group(1) == "-" else 1.0
         val = int(m.group(2)) * sign
         unit = m.group(3)
-        rank = _UNIT_ORDER[unit]
-        if rank < last_rank:
-            raise ValueError("compact time unit order")
-        last_rank = rank
+        # Each token keeps its own sign, so ``-1s-1m`` is -1 second plus -1 minute.
         if unit == "d":
             total += val * _DAY_MS
         elif unit == "h":
@@ -299,15 +450,22 @@ def _replace_colon_time_literals(expr: str) -> str:
     out: list[str] = []
     i = 0
     n = len(expr)
+    depth = 0
     while i < n:
-        m = find_match(expr, i)
-        if m:
-            lit = m.group(0)
-            out.append(f"dur_parse_colon_literal({lit!r})")
-            i += len(lit)
-        else:
-            out.append(expr[i])
-            i += 1
+        ch = expr[i]
+        if ch == "[":
+            depth += 1
+        elif ch == "]" and depth:
+            depth -= 1
+        if depth == 0:
+            m = find_match(expr, i)
+            if m:
+                lit = m.group(0)
+                out.append(f"dur_parse_colon_literal({lit!r})")
+                i += len(lit)
+                continue
+        out.append(ch)
+        i += 1
     return "".join(out)
 
 
@@ -318,7 +476,7 @@ def _dur_lit_compact(s: str) -> Duration:
 def duration_format_ms(ms: float) -> str:
     """
     Format ``ms`` into Smart-Math-like canonical strings used in smoke tests.
-    Heuristic but tuned to the SmokeTest_MathParser.bas time block.
+    Heuristic but tuned to the tests/SmokeTest_MathParser.bas time block.
     """
     if ms != ms:
         return "nan"
@@ -524,8 +682,12 @@ def _apply_tight_imag_suffix_rules(expr: str) -> str:
     return s
 
 
-_RE_EXACT_INT_COMPLEX_ADD = re.compile(r"(-?\d+)\+\((-?\d+)\*1j\)")
-_RE_EXACT_INT_COMPLEX_SUB = re.compile(r"(-?\d+)-\((-?\d+)\*1j\)")
+_RE_EXACT_INT_COMPLEX_ADD = re.compile(
+    r"(?<![\d./])(-?\d+)\s*\+\s*\(\s*(-?\d+)\s*\*\s*1j\s*\)"
+)
+_RE_EXACT_INT_COMPLEX_SUB = re.compile(
+    r"(?<![\d./])(-?\d+)\s*-\s*\(\s*(-?\d+)\s*\*\s*1j\s*\)"
+)
 
 
 def exact_int_complex(re: Any, im: Any = 0) -> ExactComplex:
@@ -560,10 +722,35 @@ def _preprocess_complex_surface(expr: str) -> str:
     * ``func(expr)i`` -> ``(func(expr)*1j)``
 
     Remaining bare ``i`` tokens (e.g. ``2*i``, ``1/2*i``) become ``(1j)``.
+    An assignment ``i=...`` keeps that name as a variable.
     """
     s = _apply_tight_imag_suffix_rules(expr)
-    s = re.sub(r"(?<![A-Za-z0-9_])i(?![A-Za-z0-9_])", "(1j)", s)
+    if not _assigns_name_i(s):
+        s = re.sub(r"(?<![A-Za-z0-9_])i(?![A-Za-z0-9_])", "(1j)", s)
     return s
+
+
+def _assigns_name_i(expr: str) -> bool:
+    """``i=2`` is a variable. ``i==2`` and ``2i`` are not assignments to ``i``."""
+    return re.search(r"(?<![A-Za-z0-9_])i\s*=(?!=)", expr) is not None
+
+
+def _mask_bracket_interiors(expr: str) -> str:
+    """Blank the inside of ``[]`` so a slice colon is not read as a time."""
+    out: list[str] = []
+    depth = 0
+    for ch in expr:
+        if ch == "[":
+            depth += 1
+            out.append(ch)
+        elif ch == "]" and depth:
+            depth -= 1
+            out.append(ch)
+        elif depth:
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def _looks_like_complex_expr(expr: str) -> bool:
@@ -572,7 +759,7 @@ def _looks_like_complex_expr(expr: str) -> bool:
         return True
     if re.search(r"\)[iI](?![A-Za-z0-9_])", e):
         return True
-    if re.search(r"(?<![A-Za-z0-9_])i(?![A-Za-z0-9_])", e):
+    if not _assigns_name_i(e) and re.search(r"(?<![A-Za-z0-9_])i(?![A-Za-z0-9_])", e):
         return True
     return False
 
@@ -592,15 +779,16 @@ def _looks_like_complex_expected(expected: str) -> bool:
 
 def _looks_like_time(expr: str, expected: str) -> bool:
     ex = _strip_line_comment(expr)
+    visible = _mask_bracket_interiors(ex)
     if re.search(
         r"\b(second|minute|hour|day|millisecond|milliseconds|seconds|minutes|hours|days)\b",
         ex,
         flags=re.I,
     ):
         return True
-    if re.search(r"\b\d+\s*:\s*\d{2}\b", ex):
+    if re.search(r"\b\d+\s*:\s*\d{2}\b", visible):
         return True
-    if re.search(r"(?:^|[^\w.])(-?\s*(?:\d+)(?:ms|[dhms])(?:\s*(?:\d+)(?:ms|[dhms]))+)(?:[^\w.]|$)", ex):
+    if re.search(r"(?:^|[^\w.])(-?\s*(?:\d+)(?:ms|[dhms])(?:\s*(?:\d+)(?:ms|[dhms]))+)(?:[^\w.]|$)", visible):
         if not re.search(r"\d+e[-+]?\d", ex, flags=re.I):
             return True
     if re.search(r"\b\d+\s*:\s*\d{2}\b", expected):
@@ -616,10 +804,22 @@ def infer_ref_mode(expr: str, expected: str) -> str:
     return "real"
 
 
+def _flat_ast_tuple(elts: list[ast.AST]) -> ast.Tuple:
+    """Splice nested tuple nodes. Smart-Math array values are always flat."""
+    flat: list[ast.AST] = []
+    for el in elts:
+        if isinstance(el, ast.Tuple):
+            flat.extend(_flat_ast_tuple(el.elts).elts)
+        else:
+            flat.append(el)
+    return ast.Tuple(elts=flat, ctx=ast.Load())
+
+
 def _fold_tuple_broadcast_ast(node: ast.AST) -> ast.AST:
     """
-    Lower Smart-Math element-wise tuple algebra to nested tuple of scalars
-    (``(a,b)+c -> (a+c, b+c)``, same for ``- * /`` when one side is a tuple).
+    Splice nested tuple literals and zip two tuple literals element-wise.
+    A call, name, or scalar against a tuple stays a binary op so runtime
+    broadcast can see an array result (``flat(1m,12)+(5,5)``).
     """
 
     def fold(n: ast.AST) -> ast.AST:
@@ -629,27 +829,26 @@ def _fold_tuple_broadcast_ast(node: ast.AST) -> ast.AST:
             if isinstance(left, ast.Tuple) and isinstance(right, ast.Tuple):
                 if len(left.elts) != len(right.elts):
                     return ast.BinOp(left=left, op=op, right=right)
-                return ast.Tuple(
-                    elts=[
-                        ast.BinOp(left=le, op=op, right=re) for le, re in zip(left.elts, right.elts)
-                    ],
-                    ctx=ast.Load(),
+                return _flat_ast_tuple(
+                    [
+                        ast.BinOp(left=le, op=op, right=re)
+                        for le, re in zip(left.elts, right.elts)
+                    ]
                 )
-            if isinstance(left, ast.Tuple) and not isinstance(right, ast.Tuple):
-                return ast.Tuple(
-                    elts=[ast.BinOp(left=le, op=op, right=right) for le in left.elts],
-                    ctx=ast.Load(),
-                )
-            if isinstance(right, ast.Tuple) and not isinstance(left, ast.Tuple):
-                return ast.Tuple(
-                    elts=[ast.BinOp(left=left, op=op, right=re) for re in right.elts],
-                    ctx=ast.Load(),
-                )
+            # A call or name may itself be an array (`flat(1m,12)+(5,5)`).
+            # Leave that pair for runtime broadcast instead of copying one side.
             return ast.BinOp(left=left, op=op, right=right)
         if isinstance(n, ast.UnaryOp):
-            return ast.UnaryOp(op=n.op, operand=fold(n.operand))
+            operand = fold(n.operand)
+            if isinstance(operand, ast.Tuple) and isinstance(
+                n.op, (ast.UAdd, ast.USub, ast.Invert)
+            ):
+                return _flat_ast_tuple(
+                    [ast.UnaryOp(op=n.op, operand=el) for el in operand.elts]
+                )
+            return ast.UnaryOp(op=n.op, operand=operand)
         if isinstance(n, ast.Tuple):
-            return ast.Tuple(elts=[fold(e) for e in n.elts], ctx=ast.Load())
+            return _flat_ast_tuple([fold(e) for e in n.elts])
         if isinstance(n, ast.Call):
             return ast.Call(
                 func=fold(n.func),
@@ -809,7 +1008,7 @@ def _format_complex_smoke(z: complex) -> str:
 
 
 def smoke_tol(a: float, b: float) -> float:
-    """Mirror ``ScalarCloseEnough`` in ``SmokeTest_MathParser.bas``."""
+    """Mirror ``ScalarCloseEnough`` in ``tests/SmokeTest_MathParser.bas``."""
     scale = max(1.0, abs(a), abs(b))
     tol = 256.0 * EPS * scale
     if tol < 1e-14:
@@ -865,7 +1064,7 @@ def _parse_smoke_imag_coeff(im_s: str) -> Optional[float]:
 
 
 def split_complex_text_smoke(s: str) -> Optional[tuple[str, str]]:
-    """Mirror ``SplitComplexText`` in ``SmokeTest_MathParser.bas``."""
+    """Mirror ``SplitComplexText`` in ``tests/SmokeTest_MathParser.bas``."""
     t = s.strip()
     if not t:
         return ("0", "0")
@@ -1020,8 +1219,11 @@ def ratio_display_close_enough(expected: str, got: str, *, expr: str = "") -> bo
 
 
 def round_half_away_from_zero(x: float) -> float:
-    """Smart Math-style round (e.g. round(2.5) -> 3)."""
-    return float(Decimal(str(float(x))).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    """Smart Math-style round (e.g. round(2.5) -> 3). Non-finites pass through."""
+    xf = float(x)
+    if not math.isfinite(xf):
+        return xf
+    return float(Decimal(str(xf)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def is_multiple_of(x: float, x_mult: float) -> bool:
@@ -1067,6 +1269,8 @@ def tan_sm(x: float) -> float:
 
 
 def dsl_truth(x: Any) -> bool:
+    if isinstance(x, Duration):
+        return x.ms != 0
     if isinstance(x, complex):
         # Smart-Math treats complex values with NaN in either component as falsey.
         if math.isnan(x.real) or math.isnan(x.imag):
@@ -1093,42 +1297,121 @@ def dsl_or(a: Any, b: Any) -> int:
     return 1 if dsl_truth(a) or dsl_truth(b) else 0
 
 
-def dsl_cmp(op: str, a: Any, b: Any) -> int:
-    if op == "eq":
-        if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
-            return 0
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            return 1 if close_enough_str(str(a), str(b)) or a == b else 0
-        return 1 if a == b else 0
-    if op == "ne":
-        if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+def _cmp_as_seq(v: Any) -> tuple:
+    """Scalar counts as length 1; arrays stay flat sequences (Smart-Math lex compare)."""
+    if isinstance(v, tuple):
+        flat = _flatten_value(v)
+        return flat if isinstance(flat, tuple) else (flat,)
+    return (v,)
+
+
+def _cmp_pair_unordered_nan(a: Any, b: Any) -> bool:
+    """IEEE unordered NaN for compare ops. Time values skip this (parser parity)."""
+    if isinstance(a, Duration) or isinstance(b, Duration):
+        return False
+    return _has_nan_component(a) or _has_nan_component(b)
+
+
+def _cmp_elements(a: Any, b: Any) -> int:
+    """Three-way compare of one pair (-1 / 0 / 1). Caller already ruled out unordered NaN."""
+    if isinstance(a, Duration) or isinstance(b, Duration):
+        if a < b:
+            return -1
+        if a > b:
             return 1
-        return 1 - dsl_cmp("eq", a, b)
+        return 0
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if close_enough_str(str(a), str(b)) or a == b:
+            return 0
+        if a < b:
+            return -1
+        if a > b:
+            return 1
+        return 0
+    if a == b:
+        return 0
+    if a < b:
+        return -1
+    if a > b:
+        return 1
+    return 0
+
+
+def _cmp_op_truth(op: str, cmp: int) -> int:
+    if op == "eq":
+        return 1 if cmp == 0 else 0
+    if op == "ne":
+        return 1 if cmp != 0 else 0
     if op == "lt":
-        return 1 if a < b else 0
+        return 1 if cmp < 0 else 0
     if op == "le":
-        return 1 if a <= b else 0
+        return 1 if cmp <= 0 else 0
     if op == "gt":
-        return 1 if a > b else 0
+        return 1 if cmp > 0 else 0
     if op == "ge":
-        return 1 if a >= b else 0
+        return 1 if cmp >= 0 else 0
     raise ValueError(op)
 
 
-def dsl_bitinv(x: Any) -> float:
-    return float(~int(math.trunc(float(x))))
+def dsl_cmp(op: str, a: Any, b: Any) -> int:
+    """
+    Smart-Math comparison: lexicographic over scalars-as-length-1 sequences.
+    A NaN in a compared element makes the whole compare unordered (only ``ne`` true).
+    Do not use plain Python ``tuple`` ``==``: the ``math.nan`` singleton compares
+    equal to itself by identity inside containers.
+    """
+    sa = _cmp_as_seq(a)
+    sb = _cmp_as_seq(b)
+    n = min(len(sa), len(sb))
+    for i in range(n):
+        if _cmp_pair_unordered_nan(sa[i], sb[i]):
+            return 1 if op == "ne" else 0
+        c = _cmp_elements(sa[i], sb[i])
+        if c != 0:
+            return _cmp_op_truth(op, c)
+    if len(sa) < len(sb):
+        cmp = -1
+    elif len(sa) > len(sb):
+        cmp = 1
+    else:
+        cmp = 0
+    return _cmp_op_truth(op, cmp)
+
+
+def dsl_neg(x: Any) -> Any:
+    """Unary ``-``. An empty array stays ``()``; a non-empty array maps element-wise."""
+    if isinstance(x, tuple):
+        return tuple(dsl_neg(item) for item in _flatten_value(x))
+    return -x
+
+
+def dsl_pos(x: Any) -> Any:
+    """Unary ``+``. An empty array stays ``()``; a non-empty array maps element-wise."""
+    if isinstance(x, tuple):
+        return tuple(dsl_pos(item) for item in _flatten_value(x))
+    return +x
+
+
+def dsl_bitinv(x: Any) -> Any:
+    if isinstance(x, tuple):
+        return tuple(dsl_bitinv(item) for item in _flatten_value(x))
+    xi = _as_int_exact(x)
+    if xi is None:
+        xi = int(math.trunc(float(x)))
+    return ~xi
 
 
 def fractional_power_is_odd_unit_root(p: float) -> Optional[int]:
+    """Odd ``1/n`` whose reciprocal is still the closest double (through ``2**53``)."""
     if p <= 0.0 or p >= 1.0:
         return None
     inv = 1.0 / p
-    if inv < 2.0 or inv > 63.0:
+    if inv < 2.0 or inv > 9007199254740992.0:
         return None
     n = int(round(inv))
-    if n < 2 or n > 63:
+    if n < 2:
         return None
-    if abs(inv - float(n)) > 1e-6:
+    if abs(p * float(n) - 1.0) > 1e-15:
         return None
     if (n % 2) == 0:
         return None
@@ -1154,6 +1437,24 @@ class _SmokeAstTransform(ast.NodeTransformer):
             fn = "pow_sm_cx" if self._mode == "complex" else "pow_sm"
         elif isinstance(node.op, ast.Mod):
             fn = "mod_sm"
+        elif isinstance(node.op, ast.Add):
+            fn = "add_sm"
+        elif isinstance(node.op, ast.Sub):
+            fn = "sub_sm"
+        elif isinstance(node.op, ast.Div):
+            fn = "div_sm_cx" if self._mode == "complex" else "div_sm_real"
+        elif isinstance(node.op, ast.Mult):
+            fn = "mul_sm_cx" if self._mode == "complex" else "mul_sm_real"
+        elif isinstance(node.op, ast.LShift):
+            fn = "lshift_sm"
+        elif isinstance(node.op, ast.RShift):
+            fn = "rshift_sm"
+        elif isinstance(node.op, ast.BitAnd):
+            fn = "bitand_sm"
+        elif isinstance(node.op, ast.BitOr):
+            fn = "bitor_sm"
+        elif isinstance(node.op, ast.BitXor):
+            fn = "bitxor_sm"
         else:
             return self.generic_visit(node)
         return ast.Call(
@@ -1207,16 +1508,70 @@ class _SmokeAstTransform(ast.NodeTransformer):
                 args=[self.visit(node.operand)],
                 keywords=[],
             )
+        if isinstance(node.op, ast.USub):
+            return ast.Call(
+                func=ast.Name(id="dsl_neg", ctx=ast.Load()),
+                args=[self.visit(node.operand)],
+                keywords=[],
+            )
+        if isinstance(node.op, ast.UAdd):
+            return ast.Call(
+                func=ast.Name(id="dsl_pos", ctx=ast.Load()),
+                args=[self.visit(node.operand)],
+                keywords=[],
+            )
         return self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        """Spread ``unpack(...)`` results into the surrounding call.
+
+        ``iif`` thunks each argument so only the chosen branch runs.
+        """
+        func = self.visit(node.func)
+        if (
+            isinstance(func, ast.Name)
+            and func.id == "iif_sm"
+            and len(node.args) == 3
+            and not node.keywords
+        ):
+            thunks = []
+            for arg in node.args:
+                thunks.append(
+                    ast.Lambda(
+                        args=ast.arguments(
+                            posonlyargs=[],
+                            args=[],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[],
+                        ),
+                        body=self.visit(arg),
+                    )
+                )
+            node = ast.Call(func=func, args=thunks, keywords=[])
+        else:
+            node = ast.Call(
+                func=func,
+                args=[self.visit(arg) for arg in node.args],
+                keywords=[self.visit(kw) for kw in node.keywords],
+            )
+        return ast.Call(
+            func=ast.Name(id="expand_call_sm", ctx=ast.Load()),
+            args=[node.func, *node.args],
+            keywords=list(node.keywords),
+        )
 
 
 def _preprocess_unary_bang_real(expr: str) -> str:
+    """``!`` / ``!!`` on a number, name, or parenthesized value. Rightmost first."""
     s = expr
     while True:
-        m = re.search(r"!(?!=)", s)
-        if not m:
+        matches = list(re.finditer(r"!(?!=)", s))
+        if not matches:
             break
-        pos = m.start()
+        pos = matches[-1].start()
         rest = s[pos + 1 :].lstrip()
         mnum = re.match(r"(\d+\.?\d*(?:[eE][-+]?\d+)?)", rest)
         if mnum:
@@ -1224,7 +1579,30 @@ def _preprocess_unary_bang_real(expr: str) -> str:
             s = s[:pos] + f"dsl_lnot({num})" + rest[len(num) :]
             continue
         if rest.startswith("("):
-            s = s[:pos] + "dsl_lnot(" + rest[1:]
+            close = _matching_paren(rest, 0)
+            if close < 0:
+                break
+            operand = rest[: close + 1]
+            s = s[:pos] + f"dsl_lnot({operand})" + rest[close + 1 :]
+            continue
+        mname = re.match(r"([A-Za-z_][A-Za-z0-9_]*)", rest)
+        if mname:
+            end = mname.end()
+            if end < len(rest) and rest[end] == "(":
+                depth = 0
+                j = end
+                while j < len(rest):
+                    if rest[j] == "(":
+                        depth += 1
+                    elif rest[j] == ")":
+                        depth -= 1
+                        if depth == 0:
+                            j += 1
+                            break
+                    j += 1
+                end = j
+            operand = rest[:end]
+            s = s[:pos] + f"dsl_lnot({operand})" + rest[end:]
             continue
         break
     return s
@@ -1252,15 +1630,126 @@ def _preprocess_real_dsl(expr: str) -> str:
     return s
 
 
-def _preprocess_hex_for_numeric_add(expr: str, expected: str) -> str:
-    if not re.search(r"\bhex\s*\(", expr, re.I):
-        return expr
-    exp = expected.strip()
-    if re.fullmatch(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", exp) or (
-        exp.startswith("(") and "0x" not in exp.lower()
-    ):
-        return re.sub(r"\bhex\s*\(", "hex_val_sm(", expr, flags=re.I)
-    return expr
+def _preprocess_word_not(expr: str) -> str:
+    """``not`` binds looser than comparison, so ``3 + not 4 + 5`` is ``3 + not(4+5)``."""
+    s = expr
+    while True:
+        matches = list(re.finditer(r"\bnot\b(?!\s*\()", s, flags=re.I))
+        if not matches:
+            break
+        matched = matches[-1]
+        rest = s[matched.end() :]
+        depth = 0
+        end = 0
+        while end < len(rest):
+            ch = rest[end]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and (
+                rest.startswith("&&", end)
+                or rest.startswith("||", end)
+                or re.match(r"and\b|or\b", rest[end:], flags=re.I)
+            ):
+                break
+            end += 1
+        operand = rest[:end].strip()
+        if not operand:
+            break
+        s = s[: matched.start()] + f"dsl_lnot({operand})" + rest[end:]
+    return s
+
+
+def _matching_paren(s: str, open_idx: int) -> int:
+    depth = 0
+    for i in range(open_idx, len(s)):
+        if s[i] == "(":
+            depth += 1
+        elif s[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _rewrite_all_base_vals(s: str) -> str:
+    return re.sub(
+        r"\b(uhex|uoct|ubin|hex|oct|bin)\s*\(",
+        "base_val_sm(",
+        s,
+        flags=re.I,
+    )
+
+
+def _promote_whole_formatter(arg: str) -> str:
+    """A branch that is only ``hex(...)`` stays a display; a nested formatter does not."""
+    s = arg.strip()
+    matched = re.match(r"(hex|oct|bin|uhex|uoct|ubin)\s*\(", s, flags=re.I)
+    if matched is None:
+        return arg
+    open_idx = matched.end() - 1
+    close_idx = _matching_paren(s, open_idx)
+    if close_idx != len(s) - 1:
+        return arg
+    name = matched.group(1).lower()
+    return f"{name}_sm" + s[open_idx:]
+
+
+def _protect_iif_display_branches(expr: str) -> str:
+    """``iif`` returns the chosen branch unchanged, so a formatter branch still displays."""
+    out: list[str] = []
+    i = 0
+    n = len(expr)
+    lower = expr.lower()
+    while i < n:
+        j = lower.find("iif", i)
+        if j < 0:
+            out.append(expr[i:])
+            break
+        end_name = j + 3
+        prev_ok = j == 0 or not (expr[j - 1].isalnum() or expr[j - 1] == "_")
+        next_ok = end_name >= n or not (expr[end_name].isalnum() or expr[end_name] == "_")
+        if not prev_ok or not next_ok or _quote_depth_at(expr, j):
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        k = end_name
+        while k < n and expr[k].isspace():
+            k += 1
+        if k >= n or expr[k] != "(":
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        args, close = _split_call_args(expr, k)
+        if args is None or len(args) != 3:
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        cond = _protect_iif_display_branches(args[0])
+        branches = [
+            _promote_whole_formatter(_protect_iif_display_branches(arg)) for arg in args[1:]
+        ]
+        out.append(expr[i:j])
+        out.append(f"iif({cond}, {branches[0]}, {branches[1]})")
+        i = close + 1
+    return "".join(out)
+
+
+def _rewrite_formatters_for_value(expr: str) -> str:
+    """A formatter that is the whole result stays a display. Nested ones return the integer."""
+    expr = _protect_iif_display_branches(expr)
+    s = expr.strip()
+    matched = re.match(r"(hex|oct|bin|uhex|uoct|ubin)\s*\(", s, flags=re.I)
+    if matched:
+        open_idx = matched.end() - 1
+        close_idx = _matching_paren(s, open_idx)
+        if close_idx == len(s) - 1:
+            inner = _rewrite_all_base_vals(s[open_idx + 1 : close_idx])
+            return s[: open_idx + 1] + inner + s[close_idx:]
+    return _rewrite_all_base_vals(s)
 
 
 def trig_near_zero_ok(expected: str, got: str) -> bool:
@@ -1332,7 +1821,7 @@ def results_match(
 
 
 def parse_smoke_cases(path: str) -> list[dict]:
-    """Parse tests(N) fields from SmokeTest_MathParser.bas (same-line assignments)."""
+    """Parse tests(N) fields from tests/SmokeTest_MathParser.bas (same-line assignments)."""
     text = open(path, encoding="utf-8", errors="replace").read()
     lines = text.splitlines()
     cases: dict[int, dict] = {}
@@ -1391,6 +1880,12 @@ _RE_PAIRED_TABLE_ROW = re.compile(
     re.I,
 )
 
+# expr(n) = "..." : want(n) = "..."  (RunInexactFloatDisplayTests, RunFilterExactIntegerTests)
+_RE_EXPR_WANT_ROW = re.compile(
+    r'(?im)^\s*expr\s*\(\s*(\d+)\s*\)\s*=\s*"((?:[^"\\]|\\.)*)"\s*:\s*'
+    r'want\s*\(\s*\1\s*\)\s*=\s*"((?:[^"\\]|\\.)*)"'
+)
+
 # fooExpr(n) = <expr> : fooExpect(n) = <expect>  (expr may use & string concat)
 _RE_PAIRED_EXPR_EXPECT_ROW = re.compile(
     r"([A-Za-z_][A-Za-z0-9_]*)Expr\s*\(\s*(\d+)\s*\)\s*=\s*"
@@ -1420,7 +1915,7 @@ _RE_RUN_SUB_BODY = re.compile(
     re.MULTILINE,
 )
 
-# SmokeTest_MathParser.bas Run* subs (Main() driver order).
+# tests/SmokeTest_MathParser.bas Run* subs (Main() driver order).
 SMOKE_RUN_SUB_SOURCES: dict[str, str] = {
     "RunRawResultApiTests": "raw_api",
     "RunOperatorPrecedenceDocTests": "precedence_doc",
@@ -1798,7 +2293,7 @@ def _unescape_fb(s: str) -> str:
 
 
 def parse_smoke_sub_array_cases(path: str) -> list[dict]:
-    """``precOk``/``precExpect`` and trig magnitude tables from SmokeTest_MathParser.bas."""
+    """``precOk``/``precExpect`` and trig magnitude tables from tests/SmokeTest_MathParser.bas."""
     text = open(path, encoding="utf-8", errors="replace").read()
     out: list[dict] = []
     seen: set[str] = set()
@@ -2006,9 +2501,23 @@ def parse_tools_generated_cases(tools_dir: str) -> list[dict]:
     return out
 
 
+def _parse_expr_want_rows_in_block(block: str, *, source: str, add_case) -> None:
+    """Parse ``expr(n) = "...": want(n) = "..."`` tables."""
+    for matched in _RE_EXPR_WANT_ROW.finditer(block):
+        expr = _unescape_fb_string(matched.group(2))
+        expected = _unescape_fb_string(matched.group(3))
+        _add_paired_table_case(
+            add_case,
+            idx=f"expr({matched.group(1)})",
+            expr=expr,
+            expected=expected,
+            source=source,
+        )
+
+
 def parse_smoke_run_sub_cases(path: str) -> list[dict]:
     """
-    Parse every ``Run*Tests`` sub in ``SmokeTest_MathParser.bas``: paired tables,
+    Parse every ``Run*Tests`` sub in ``tests/SmokeTest_MathParser.bas``: paired tables,
     error tables, and inline numeric/error probes.
     """
     text = open(path, encoding="utf-8", errors="replace").read()
@@ -2037,6 +2546,7 @@ def parse_smoke_run_sub_cases(path: str) -> list[dict]:
         source = SMOKE_RUN_SUB_SOURCES.get(sub_name, sub_name)
         consts = {**file_consts, **_collect_dim_string_constants(body)}
         _parse_paired_table_rows_in_block(body, source=source, consts=consts, add_case=add)
+        _parse_expr_want_rows_in_block(body, source=source, add_case=add)
         _parse_split_line_table_rows_in_block(body, source=source, consts=consts, add_case=add)
         _parse_err_tables_in_block(body, source=source, add_case=add)
         _parse_inline_probes_in_block(body, source=source, add_case=add)
@@ -2462,58 +2972,354 @@ def _implicit_mul(expr: str) -> str:
     return s
 
 
+_RE_FACTOR_NUMBER = re.compile(r"(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$")
+_PERCENT_TAIL = set(")],;+-*/^<>=!&|}")
+_ADDITIVE_BOUNDARY = set(")+-,;<>&^|]}")
+_UNARY_AFTER = set("([,;+-*/%^&|<>=~!")
+
+
+def _skip_ws_left(s: str, i: int) -> int:
+    while i >= 0 and s[i].isspace():
+        i -= 1
+    return i
+
+
+def _skip_ws_right(s: str, i: int) -> int:
+    while i < len(s) and s[i].isspace():
+        i += 1
+    return i
+
+
+def _is_percentage_tail(s: str, i: int) -> bool:
+    """``%`` is postfix when the next token is an operator or a closer, not a value."""
+    j = _skip_ws_right(s, i + 1)
+    if j >= len(s):
+        return True
+    return s[j] in _PERCENT_TAIL
+
+
+def _match_factor_end(s: str, end: int) -> Optional[int]:
+    """Start index of the factor that ends at ``end`` (exclusive)."""
+    i = _skip_ws_left(s, end - 1)
+    if i < 0:
+        return None
+    if s[i] in ")]":
+        close = s[i]
+        open_ch = "(" if close == ")" else "["
+        depth = 0
+        j = i
+        while j >= 0:
+            if s[j] == close:
+                depth += 1
+            elif s[j] == open_ch:
+                depth -= 1
+                if depth == 0:
+                    break
+            j -= 1
+        if j < 0:
+            return None
+        if close == "]":
+            return _match_factor_end(s, j)
+        k = _skip_ws_left(s, j - 1)
+        if k >= 0 and (s[k].isalnum() or s[k] == "_"):
+            while k >= 0 and (s[k].isalnum() or s[k] == "_"):
+                k -= 1
+            return k + 1
+        return j
+    if s[i].isdigit() or s[i] == ".":
+        matched = _RE_FACTOR_NUMBER.search(s[: i + 1])
+        if matched is None or matched.end() != i + 1:
+            return None
+        return matched.start()
+    if s[i].isalnum() or s[i] == "_":
+        j = i
+        while j >= 0 and (s[j].isalnum() or s[j] == "_"):
+            j -= 1
+        return j + 1
+    return None
+
+
+def _include_unary_prefixes(s: str, start: int) -> int:
+    """Pull in unary ``+ - ~ !`` that bind to the factor at ``start``."""
+    while True:
+        j = _skip_ws_left(s, start - 1)
+        if j < 0 or s[j] not in "+-~!":
+            return start
+        if s[j] == "!" and j + 1 < len(s) and s[j + 1] == "=":
+            return start
+        if s[j] in "+-":
+            prev = _skip_ws_left(s, j - 1)
+            if prev >= 0 and s[prev] not in _UNARY_AFTER:
+                if not (s[prev] == "*" and prev > 0 and s[prev - 1] == "*"):
+                    return start
+        start = j
+
+
+def _match_power_end(s: str, end: int) -> Optional[int]:
+    """``factor (** unary)*``, right-associative, not including a unary on the base."""
+    factor_start = _match_factor_end(s, end)
+    if factor_start is None:
+        return None
+    u_start = _include_unary_prefixes(s, factor_start)
+    j = _skip_ws_left(s, u_start - 1)
+    if j >= 1 and s[j] == "*" and s[j - 1] == "*":
+        left = _match_power_end(s, j - 1)
+        if left is None or left >= factor_start:
+            return factor_start
+        return left
+    return factor_start
+
+
+def _match_unary_power_end(s: str, end: int) -> Optional[int]:
+    power_start = _match_power_end(s, end)
+    if power_start is None:
+        return None
+    return _include_unary_prefixes(s, power_start)
+
+
+def _is_binary_add(s: str, op_index: int) -> bool:
+    prev = _skip_ws_left(s, op_index - 1)
+    if prev < 0:
+        return False
+    if s[prev] == "*" and prev > 0 and s[prev - 1] == "*":
+        return False
+    return s[prev] not in _UNARY_AFTER
+
+
+def _match_multiplicative_end(s: str, end: int) -> Optional[int]:
+    start = _match_unary_power_end(s, end)
+    if start is None:
+        return None
+    while True:
+        j = _skip_ws_left(s, start - 1)
+        if j < 0:
+            return start
+        if s[j] in "*/%":
+            if s[j] == "*" and (j == 0 or s[j - 1] != "*") and j + 1 < len(s) and s[j + 1] == "*":
+                return start
+            if s[j] == "*" and j > 0 and s[j - 1] == "*":
+                return start
+            left = _match_unary_power_end(s, j)
+        elif s[j] == ")":
+            left = _match_unary_power_end(s, j + 1)
+        else:
+            return start
+        if left is None or left >= start:
+            return start
+        start = left
+
+
+def _match_additive_end(s: str, end: int) -> Optional[int]:
+    start = _match_multiplicative_end(s, end)
+    if start is None:
+        return None
+    while True:
+        j = _skip_ws_left(s, start - 1)
+        if j < 0 or s[j] not in "+-" or not _is_binary_add(s, j):
+            return start
+        left = _match_multiplicative_end(s, j)
+        if left is None or left >= start:
+            return start
+        start = left
+
+
+def _find_leftmost_postfix_percent(s: str) -> int:
+    for i, ch in enumerate(s):
+        if ch == "%" and _is_percentage_tail(s, i):
+            return i
+    return -1
+
+
+def _percent_before_power(s: str, percent_index: int) -> bool:
+    j = _skip_ws_right(s, percent_index + 1)
+    return j + 1 < len(s) and s[j] == "*" and s[j + 1] == "*"
+
+
 def _postfix_percent(expr: str) -> Optional[str]:
     """
-    Replace `... + 15%` patterns: `%` applies to the immediately preceding
-    numeric atom (Smart Math: 200+15% -> 200 + 200*0.15).
-    Lone ``1%`` -> ``0.01``.
+    Postfix ``%`` binds under ``**`` and unary operators, and over ``* /`` modulo.
+
+    ``2**3%`` is ``(2**3)/100``. ``2%**3`` is ``(2/100)**3``. ``2*3%`` is ``2*(3/100)``.
+    When ``+`` or ``-`` has that percent as its whole right-hand side, the right-hand
+    side is ``left * (percent/100)`` (``200+15%``, ``10+2**3%``). ``5%3`` stays modulo.
     """
     if "%" not in expr:
         return expr
-    if re.fullmatch(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s*%", expr.strip()):
-        return str(float(expr.strip()[:-1].strip()) / 100.0)
+    s = expr
+    for _ in range(64):
+        i = _find_leftmost_postfix_percent(s)
+        if i < 0:
+            return s
+        before_power = _percent_before_power(s, i)
+        if before_power:
+            op_start = _match_factor_end(s, i)
+        else:
+            op_start = _match_unary_power_end(s, i)
+        if op_start is None:
+            return None
+        operand = s[op_start:i].strip()
+        if not operand:
+            return None
+        pct = f"((({operand})/100))"
+        live = not before_power
+        j = _skip_ws_right(s, i + 1)
+        at_boundary = j >= len(s) or s[j] in _ADDITIVE_BOUNDARY
+        op_index = _skip_ws_left(s, op_start - 1)
+        if (
+            live
+            and at_boundary
+            and op_index >= 0
+            and s[op_index] in "+-"
+            and _is_binary_add(s, op_index)
+        ):
+            base_start = _match_additive_end(s, op_index)
+            if base_start is None:
+                return None
+            base = s[base_start:op_index].strip()
+            if not base:
+                return None
+            op = s[op_index]
+            repl = f"({base}){op}({base})*{pct}"
+            s = s[:base_start] + repl + s[i + 1 :]
+            continue
+        s = s[:op_start] + pct + s[i + 1 :]
+    return None
+
+
+def _normalize_nonfinite_names(expr: str) -> str:
+    """Accept ``Inf`` / ``INF`` / ``NaN`` the way smoke writes them."""
+    return re.sub(r"\b(?:inf|nan)\b", lambda m: m.group(0).lower(), expr, flags=re.I)
+
+
+_RE_LAMBDA_HEAD = re.compile(
+    r"(?<![A-Za-z0-9_])(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)|([A-Za-z_][A-Za-z0-9_]*))\s*:"
+)
+_RE_LAMBDA_MULTI = re.compile(
+    r"(?<![A-Za-z0-9_])(\(\s*[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)+\s*\)|"
+    r"[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)+)\s*:"
+)
+
+
+def _strip_lambda_grouping(body: str) -> str:
+    """``(x):(1/x)`` parentheses group the body. A comma keeps an array body."""
+    b = body.strip()
+    if len(b) < 2 or b[0] != "(" or b[-1] != ")":
+        return b
+    depth = 0
+    for i, ch in enumerate(b):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0 and i != len(b) - 1:
+                return b
+    inner = b[1:-1]
+    depth = 0
+    for ch in inner:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return b
+    return inner.strip() or b
+
+
+def _bracket_depth_at(expr: str, pos: int) -> int:
+    depth = 0
+    for ch in expr[:pos]:
+        if ch == "[":
+            depth += 1
+        elif ch == "]" and depth:
+            depth -= 1
+    return depth
+
+
+def _rewrite_lambdas(expr: str) -> str:
+    """Turn ``x: body`` and ``x,y: body`` into ``lambda_sm("names", "body")``."""
     out: list[str] = []
     i = 0
     while i < len(expr):
-        if expr[i] == "%":
-            rest = expr[i + 1 :].lstrip()
-            if rest and rest[0] in "0123456789.(":
-                out.append("%")
-                i += 1
-                continue
-            j = len(out) - 1
-            while j >= 0 and out[j].isspace():
-                j -= 1
-            if j < 0:
-                return None
-            atom = out[j]
-            if not re.fullmatch(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", atom.strip()):
-                return None
-            base_start = j - 1
-            while base_start >= 0 and out[base_start].isspace():
-                base_start -= 1
-            if base_start < 0:
-                pct = float(atom.strip()) / 100.0
-                out = out[:j] + [str(pct)]
-                i += 1
-                continue
-            op = out[base_start]
-            if op not in "+-*/":
-                return None
-            base_end = base_start - 1
-            while base_end >= 0 and out[base_end].isspace():
-                base_end -= 1
-            if base_end < 0:
-                return None
-            base_atom = out[base_end]
-            if not re.fullmatch(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", base_atom.strip()):
-                return None
-            pct = float(atom.strip()) / 100.0
-            base_val = float(base_atom.strip())
-            repl = str(base_val * pct)
-            out = out[: base_end] + [repl] + out[j + 1 :]
-            i += 1
+        multi = _RE_LAMBDA_MULTI.search(expr, i)
+        single = _RE_LAMBDA_HEAD.search(expr, i)
+        empty = re.search(r"(?<![A-Za-z0-9_])\(\s*\)\s*:", expr[i:])
+        empty_at = (i + empty.start()) if empty else None
+        matched = None
+        names = ""
+        if empty_at is not None and (
+            (multi is None or empty_at <= multi.start())
+            and (single is None or empty_at <= single.start())
+        ):
+            matched = empty
+            # Rebase so matched.start/end are indexes into expr.
+            class _At:
+                def __init__(self, start: int, end: int) -> None:
+                    self._start = start
+                    self._end = end
+
+                def start(self) -> int:
+                    return self._start
+
+                def end(self) -> int:
+                    return self._end
+
+            matched = _At(empty_at, i + empty.end())
+            names = ""
+        elif multi is not None and (single is None or multi.start() <= single.start()):
+            matched = multi
+            names = ",".join(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", multi.group(1)))
+        elif single is not None:
+            matched = single
+            names = single.group(1) or single.group(2)
+        if matched is None:
+            out.append(expr[i:])
+            break
+        if _bracket_depth_at(expr, matched.start()) > 0:
+            out.append(expr[i : matched.start() + 1])
+            i = matched.start() + 1
             continue
+        depth = 0
+        j = matched.end()
+        while j < len(expr):
+            ch = expr[j]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch == "," and depth == 0:
+                break
+            j += 1
+        body = _strip_lambda_grouping(expr[matched.end() : j].strip())
+        if not body:
+            out.append(expr[i : matched.end()])
+            i = matched.end()
+            continue
+        body_esc = body.replace("\\", "\\\\").replace('"', '\\"')
+        out.append(expr[i : matched.start()])
+        out.append(f'lambda_sm("{names}","{body_esc}")')
+        i = j
+    return "".join(out)
+
+
+def _rewrite_empty_tuples(expr: str) -> str:
+    """``()`` is an empty array. ``name()`` stays a call."""
+    out: list[str] = []
+    i = 0
+    while i < len(expr):
+        if expr[i] == "(":
+            j = i + 1
+            while j < len(expr) and expr[j].isspace():
+                j += 1
+            if j < len(expr) and expr[j] == ")":
+                k = i - 1
+                while k >= 0 and expr[k].isspace():
+                    k -= 1
+                if k < 0 or not (expr[k].isalnum() or expr[k] in "_)"):
+                    out.append("_empty_tuple")
+                    i = j + 1
+                    continue
         out.append(expr[i])
         i += 1
     return "".join(out)
@@ -2581,6 +3387,26 @@ def _translate_functions(expr: str, *, mode: str = "real") -> Optional[str]:
         "rand": "rand_sm",
         "int": "int_sm",
         "trunc": "int_sm",
+        "frac": "frac_sm",
+        "fract": "frac_sm",
+        "ncr": "ncr_sm",
+        "npr": "npr_sm",
+        "factorint": "factorint_sm",
+        "cart": "cart_sm",
+        "flat": "flat_sm",
+        "len": "len_sm",
+        "length": "len_sm",
+        "range": "range_sm",
+        "repeat": "repeat_sm",
+        "reverse": "reverse_sm",
+        "reversed": "reverse_sm",
+        "sort": "sort_sm",
+        "sorted": "sort_sm",
+        "unique": "unique_sm",
+        "unpack": "unpack_sm",
+        "filter": "filter_sm",
+        "sortby": "sortby_sm",
+        "iif": "iif_sm",
     }
     repl.update(
         {
@@ -2592,14 +3418,20 @@ def _translate_functions(expr: str, *, mode: str = "real") -> Optional[str]:
             "ubin": "ubin_sm",
             "sqrt": "sqrt_sm_real",
             "ratio": "ratio_sm",
+            "real": "real_sm",
+            "imag": "imag_sm",
+            "conj": "conj_sm",
+            "phase": "phase_sm",
+            "polar": "polar_sm",
         }
     )
     if mode == "complex":
         repl.update(
             {
                 "int": "int_sm_cx",
-        "trunc": "int_sm_cx",
+                "trunc": "int_sm_cx",
                 "frac": "frac_sm_cx",
+                "fract": "frac_sm_cx",
                 "floor": "floor_sm_cx",
                 "ceil": "ceil_sm_cx",
                 "round": "round_sm_cx",
@@ -2635,6 +3467,29 @@ def _split_statements(expr: str) -> list[str]:
     return [p for p in parts if p]
 
 
+def _flatten_value(v: Any) -> Any:
+    """Smart-Math arrays have no nested arrays; splice tuples into one flat tuple."""
+    if not isinstance(v, tuple):
+        return v
+    flat: list[Any] = []
+    for item in v:
+        if isinstance(item, tuple):
+            flat.extend(_flatten_value(item))
+        else:
+            flat.append(item)
+    return tuple(flat)
+
+
+def _flatten_args(*args: Any) -> list[Any]:
+    flat: list[Any] = []
+    for arg in args:
+        if isinstance(arg, tuple):
+            flat.extend(_flatten_value(arg))
+        else:
+            flat.append(arg)
+    return flat
+
+
 def _eval_tuple_literal(expr: str, ns: dict, *, mode: str = "real") -> Any:
     expr = expr.strip()
     if not (expr.startswith("(") and expr.endswith(")")):
@@ -2654,35 +3509,118 @@ def _eval_tuple_literal(expr: str, ns: dict, *, mode: str = "real") -> Any:
             elems.append(inner[start:i].strip())
             start = i + 1
     elems.append(inner[start:].strip())
-    return tuple(ref_eval(e, ns, mode=mode) for e in elems)
+    return _flatten_value(tuple(ref_eval(e, ns, mode=mode) for e in elems))
+
+
+def _log_scalar(a, b):
+    if a <= 0 or b <= 0 or b == 1:
+        raise ValueError("domain")
+    return math.log(float(a)) / math.log(float(b))
 
 
 def log_sm(a, b=None):
     if b is None:
         raise TypeError("log needs 2 args")
-    if a <= 0 or b <= 0 or b == 1:
-        raise ValueError("domain")
-    return math.log(a) / math.log(b)
+    return _broadcast2(_log_scalar, a, b)
 
 
 def log_ln(x):
-    return math.log(x)
+    xf = float(x)
+    if math.isnan(xf) or xf < 0.0:
+        return math.nan
+    if xf == 0.0:
+        return -math.inf
+    return math.log(xf)
 
 
 def log10_sm(x):
-    return math.log10(x)
+    xf = float(x)
+    if math.isnan(xf) or xf < 0.0:
+        return math.nan
+    if xf == 0.0:
+        return -math.inf
+    return math.log10(xf)
+
+
+def atanh_sm(x: Any) -> Any:
+    if isinstance(x, tuple):
+        return tuple(atanh_sm(item) for item in _flatten_value(x))
+    xf = float(x)
+    if xf == 1.0:
+        return math.inf
+    if xf == -1.0:
+        return -math.inf
+    return _domain_nan(math.atanh)(xf)
+
+
+def _domain_nan(fn):
+    """Real inverse trig/hyperbolic: a domain error is ``nan``, not an exception."""
+
+    def wrapped(x: Any) -> Any:
+        try:
+            xf = float(x)
+        except (TypeError, ValueError):
+            return fn(x)
+        if math.isnan(xf):
+            return math.nan
+        try:
+            return fn(xf)
+        except (ValueError, OverflowError):
+            return math.nan
+
+    return wrapped
+
+
+_UINT64_MAX = (1 << 64) - 1
+_INT64_MIN = -(1 << 63)
+
+
+def _is_plain_int(x: Any) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _exact_int_pow(b: int, e: int) -> Optional[int]:
+    """Integer power when the result fits Smart-Math int64/uint64; else None (float path)."""
+    if e < 0:
+        return None
+    result = b**e
+    if result > _UINT64_MAX or result < _INT64_MIN:
+        return None
+    return result
+
+
+def _pow_overflow(bf: float, ef: float) -> float:
+    if ef < 0.0:
+        return 0.0
+    if bf < 0.0 and math.isfinite(ef) and ef.is_integer() and int(ef) % 2:
+        return -math.inf
+    return math.inf
 
 
 def pow_sm(b, e):
+    if isinstance(b, tuple) or isinstance(e, tuple):
+        return _broadcast2(pow_sm, b, e)
+    if _is_plain_int(b) and _is_plain_int(e):
+        exact = _exact_int_pow(int(b), int(e))
+        if exact is not None:
+            return exact
     bf = float(b) if not isinstance(b, complex) else b
     ef = float(e) if not isinstance(e, complex) else e
     if isinstance(bf, complex) or isinstance(ef, complex):
+        try:
+            return bf**ef
+        except (OverflowError, ValueError, ZeroDivisionError):
+            return complex(math.nan, math.nan)
+    try:
+        if bf < 0.0 and math.isfinite(bf) and math.isfinite(ef):
+            n_root = fractional_power_is_odd_unit_root(ef)
+            if n_root is not None:
+                return -(abs(bf) ** ef)
         return bf**ef
-    if bf < 0.0 and math.isfinite(bf) and math.isfinite(ef):
-        n_root = fractional_power_is_odd_unit_root(ef)
-        if n_root is not None:
-            return -(abs(bf) ** ef)
-    return bf**ef
+    except OverflowError:
+        return _pow_overflow(bf, ef)
+    except (ValueError, ZeroDivisionError):
+        return math.nan
 
 
 def _as_int_exact(x: Any) -> Optional[int]:
@@ -2690,35 +3628,76 @@ def _as_int_exact(x: Any) -> Optional[int]:
         return int(x)
     if isinstance(x, int):
         return x
-    if isinstance(x, float) and math.isfinite(x):
-        r = round(x)
-        if abs(x - r) <= 1e-9 and abs(r) < (1 << 63):
-            return int(r)
+    if isinstance(x, float) and math.isfinite(x) and x.is_integer():
+        r = int(x)
+        if abs(r) < (1 << 63):
+            return r
     return None
 
 
 def _map_unary_real(fn):
     def wrapped(x: Any) -> Any:
         if isinstance(x, tuple):
-            return tuple(wrapped(e) for e in x)
+            return tuple(fn(e) for e in _flatten_value(x))
         return fn(x)
 
     return wrapped
 
 
-def hex_val_sm(x: Any) -> Any:
+def _broadcast2(fn, a, b):
+    """Element-wise binary call. One array maps against a scalar; two arrays must match."""
+    a_is = isinstance(a, tuple)
+    b_is = isinstance(b, tuple)
+    if a_is:
+        a = _flatten_value(a)
+    if b_is:
+        b = _flatten_value(b)
+    if a_is and b_is:
+        if len(a) != len(b):
+            raise ValueError("incompatible operands")
+        return tuple(fn(x, y) for x, y in zip(a, b))
+    if a_is:
+        return tuple(fn(x, b) for x in a)
+    if b_is:
+        return tuple(fn(a, y) for y in b)
+    return fn(a, b)
+
+
+def base_val_sm(x: Any) -> Any:
+    """Integer contributed by ``bin``/``oct``/``hex`` when the call is not the displayed result."""
+    if isinstance(x, tuple):
+        return tuple(base_val_sm(item) for item in _flatten_value(x))
     xi = _as_int_exact(x)
     if xi is None:
-        raise ValueError("hex_val expects integer")
+        raise ValueError("base value expects integer")
     return xi
+
+
+def hex_val_sm(x: Any) -> Any:
+    return base_val_sm(x)
+
+
+def _trunc_nonfinite(v: Any) -> Any:
+    if isinstance(v, bool):
+        return float(int(v))
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and not math.isfinite(v):
+        return v
+    truncated = math.trunc(float(v))
+    if _INT64_MIN <= truncated <= _UINT64_MAX:
+        return int(truncated)
+    return float(truncated)
 
 
 def int_sm(x: Any) -> Any:
     if isinstance(x, tuple):
-        return tuple(int_sm(e) for e in x)
+        return tuple(int_sm(e) for e in _flatten_value(x))
+    if isinstance(x, ExactComplex):
+        return x
     if isinstance(x, complex):
-        return complex(math.trunc(x.real), math.trunc(x.imag))
-    return float(math.trunc(float(x)))
+        return complex(_trunc_nonfinite(x.real), _trunc_nonfinite(x.imag))
+    return _trunc_nonfinite(x)
 
 
 def sqrt_sm_real(x: Any) -> Any:
@@ -2727,11 +3706,11 @@ def sqrt_sm_real(x: Any) -> Any:
         return tuple(sqrt_sm_real(e) for e in x)
     if isinstance(x, complex):
         return sqrt_sm(x)
-    xi = _as_int_exact(x)
     xf = float(x)
+    if math.isnan(xf) or xf < 0.0:
+        return math.nan
+    xi = _as_int_exact(x)
     if xi is None:
-        return math.sqrt(xf)
-    if xi < 0:
         return math.sqrt(xf)
     r = math.sqrt(float(xi))
     if not math.isfinite(r):
@@ -2749,32 +3728,317 @@ def sqr_sm(x):
     return x * x
 
 
+_RATIO_EPS = 1e-14
+_RATIO_MAX_DEN = 10_000_000
+_RATIO_MAX_POW10 = 18
+_EXACT_FLOAT_INT_LIMIT = 1 << 53
+
+
+class RatioValue(float):
+    """Float that prints as Smart-Math's reduced ``n/d`` when it is the result."""
+
+    text: str
+
+    def __new__(cls, value: float, text: str) -> "RatioValue":
+        obj = float.__new__(cls, value)
+        obj.text = text
+        return obj
+
+
+def _ratio_abs_num(v: float, p: int, q: int) -> float:
+    return abs(v * float(q) - float(p))
+
+
+def _ratio_err_less(n1: float, q1: int, n2: float, q2: int) -> bool:
+    return (n1 * float(q2)) < (n2 * float(q1))
+
+
+def _ratio_consider(v: float, p: int, q: int, best: dict) -> bool:
+    if q <= 0 or q > _RATIO_MAX_DEN:
+        return False
+    abs_num = _ratio_abs_num(v, p, q)
+    if _ratio_err_less(abs_num, q, best["abs"], best["den"]):
+        best["abs"] = abs_num
+        best["num"] = p
+        best["den"] = q
+        return abs_num == 0.0
+    return False
+
+
+def _ratio_exact_pow10(v: float, best: dict) -> None:
+    for k in range(1, _RATIO_MAX_POW10 + 1):
+        den_pow = 10**k
+        scaled = v * float(den_pow)
+        n = int(round(scaled))
+        if n == 0:
+            continue
+        scale_err = max(_RATIO_EPS, _RATIO_EPS * abs(scaled))
+        if abs(scaled - float(n)) > scale_err:
+            continue
+        g = math.gcd(abs(n), den_pow)
+        cand_num = n // g
+        cand_den = den_pow // g
+        cand_abs = _ratio_abs_num(v, cand_num, cand_den)
+        if _ratio_err_less(cand_abs, cand_den, best["abs"], best["den"]):
+            best["abs"] = cand_abs
+            best["num"] = cand_num
+            best["den"] = cand_den
+
+
+def _ratio_scan_semi(v: float, p1: int, q1: int, p0: int, q0: int, h_max: int, best: dict) -> bool:
+    if h_max < 0:
+        return False
+    if h_max > 64:
+        if _ratio_consider(v, p1, q1, best):
+            return True
+        lo, hi = 0, h_max
+        while hi - lo > 2:
+            span = hi - lo
+            m1 = lo + span // 3
+            m2 = hi - span // 3
+            qh1, qh2 = q1 + m1 * q0, q1 + m2 * q0
+            if qh1 <= 0 or qh2 <= 0:
+                break
+            n1 = _ratio_abs_num(v, p1 + m1 * p0, qh1)
+            n2 = _ratio_abs_num(v, p1 + m2 * p0, qh2)
+            if _ratio_err_less(n1, qh1, n2, qh2):
+                hi = m2
+            else:
+                lo = m1
+        for h_fin in range(lo, hi + 1):
+            if _ratio_consider(v, p1 + h_fin * p0, q1 + h_fin * q0, best):
+                return True
+        return False
+    for h_lin in range(h_max + 1):
+        if _ratio_consider(v, p1 + h_lin * p0, q1 + h_lin * q0, best):
+            return True
+    return False
+
+
+def _approximate_rational(x: float) -> tuple[int, int]:
+    """Continued-fraction ratio with the same denominator cap and power-of-ten path."""
+    neg = x < 0.0
+    v = abs(x)
+    scale = v if v >= 1.0 else 1.0
+    if v < _RATIO_EPS * scale:
+        return 0, 1
+    best = {"num": 0, "den": 1, "abs": 1e300}
+    p0, p1, q0, q1 = 0, 1, 1, 0
+    cf_val = v
+    for _ in range(64):
+        a = math.trunc(cf_val)
+        p = a * p1 + p0
+        q = a * q1 + q0
+        if q > _RATIO_MAX_DEN:
+            if q1 > 0 and q0 > 0:
+                h_max = (_RATIO_MAX_DEN - q1) // q0
+                _ratio_scan_semi(v, p1, q1, p0, q0, h_max, best)
+            break
+        if _ratio_consider(v, p, q, best):
+            break
+        t = cf_val - float(a)
+        if t <= _RATIO_EPS:
+            break
+        cf_val = 1.0 / t
+        p0, p1, q0, q1 = p1, p, q1, q
+    if v <= 1.0 / float(_RATIO_MAX_DEN):
+        _ratio_exact_pow10(v, best)
+    num, den = best["num"], best["den"]
+    if num == 0:
+        return 0, 1
+    g = math.gcd(abs(num), den)
+    num //= g
+    den //= g
+    if neg:
+        num = -num
+    return num, den
+
+
+def _ratio_text(x: float) -> Optional[str]:
+    if not math.isfinite(x) or abs(x) > _EXACT_FLOAT_INT_LIMIT:
+        return None
+    num, den = _approximate_rational(x)
+    if den == 1:
+        return str(num)
+    return f"{num}/{den}"
+
+
+def _ratio_number(x: float) -> Any:
+    if not math.isfinite(x) or abs(x) > _EXACT_FLOAT_INT_LIMIT:
+        return x
+    text = _ratio_text(x)
+    if text is None:
+        return x
+    return RatioValue(x, text)
+
+
 def ratio_sm(x: Any) -> Any:
-    """``ratio()`` value used in further arithmetic (not rational string output)."""
+    """``ratio()`` value. The final result prints as a reduced fraction."""
     if isinstance(x, tuple):
         return tuple(ratio_sm(e) for e in x)
-    if isinstance(x, complex):
-        if abs(x.imag) < 1e-15:
-            return float(x.real)
+    if isinstance(x, ExactComplex):
+        if x.imag == 0:
+            return _ratio_number(float(x.real))
         return complex(float(x.real), float(x.imag))
-    return float(x)
+    if isinstance(x, complex):
+        if math.isnan(x.real) or math.isnan(x.imag):
+            return complex(math.nan, math.nan)
+        if abs(x.imag) < 1e-15:
+            return _ratio_number(float(x.real))
+        return complex(float(x.real), float(x.imag))
+    if isinstance(x, Duration):
+        return _ratio_number(x.ms / _SECOND_MS)
+    return _ratio_number(float(x))
+
+
+def _zmul(x: float, y: float) -> float:
+    """0 * inf is 0. Python complex multiply turns that pair into nan."""
+    if x == 0.0 or y == 0.0:
+        if math.isinf(x) or math.isinf(y):
+            return 0.0
+        return x * y
+    return x * y
+
+
+def _cmul(a: Any, b: Any) -> complex:
+    """Cartesian product. A pure-real factor scales each part; ``(inf+inf*i)*0`` is nan."""
+    aa, bb = _as_complex(a), _as_complex(b)
+    ar, ai, br, bi = aa.real, aa.imag, bb.real, bb.imag
+    if ai == 0.0 and br == 0.0:
+        out_r = 0.0
+    elif bi == 0.0:
+        out_r = ar * br
+        if ar == 0.0 and math.isnan(out_r):
+            out_r = 0.0
+    elif ai == 0.0:
+        out_r = ar * br
+    elif br == 0.0:
+        out_r = -(ai * bi)
+    else:
+        out_r = ar * br - ai * bi
+    if ai == 0.0:
+        out_i = ar * bi
+    elif bi == 0.0:
+        out_i = ai * br
+    else:
+        out_i = ar * bi + ai * br
+    return complex(out_r, out_i)
+
+
+def _cdiv(a: Any, b: Any) -> complex:
+    bb = _as_complex(b)
+    den = _zmul(bb.real, bb.real) + _zmul(bb.imag, bb.imag)
+    if den == 0.0 or not math.isfinite(den):
+        return complex(math.nan, math.nan)
+    numer = _cmul(a, complex(bb.real, -bb.imag))
+    return complex(numer.real / den, numer.imag / den)
+
+
+def mul_sm_cx(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        return _broadcast2(mul_sm_cx, a, b)
+    if isinstance(a, (complex, ExactComplex)) or isinstance(b, (complex, ExactComplex)):
+        return _cmul(a, b)
+    return a * b
+
+
+def div_sm_cx(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        return _broadcast2(div_sm_cx, a, b)
+    if b == 0 or isinstance(a, (complex, ExactComplex)) or isinstance(b, (complex, ExactComplex)):
+        return _cdiv(a, b)
+    return a / b
+
+
+def _div_scalar_real(a, b):
+    if isinstance(a, Duration) or isinstance(b, Duration):
+        return a / b
+    if isinstance(a, (complex, ExactComplex)) or isinstance(b, (complex, ExactComplex)):
+        return _cdiv(a, b)
+    af = float(a)
+    bf = float(b)
+    if math.isnan(af) or math.isnan(bf) or (af == 0.0 and bf == 0.0):
+        return math.nan
+    if bf == 0.0:
+        return math.copysign(math.inf, af if af != 0.0 else 1.0)
+    try:
+        return af / bf
+    except OverflowError:
+        return math.copysign(math.inf, af)
+
+
+def div_sm_real(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        return _broadcast2(div_sm_real, a, b)
+    return _div_scalar_real(a, b)
+
+
+def add_sm(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        return _broadcast2(add_sm, a, b)
+    return a + b
+
+
+def sub_sm(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        return _broadcast2(sub_sm, a, b)
+    return a - b
+
+
+def mul_sm_real(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        return _broadcast2(mul_sm_real, a, b)
+    return a * b
+
+
+def _as_bit_int(x: Any) -> int:
+    xi = _as_int_exact(x)
+    if xi is None:
+        raise ValueError("bitwise operands must be integer values")
+    return xi
+
+
+def lshift_sm(a, b):
+    return _broadcast2(lambda x, y: _as_bit_int(x) << _as_bit_int(y), a, b)
+
+
+def rshift_sm(a, b):
+    return _broadcast2(lambda x, y: _as_bit_int(x) >> _as_bit_int(y), a, b)
+
+
+def bitand_sm(a, b):
+    return _broadcast2(lambda x, y: _as_bit_int(x) & _as_bit_int(y), a, b)
+
+
+def bitor_sm(a, b):
+    return _broadcast2(lambda x, y: _as_bit_int(x) | _as_bit_int(y), a, b)
+
+
+def bitxor_sm(a, b):
+    return _broadcast2(lambda x, y: _as_bit_int(x) ^ _as_bit_int(y), a, b)
 
 
 def prod_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return math.prod(args[0])
-    return math.prod(args)
+    flat = []
+    for item in _flatten_args(*args):
+        flat.append(item.numeric() if isinstance(item, _FactorPower) else item)
+    if not flat:
+        return tuple()
+    acc = flat[0]
+    for item in flat[1:]:
+        if isinstance(acc, (complex, ExactComplex)) or isinstance(item, (complex, ExactComplex)):
+            acc = _cmul(acc, item)
+        else:
+            acc = acc * item
+    return acc
 
 
 def mean_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return statistics.mean(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
+    flat = _flatten_args(*args)
+    if not flat:
+        return tuple()
+    if all(isinstance(item, Duration) for item in flat):
+        return Duration(sum(item.ms for item in flat) / len(flat))
     return statistics.mean(flat)
 
 
@@ -2783,28 +4047,31 @@ def avg_sm(*args):
 
 
 def _flatten_args_cx(*args: Any) -> list[Any]:
-    flat: list[Any] = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
-    return flat
+    return _flatten_args(*args)
 
 
-def mean_sm_cx(*args: Any) -> complex:
+def mean_sm_cx(*args: Any):
     flat = _flatten_args_cx(*args)
     if not flat:
-        raise ValueError("empty")
-    return sum(_as_complex(x) for x in flat) / len(flat)
+        return tuple()
+    total = complex(0.0, 0.0)
+    for item in flat:
+        total += _as_complex(item)
+    n = float(len(flat))
+    return complex(total.real / n, total.imag / n)
 
 
-def avg_sm_cx(*args: Any) -> complex:
+def avg_sm_cx(*args: Any):
     return mean_sm_cx(*args)
 
 
 def fact_sm(n):
-    """Mirror ``TryApplyFactorialScalarInt``: table through 20, then multiply until non-finite."""
+    """Mirror ``TryApplyFactorialScalarInt``: table through 20, then multiply until non-finite.
+
+    An array maps element-wise. Nothing left yields ``()``.
+    """
+    if isinstance(n, tuple):
+        return tuple(fact_sm(item) for item in _flatten_value(n))
     if not float(n).is_integer() or n < 0:
         raise ValueError("fact")
     n = int(n)
@@ -2818,20 +4085,50 @@ def fact_sm(n):
     return d
 
 
-def mod_sm(a, b):
+def _trunc_div_int(a_i: int, b_i: int) -> int:
+    """Quotient toward zero, so the remainder keeps the dividend's sign."""
+    q = abs(a_i) // abs(b_i)
+    if (a_i < 0) != (b_i < 0):
+        q = -q
+    return q
+
+
+def _mod_scalar(a, b):
     """FreeBASIC ``mod`` / ``%``: remainder with sign of dividend."""
     a_i, b_i = int(a), int(b)
     if b_i == 0:
         raise ValueError("mod")
-    return a_i - b_i * int(a_i / b_i)
+    return a_i - b_i * _trunc_div_int(a_i, b_i)
 
 
-def deg_sm(x):
-    return x * 180.0 / math.pi
+def mod_sm(a, b):
+    return _broadcast2(_mod_scalar, a, b)
 
 
-def rad_sm(x):
-    return x * math.pi / 180.0
+def _deg_one(x):
+    if isinstance(x, complex) and abs(x.imag) > 1e-15:
+        raise ValueError("incompatible operands")
+    xv = x.real if isinstance(x, complex) else float(x)
+    return xv * 180.0 / math.pi
+
+
+def deg_sm(*args):
+    if len(args) == 1 and not isinstance(args[0], tuple):
+        return _deg_one(args[0])
+    return tuple(_deg_one(item) for item in _flatten_args(*args))
+
+
+def _rad_one(x):
+    if isinstance(x, complex) and abs(x.imag) > 1e-15:
+        raise ValueError("incompatible operands")
+    xv = x.real if isinstance(x, complex) else float(x)
+    return xv * math.pi / 180.0
+
+
+def rad_sm(*args):
+    if len(args) == 1 and not isinstance(args[0], tuple):
+        return _rad_one(args[0])
+    return tuple(_rad_one(item) for item in _flatten_args(*args))
 
 
 def _as_complex(z: Any) -> complex:
@@ -2863,10 +4160,14 @@ def complex_not_sm(z: Any) -> int:
 
 
 def sign_sm(x):
-    if isinstance(x, complex):
-        if abs(x) < 1e-15:
+    if isinstance(x, tuple):
+        return tuple(sign_sm(e) for e in _flatten_value(x))
+    if isinstance(x, (complex, ExactComplex)):
+        c = _as_complex(x)
+        mag = abs(c)
+        if mag < 1e-15:
             return 0
-        return x / abs(x)
+        return c / mag
     return -1 if x < 0 else (1 if x > 0 else 0)
 
 
@@ -2874,9 +4175,24 @@ def sign_sm_real(x):
     return -1 if x < 0 else (1 if x > 0 else 0)
 
 
+def _sqrt_negative_real(real: float) -> complex:
+    """Principal square root: non-negative imaginary part (ignore a -0 imag sign)."""
+    return cmath.sqrt(complex(real, 0.0))
+
+
 def sqrt_sm(x):
-    if isinstance(x, complex) or (isinstance(x, (int, float)) and x < 0):
-        return cmath.sqrt(complex(x))
+    if isinstance(x, tuple):
+        return tuple(sqrt_sm(e) for e in _flatten_value(x))
+    if isinstance(x, ExactComplex):
+        if x.imag == 0 and x.real < 0:
+            return _sqrt_negative_real(float(x.real))
+        return cmath.sqrt(_as_complex(x))
+    if isinstance(x, complex):
+        if abs(x.imag) <= 1e-15 and x.real < 0:
+            return _sqrt_negative_real(x.real)
+        return cmath.sqrt(x)
+    if isinstance(x, (int, float)) and not isinstance(x, bool) and x < 0:
+        return _sqrt_negative_real(float(x))
     return sqrt_sm_real(x)
 
 
@@ -2918,9 +4234,25 @@ def _format_hex_imag_coeff_int(ai: int) -> str:
     return "-" + body if neg else body
 
 
-def hex_sm(x: Any, *, unsigned: bool = False) -> Any:
+def _nonfinite_base_text(x: Any) -> Optional[str]:
+    if isinstance(x, float) and math.isnan(x):
+        return "nan"
+    if isinstance(x, float) and math.isinf(x):
+        return "-inf" if x < 0 else "inf"
+    if isinstance(x, complex) and (math.isnan(x.real) or math.isnan(x.imag)):
+        return "nan"
+    return None
+
+
+def hex_sm(*args: Any, unsigned: bool = False) -> Any:
+    if len(args) != 1:
+        return tuple(hex_sm(e, unsigned=unsigned) for e in _flatten_args(*args))
+    x = args[0]
     if isinstance(x, tuple):
-        return tuple(hex_sm(e, unsigned=unsigned) for e in x)
+        return tuple(hex_sm(e, unsigned=unsigned) for e in _flatten_value(x))
+    nonfinite = _nonfinite_base_text(x)
+    if nonfinite is not None:
+        return nonfinite
     if isinstance(x, ExactComplex):
         re_s = _format_hex_component(x.real, unsigned=unsigned)
         im_s = _format_hex_imag_coeff_int(x.imag)
@@ -2949,9 +4281,15 @@ def hex_sm(x: Any, *, unsigned: bool = False) -> Any:
     return _format_hex_component(xi, unsigned=unsigned)
 
 
-def bin_sm(x: Any) -> Any:
+def bin_sm(*args: Any) -> Any:
+    if len(args) != 1:
+        return tuple(bin_sm(e) for e in _flatten_args(*args))
+    x = args[0]
     if isinstance(x, tuple):
-        return tuple(bin_sm(e) for e in x)
+        return tuple(bin_sm(e) for e in _flatten_value(x))
+    nonfinite = _nonfinite_base_text(x)
+    if nonfinite is not None:
+        return nonfinite
     xi = _as_int_exact(x)
     if xi is None:
         raise ValueError("bin expects integer values")
@@ -2960,9 +4298,15 @@ def bin_sm(x: Any) -> Any:
     return "0b" + format(xi, "b")
 
 
-def oct_sm(x: Any) -> Any:
+def oct_sm(*args: Any) -> Any:
+    if len(args) != 1:
+        return tuple(oct_sm(e) for e in _flatten_args(*args))
+    x = args[0]
     if isinstance(x, tuple):
-        return tuple(oct_sm(e) for e in x)
+        return tuple(oct_sm(e) for e in _flatten_value(x))
+    nonfinite = _nonfinite_base_text(x)
+    if nonfinite is not None:
+        return nonfinite
     xi = _as_int_exact(x)
     if xi is None:
         raise ValueError("oct expects integer values")
@@ -2978,6 +4322,9 @@ def uhex_sm(x: Any) -> Any:
 def uoct_sm(x: Any) -> Any:
     if isinstance(x, tuple):
         return tuple(uoct_sm(e) for e in x)
+    nonfinite = _nonfinite_base_text(x)
+    if nonfinite is not None:
+        return nonfinite
     xi = _as_int_exact(x)
     if xi is None:
         raise ValueError("uoct expects integer values")
@@ -2988,6 +4335,9 @@ def uoct_sm(x: Any) -> Any:
 def ubin_sm(x: Any) -> Any:
     if isinstance(x, tuple):
         return tuple(ubin_sm(e) for e in x)
+    nonfinite = _nonfinite_base_text(x)
+    if nonfinite is not None:
+        return nonfinite
     xi = _as_int_exact(x)
     if xi is None:
         raise ValueError("ubin expects integer values")
@@ -2995,14 +4345,28 @@ def ubin_sm(x: Any) -> Any:
     return "0b" + format(uv, "b")
 
 
+def _hypot_scalar(a, b):
+    aa, bb = _as_complex(a), _as_complex(b)
+    return (abs(aa) ** 2 + abs(bb) ** 2) ** 0.5
+
+
 def hypot_sm(a, b):
-    a, b = _as_complex(a), _as_complex(b)
-    return (abs(a) ** 2 + abs(b) ** 2) ** 0.5
+    return _broadcast2(_hypot_scalar, a, b)
+
+
+def _hypot_real_scalar(a, b):
+    return math.hypot(float(a), float(b))
+
+
+def hypot_sm_real(a, b):
+    return _broadcast2(_hypot_real_scalar, a, b)
 
 
 def _log_ln_cx_scalar(x: Any) -> complex:
     c = _as_complex(x)
-    if c == 0:
+    if c.imag == 0.0:
+        c = complex(c.real, 0.0)
+    if c.real == 0.0 and c.imag == 0.0:
         return complex(-math.inf, 0.0)
     return cmath.log(c)
 
@@ -3017,19 +4381,19 @@ def _log10_cx_scalar(x: Any) -> complex:
 log10_sm_cx = _map_unary_cx(_log10_cx_scalar)
 
 
-def log_sm_cx(a, b=None):
-    if b is None:
-        raise TypeError("log needs 2 args")
-    if isinstance(a, tuple) or isinstance(b, tuple):
-        if not (isinstance(a, tuple) and isinstance(b, tuple)):
-            raise TypeError("not scalar")
-        if len(a) != len(b):
-            raise ValueError("length")
-        return tuple(log_sm_cx(x, y) for x, y in zip(a, b))
+def _log_cx_scalar(a, b):
     return cmath.log(_as_complex(a)) / cmath.log(_as_complex(b))
 
 
+def log_sm_cx(a, b=None):
+    if b is None:
+        raise TypeError("log needs 2 args")
+    return _broadcast2(_log_cx_scalar, a, b)
+
+
 def pow_sm_cx(b, e):
+    if isinstance(b, tuple) or isinstance(e, tuple):
+        return _broadcast2(pow_sm_cx, b, e)
     br = _as_complex(b)
     er = _as_complex(e)
     if abs(br.imag) < 1e-15 and abs(er.imag) < 1e-15:
@@ -3057,14 +4421,36 @@ def round_sm_cx(z):
     return complex(round_half_away_from_zero(c.real), round_half_away_from_zero(c.imag))
 
 
+def _floor_real_scalar(x: Any) -> Any:
+    if isinstance(x, bool):
+        return float(int(x))
+    if isinstance(x, int):
+        return x
+    xf = float(x)
+    if not math.isfinite(xf):
+        return xf
+    return float(math.floor(xf))
+
+
+def _ceil_real_scalar(x: Any) -> Any:
+    if isinstance(x, bool):
+        return float(int(x))
+    if isinstance(x, int):
+        return x
+    xf = float(x)
+    if not math.isfinite(xf):
+        return xf
+    return float(math.ceil(xf))
+
+
 def floor_sm_cx(z):
     c = _as_complex(z)
-    return complex(math.floor(c.real), math.floor(c.imag))
+    return complex(_floor_real_scalar(c.real), _floor_real_scalar(c.imag))
 
 
 def ceil_sm_cx(z):
     c = _as_complex(z)
-    return complex(math.ceil(c.real), math.ceil(c.imag))
+    return complex(_ceil_real_scalar(c.real), _ceil_real_scalar(c.imag))
 
 
 def real_sm(z):
@@ -3095,113 +4481,163 @@ def polar_sm(z):
     return (abs(c), cmath.phase(c))
 
 
-def cart_sm(z):
+def cart_sm(z, ang=None):
+    if ang is not None:
+        if isinstance(z, tuple) or isinstance(ang, tuple):
+            return _broadcast2(lambda a, b: cmath.rect(float(a), float(b)), z, ang)
+        return cmath.rect(float(z), float(ang))
+    if isinstance(z, tuple):
+        flat = _flatten_value(z)
+        if len(flat) == 2:
+            return cmath.rect(float(flat[0]), float(flat[1]))
+        if len(flat) == 1:
+            return cart_sm(flat[0])
+        raise ValueError("incompatible operands")
     if isinstance(z, ExactComplex):
         return z
-    if isinstance(z, tuple) and len(z) == 2:
-        return cmath.rect(float(z[0]), float(z[1]))
-    return _as_complex(z)
+    if isinstance(z, complex):
+        return z
+    return float(z)
 
 
-def atan2_sm_cx(y: Any, x: Any) -> float:
-    if isinstance(y, complex) or isinstance(x, complex):
+def _atan2_scalar(y: Any, x: Any) -> float:
+    if isinstance(y, (complex, ExactComplex)) or isinstance(x, (complex, ExactComplex)):
         raise ValueError("incompatible operands")
     return math.atan2(float(y), float(x))
 
 
-def deg_sm_cx(x: Any) -> float:
-    if isinstance(x, complex) and abs(x.imag) > 1e-15:
-        raise ValueError("incompatible operands")
-    return deg_sm(x.real if isinstance(x, complex) else float(x))
+def atan2_sm(y: Any, x: Any) -> Any:
+    return _broadcast2(_atan2_scalar, y, x)
 
 
-def rad_sm_cx(x: Any) -> float:
-    if isinstance(x, complex) and abs(x.imag) > 1e-15:
-        raise ValueError("incompatible operands")
-    return rad_sm(x.real if isinstance(x, complex) else float(x))
+def atan2_sm_cx(y: Any, x: Any) -> Any:
+    return atan2_sm(y, x)
+
+
+def deg_sm_cx(*args: Any) -> Any:
+    return deg_sm(*args)
+
+
+def rad_sm_cx(*args: Any) -> Any:
+    return rad_sm(*args)
+
+
+def _is_nan_number(v: Any) -> bool:
+    return isinstance(v, float) and math.isnan(v)
+
+
+def _clamp_scalar(v: Any, lo: Any, hi: Any) -> Any:
+    """Mirror ClampScalarValue: NaN is an absent bound, and a NaN value sits below a real lower bound."""
+    if _is_nan_number(v):
+        if not _is_nan_number(lo):
+            return lo
+        return v
+    vf = float(v)
+    if not _is_nan_number(lo) and vf <= float(lo):
+        return lo
+    if not _is_nan_number(hi) and vf > float(hi):
+        return hi
+    if _is_nan_number(hi) and not _is_nan_number(lo) and vf > float(lo):
+        return math.nan
+    return v
 
 
 def clamp_sm(x, lo, hi):
-    return max(lo, min(hi, x))
+    if isinstance(lo, tuple) or isinstance(hi, tuple):
+        raise ValueError("clamp bounds must be scalar")
+    if isinstance(x, tuple):
+        return tuple(_clamp_scalar(item, lo, hi) for item in _flatten_value(x))
+    return _clamp_scalar(x, lo, hi)
 
 
-def gcd_sm(a, b):
+def _gcd_scalar(a, b):
     return math.gcd(int(a), int(b))
 
 
+def gcd_sm(a, b):
+    return _broadcast2(_gcd_scalar, a, b)
+
+
+def _lcm_scalar(a, b):
+    return math.lcm(int(a), int(b))
+
+
 def lcm_sm(a, b):
-    return abs(a * b) // math.gcd(int(a), int(b)) if a or b else 0
+    return _broadcast2(_lcm_scalar, a, b)
 
 
 def median_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return statistics.median(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
+    flat = _flatten_args(*args)
+    if not flat:
+        return tuple()
     return statistics.median(flat)
 
 
+def _finite_stats(*args):
+    flat = _flatten_args(*args)
+    for item in flat:
+        if isinstance(item, float) and not math.isfinite(item):
+            return None
+    return flat
+
+
 def variance_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return statistics.pvariance(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
+    flat = _finite_stats(*args)
+    if flat is None:
+        return math.nan
+    if not flat:
+        return tuple()
     return statistics.pvariance(flat)
 
 
 def stddev_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return statistics.pstdev(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
+    flat = _finite_stats(*args)
+    if flat is None:
+        return math.nan
+    if not flat:
+        return tuple()
     return statistics.pstdev(flat)
 
 
+def _minmax_sm(want_min: bool, *args: Any) -> Any:
+    """NaN is absent: kept only while every value seen so far is NaN."""
+    flat = _flatten_args(*args)
+    if not flat:
+        return tuple()
+    winner: Any = None
+    winner_v = 0.0
+    has_winner = False
+    has_non_nan = False
+    for item in flat:
+        if _is_nan_number(item):
+            if not has_non_nan and not has_winner:
+                winner = item
+                has_winner = True
+            continue
+        v = item.ms if isinstance(item, Duration) else float(item)
+        replace = (not has_winner) or _is_nan_number(winner)
+        if not replace:
+            replace = (v < winner_v) if want_min else (v > winner_v)
+        if replace:
+            winner = item
+            winner_v = v
+            has_winner = True
+            has_non_nan = True
+    return winner
+
+
 def min_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return min(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
-    return min(flat)
+    return _minmax_sm(True, *args)
 
 
 def max_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return max(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
-    return max(flat)
+    return _minmax_sm(False, *args)
 
 
 def sum_sm(*args):
-    if len(args) == 1 and isinstance(args[0], tuple):
-        return sum(args[0])
-    flat = []
-    for a in args:
-        if isinstance(a, tuple):
-            flat.extend(a)
-        else:
-            flat.append(a)
+    flat = _flatten_args(*args)
+    if not flat:
+        return tuple()
     return sum(flat)
 
 
@@ -3214,7 +4650,339 @@ def rand_sm():
 
 
 def round_sm(x):
-    return round_half_away_from_zero(float(x))
+    if isinstance(x, tuple):
+        return tuple(round_sm(e) for e in _flatten_value(x))
+    if isinstance(x, int) and not isinstance(x, bool):
+        return x
+    xf = float(x)
+    if not math.isfinite(xf) or abs(xf) >= 1e16 or xf.is_integer():
+        return xf
+    return round_half_away_from_zero(xf)
+
+
+class _FactorPower:
+    """One ``p`` or ``p**e`` term. ``numeric()`` is what ``prod(factorint(...))`` multiplies."""
+
+    __slots__ = ("base", "exp", "sign")
+
+    def __init__(self, base: int, exp: int, sign: int = 1) -> None:
+        self.base = int(base)
+        self.exp = int(exp)
+        self.sign = 1 if sign >= 0 else -1
+
+    def numeric(self) -> int:
+        if self.base == 0:
+            return 0
+        return self.sign * (self.base**self.exp)
+
+    def __str__(self) -> str:
+        if self.base == 0:
+            return "0"
+        if self.base == 1 and self.exp == 1:
+            return "-1" if self.sign < 0 else "1"
+        body = str(self.base) if self.exp == 1 else f"{self.base}**{self.exp}"
+        return f"-{body}" if self.sign < 0 else body
+
+    def __mul__(self, other: object) -> int:
+        other_n = other.numeric() if isinstance(other, _FactorPower) else int(other)  # type: ignore[arg-type]
+        return self.numeric() * other_n
+
+    def __rmul__(self, other: object) -> int:
+        return self.__mul__(other)
+
+
+def _miller_rabin(n: int) -> bool:
+    """Deterministic for every integer below 2**64."""
+    if n < 2:
+        return False
+    small = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37)
+    if n in small:
+        return True
+    for prime in small:
+        if n % prime == 0:
+            return False
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    for base in (2, 325, 9375, 28178, 450775, 9780504, 1795265022):
+        if base % n == 0:
+            continue
+        x = pow(base, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        witness = True
+        for _ in range(s - 1):
+            x = (x * x) % n
+            if x == n - 1:
+                witness = False
+                break
+        if witness:
+            return False
+    return True
+
+
+def _pollard_rho(n: int) -> int:
+    if n % 2 == 0:
+        return 2
+    if n % 3 == 0:
+        return 3
+    for const in (1, 2, 3, 5, 7, 11):
+        x = 2
+        y = 2
+        d = 1
+        while d == 1:
+            x = (x * x + const) % n
+            y = (y * y + const) % n
+            y = (y * y + const) % n
+            d = math.gcd(abs(x - y), n)
+        if d != n:
+            return d
+    raise ValueError("factor")
+
+
+def _prime_exponents(n: int) -> dict[int, int]:
+    acc: dict[int, int] = {}
+
+    def absorb(m: int) -> None:
+        if m <= 1:
+            return
+        if _miller_rabin(m):
+            acc[m] = acc.get(m, 0) + 1
+            return
+        divisor = _pollard_rho(m)
+        absorb(divisor)
+        absorb(m // divisor)
+
+    m = n
+    p = 2
+    while p * p <= m and p <= 10007:
+        while m % p == 0:
+            acc[p] = acc.get(p, 0) + 1
+            m //= p
+        p = 3 if p == 2 else p + 2
+    absorb(m)
+    return acc
+
+
+def _as_factor_int(n: Any) -> int:
+    if isinstance(n, bool) or isinstance(n, tuple) or isinstance(n, (complex, ExactComplex, Duration)):
+        raise ValueError("factorint() expects integer values")
+    if isinstance(n, int):
+        if n > _UINT64_MAX or n < _INT64_MIN:
+            raise ValueError("factorint() expects integer values")
+        return n
+    if isinstance(n, float) and math.isfinite(n) and n.is_integer():
+        iv = int(n)
+        if _INT64_MIN <= iv <= _UINT64_MAX and float(iv) == n:
+            return iv
+    raise ValueError("factorint() expects integer values")
+
+
+def factorint_sm(n: Any) -> tuple:
+    if isinstance(n, tuple):
+        raise ValueError("factorint() expects scalar values")
+    iv = _as_factor_int(n)
+    if iv == 0:
+        return (_FactorPower(0, 1),)
+    if iv == 1:
+        return (_FactorPower(1, 1, 1),)
+    if iv == -1:
+        return (_FactorPower(1, 1, -1),)
+    negative = iv < 0
+    exponents = _prime_exponents(abs(iv))
+    terms = []
+    for index, prime in enumerate(sorted(exponents)):
+        sign = -1 if negative and index == 0 else 1
+        terms.append(_FactorPower(prime, exponents[prime], sign))
+    return tuple(terms)
+
+
+def frac_sm(x: Any) -> Any:
+    if isinstance(x, tuple):
+        return tuple(frac_sm(e) for e in _flatten_value(x))
+    if isinstance(x, float) and not math.isfinite(x):
+        return math.nan
+    xf = float(x)
+    return xf - math.trunc(xf)
+
+
+def ncr_sm(n, k):
+    return _broadcast2(lambda a, b: math.comb(int(a), int(b)), n, k)
+
+
+def npr_sm(n, k):
+    return _broadcast2(lambda a, b: math.perm(int(a), int(b)), n, k)
+
+
+def _require_int(v: Any, fn: str) -> int:
+    if isinstance(v, bool) or isinstance(v, (tuple, complex, ExactComplex, Duration)):
+        raise ValueError(f"{fn} expects integer values")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and math.isfinite(v) and v.is_integer():
+        return int(v)
+    raise ValueError(f"{fn} expects integer values")
+
+
+_MAX_PRODUCED = 1000
+
+
+def flat_sm(*args: Any) -> tuple:
+    if not args:
+        return ()
+    return tuple(_flatten_args(*args))
+
+
+def len_sm(*args: Any) -> int:
+    if not args:
+        return 0
+    return len(_flatten_args(*args))
+
+
+def range_sm(start: Any, stop: Any, step: Any = 1) -> tuple:
+    s = _require_int(start, "range()")
+    t = _require_int(stop, "range()")
+    p = _require_int(step, "range()")
+    if p == 0:
+        raise ValueError("range() step must not be zero")
+    if (p > 0 and s >= t) or (p < 0 and s <= t):
+        return tuple()
+    count = len(range(s, t, p))
+    if count > _MAX_PRODUCED:
+        raise ValueError("range() produces too many values")
+    return tuple(range(s, t, p))
+
+
+def repeat_sm(x: Any, n: Any) -> tuple:
+    count = _require_int(n, "repeat()")
+    if count <= 0:
+        raise ValueError("repeat() expects a positive integer")
+    items = list(_flatten_value(x)) if isinstance(x, tuple) else [x]
+    if len(items) * count > _MAX_PRODUCED:
+        raise ValueError("repeat() produces too many values")
+    return tuple(items * count)
+
+
+def reverse_sm(*args: Any) -> tuple:
+    if not args:
+        raise ValueError("reverse() expects at least 1 argument")
+    return tuple(reversed(_flatten_args(*args)))
+
+
+def _sort_rank(v: Any) -> tuple:
+    if isinstance(v, (complex, ExactComplex, Duration)):
+        raise TypeError("sort")
+    if _is_nan_number(v):
+        return (0, 0.0)
+    if isinstance(v, float) and math.isinf(v):
+        return (1, v)
+    if isinstance(v, bool):
+        return (1, float(int(v)))
+    if isinstance(v, (int, float)):
+        return (1, float(v))
+    raise TypeError("sort")
+
+
+def sort_sm(*args: Any) -> tuple:
+    if not args:
+        raise ValueError("sort() expects at least 1 argument")
+    return tuple(sorted(_flatten_args(*args), key=_sort_rank))
+
+
+def _has_nan_component(v: Any) -> bool:
+    if _is_nan_number(v):
+        return True
+    if isinstance(v, complex):
+        return math.isnan(v.real) or math.isnan(v.imag)
+    return False
+
+
+def _same_unique(a: Any, b: Any) -> bool:
+    if _has_nan_component(a) and _has_nan_component(b):
+        return True
+    return a == b
+
+
+def unique_sm(*args: Any) -> tuple:
+    if not args:
+        raise ValueError("unique() expects at least 1 argument")
+    out: list[Any] = []
+    for item in _flatten_args(*args):
+        if any(_same_unique(item, prev) for prev in out):
+            continue
+        out.append(item)
+    return tuple(out)
+
+
+class _UserFunction:
+    """A ``name(params)=body`` binding. Printing it yields ``defined name(params)``."""
+
+    def __init__(self, name: str, params: tuple[str, ...], impl) -> None:
+        self.name = name
+        self.params = params
+        self._impl = impl
+
+    def __call__(self, *args):
+        return self._impl(*args)
+
+
+class _Unpack:
+    __slots__ = ("values",)
+
+    def __init__(self, values: tuple) -> None:
+        self.values = tuple(values)
+
+
+def unpack_sm(*args: Any) -> _Unpack:
+    if not args:
+        raise ValueError("unpack() expects at least 1 argument")
+    return _Unpack(tuple(_flatten_args(*args)))
+
+
+def expand_call_sm(fn, *args, **kwargs):
+    flat = []
+    for arg in args:
+        if isinstance(arg, _Unpack):
+            flat.extend(arg.values)
+        else:
+            flat.append(arg)
+    return fn(*flat, **kwargs)
+
+
+def _sortby_key(k: Any) -> tuple:
+    if isinstance(k, tuple):
+        return tuple(_sortby_key(item) for item in k)
+    if _is_nan_number(k):
+        return (0, 0.0)
+    if isinstance(k, float) and math.isinf(k):
+        return (1, k)
+    if isinstance(k, bool):
+        return (1, float(int(k)))
+    if isinstance(k, (int, float)):
+        return (1, float(k))
+    if isinstance(k, (complex, ExactComplex)):
+        c = _as_complex(k)
+        return (2, c.real, c.imag)
+    if isinstance(k, Duration):
+        return (1, k.ms / _SECOND_MS)
+    return (4, str(k))
+
+
+def sortby_sm(arr: Any, keyfn: Any) -> tuple:
+    if not callable(keyfn):
+        raise TypeError("sortby expects a function")
+    items = list(_flatten_value(arr) if isinstance(arr, tuple) else (arr,))
+    items.sort(key=lambda el: _sortby_key(keyfn(el)))
+    return tuple(items)
+
+
+def filter_sm(arr: Any, pred: Any) -> tuple:
+    if not callable(pred):
+        raise TypeError("filter expects a function")
+    items = _flatten_value(arr) if isinstance(arr, tuple) else (arr,)
+    return tuple(el for el in items if dsl_truth(pred(el)))
 
 
 def build_ns(ans: Any) -> dict:
@@ -3229,7 +4997,24 @@ def build_ns(ans: Any) -> dict:
         "dsl_and": dsl_and,
         "dsl_or": dsl_or,
         "dsl_bitinv": dsl_bitinv,
+        "dsl_neg": dsl_neg,
+        "dsl_pos": dsl_pos,
         "hex_val_sm": hex_val_sm,
+        "base_val_sm": base_val_sm,
+        "div_sm_real": div_sm_real,
+        "add_sm": add_sm,
+        "sub_sm": sub_sm,
+        "mul_sm_real": mul_sm_real,
+        "lshift_sm": lshift_sm,
+        "rshift_sm": rshift_sm,
+        "bitand_sm": bitand_sm,
+        "bitor_sm": bitor_sm,
+        "bitxor_sm": bitxor_sm,
+        "real_sm": real_sm,
+        "imag_sm": imag_sm,
+        "conj_sm": conj_sm,
+        "phase_sm": phase_sm,
+        "polar_sm": polar_sm,
         "int_sm": int_sm,
         "log_sm": log_sm,
         "log_ln": _map_unary_real(log_ln),
@@ -3259,28 +5044,55 @@ def build_ns(ans: Any) -> dict:
         "sin": _map_unary_real(sin_sm),
         "cos": _map_unary_real(cos_sm),
         "tan": _map_unary_real(tan_sm),
-        "asin": math.asin,
-        "acos": math.acos,
-        "atan": math.atan,
-        "sinh": math.sinh,
-        "cosh": math.cosh,
-        "tanh": math.tanh,
-        "exp": math.exp,
+        "asin": _map_unary_real(_domain_nan(math.asin)),
+        "acos": _map_unary_real(_domain_nan(math.acos)),
+        "atan": _map_unary_real(math.atan),
+        "sinh": _map_unary_real(math.sinh),
+        "cosh": _map_unary_real(math.cosh),
+        "tanh": _map_unary_real(math.tanh),
+        "asinh": _map_unary_real(math.asinh),
+        "acosh": _map_unary_real(_domain_nan(math.acosh)),
+        "atanh": atanh_sm,
+        "exp": _map_unary_real(math.exp),
         "sqrt": sqrt_sm_real,
+        "sqrt_sm_real": sqrt_sm_real,
         "hex_sm": hex_sm,
         "bin_sm": bin_sm,
         "oct_sm": oct_sm,
         "uhex_sm": uhex_sm,
         "uoct_sm": uoct_sm,
         "ubin_sm": ubin_sm,
-        "abs": abs,
-        "floor": math.floor,
-        "ceil": math.ceil,
+        "abs": _map_unary_real(abs),
+        "floor": _map_unary_real(_floor_real_scalar),
+        "ceil": _map_unary_real(_ceil_real_scalar),
         "trunc": math.trunc,
         "round_sm": round_sm,
-        "atan2": math.atan2,
-        "hypot": math.hypot,
+        "atan2": atan2_sm,
+        "hypot": hypot_sm_real,
         "ratio_sm": ratio_sm,
+        "frac_sm": frac_sm,
+        "ncr_sm": ncr_sm,
+        "npr_sm": npr_sm,
+        "factorint_sm": factorint_sm,
+        "cart_sm": cart_sm,
+        "flat_sm": flat_sm,
+        "len_sm": len_sm,
+        "range_sm": range_sm,
+        "repeat_sm": repeat_sm,
+        "reverse_sm": reverse_sm,
+        "sort_sm": sort_sm,
+        "unique_sm": unique_sm,
+        "unpack_sm": unpack_sm,
+        "filter_sm": filter_sm,
+        "sortby_sm": sortby_sm,
+        "iif_sm": iif_sm,
+        "isinstance_sm": isinstance_sm,
+        "expand_call_sm": expand_call_sm,
+        "_dur_lit_compact": _dur_lit_compact,
+        "dur_parse_colon_literal": dur_parse_colon_literal,
+        "mul_sm_cx": mul_sm_cx,
+        "div_sm_cx": div_sm_cx,
+        "_empty_tuple": (),
     }
 
 
@@ -3363,6 +5175,366 @@ def build_ns_time(ans: Any) -> dict:
     return ns
 
 
+_RE_NUM_LITERAL = re.compile(
+    r"(?<![A-Za-z0-9_.])(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?"
+)
+_INSTANCE_TYPES = {"int", "float", "time", "complex", "array", "list"}
+_NO_ELEMENT_ASSIGN = object()
+
+
+def _digits_to_uint64(digits: list[int]) -> Optional[int]:
+    value = 0
+    for digit in digits:
+        if value > (_UINT64_MAX - digit) // 10:
+            return None
+        value = value * 10 + digit
+    return value
+
+
+def _try_parse_input_number_as_integer(text: str) -> Optional[int]:
+    """Whole literals the parser stores as int64/uint64, including ``1.0`` and ``1e2``."""
+    if not text or text[0] == "-":
+        return None
+    i = 1 if text[0] == "+" else 0
+    n = len(text)
+    if i >= n:
+        return None
+    digits: list[int] = []
+    int_digit_count = 0
+    frac_digits = 0
+    int_part_started = False
+    has_digit = False
+    while i < n and text[i].isdigit():
+        digit = ord(text[i]) - 48
+        has_digit = True
+        if digit != 0:
+            int_part_started = True
+        if int_part_started:
+            if len(digits) >= 128:
+                return None
+            digits.append(digit)
+            int_digit_count += 1
+        i += 1
+    if i < n and text[i] == ".":
+        i += 1
+        int_part_started = True
+        while i < n and text[i].isdigit():
+            digit = ord(text[i]) - 48
+            has_digit = True
+            if len(digits) < 128:
+                digits.append(digit)
+            elif digit != 0:
+                return None
+            frac_digits += 1
+            i += 1
+    if not has_digit:
+        return None
+    if not digits:
+        return 0 if i == n else None
+    exponent = 0
+    if i < n and text[i] in "eE":
+        i += 1
+        exponent_negative = False
+        if i < n and text[i] in "+-":
+            exponent_negative = text[i] == "-"
+            i += 1
+        if i >= n or not text[i].isdigit():
+            return None
+        exponent_digits = 0
+        while i < n and text[i].isdigit():
+            digit = ord(text[i]) - 48
+            if digit != 0 or exponent_digits != 0:
+                exponent_digits += 1
+                if exponent_digits > 2:
+                    return None
+                exponent = exponent * 10 + digit
+            i += 1
+        if exponent_negative:
+            exponent = -exponent
+    if i != n:
+        return None
+    adjust = exponent - frac_digits
+    if adjust >= 0:
+        if int_digit_count + frac_digits + adjust > 20:
+            return None
+        value = _digits_to_uint64(digits)
+        if value is None:
+            return None
+        if adjust > 0:
+            scale = 10**adjust
+            if value > _UINT64_MAX // scale:
+                return None
+            value *= scale
+        return value
+    divisor = -adjust
+    if divisor > len(digits):
+        return None
+    if any(digit != 0 for digit in digits[len(digits) - divisor :]):
+        return None
+    result_count = len(digits) - divisor
+    if result_count == 0:
+        return 0
+    return _digits_to_uint64(digits[:result_count])
+
+
+def _rewrite_exact_int_literals(expr: str) -> str:
+    """Turn parser-exact literals (``1.0``, ``2.00``, ``1e2``) into Python ints."""
+    out: list[str] = []
+    i = 0
+    n = len(expr)
+    while i < n:
+        if expr[i] in "\"'":
+            quote = expr[i]
+            j = i + 1
+            while j < n and expr[j] != quote:
+                j += 1
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        matched = _RE_NUM_LITERAL.match(expr, i)
+        if matched is None:
+            out.append(expr[i])
+            i += 1
+            continue
+        parsed = _try_parse_input_number_as_integer(matched.group(0))
+        out.append(matched.group(0) if parsed is None else str(parsed))
+        i = matched.end()
+    return "".join(out)
+
+
+def _split_call_args(expr: str, open_index: int) -> tuple[Optional[list[str]], int]:
+    """Arguments of the call whose ``(`` is at ``open_index``. ``(None, -1)`` if unbalanced."""
+    if open_index >= len(expr) or expr[open_index] != "(":
+        return None, -1
+    depth = 0
+    start = open_index + 1
+    args: list[str] = []
+    for i in range(open_index, len(expr)):
+        ch = expr[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                args.append(expr[start:i])
+                return args, i
+        elif ch == "," and depth == 1:
+            args.append(expr[start:i])
+            start = i + 1
+    return None, -1
+
+
+def _quote_depth_at(expr: str, pos: int) -> bool:
+    """True when ``pos`` sits inside a single- or double-quoted string."""
+    quote = ""
+    for ch in expr[:pos]:
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+    return bool(quote)
+
+
+def _rewrite_isinstance_calls(expr: str) -> str:
+    """``isinstance(value, Type)`` keeps ``Type`` as a name, not an expression."""
+    out: list[str] = []
+    i = 0
+    n = len(expr)
+    key = "isinstance"
+    lower = expr.lower()
+    while i < n:
+        j = lower.find(key, i)
+        if j < 0:
+            out.append(expr[i:])
+            break
+        end_name = j + len(key)
+        prev_ok = j == 0 or not (expr[j - 1].isalnum() or expr[j - 1] == "_")
+        next_ok = end_name >= n or not (expr[end_name].isalnum() or expr[end_name] == "_")
+        if not prev_ok or not next_ok:
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        if _quote_depth_at(expr, j):
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        k = end_name
+        while k < n and expr[k].isspace():
+            k += 1
+        if k >= n or expr[k] != "(":
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        args, close = _split_call_args(expr, k)
+        if args is None or len(args) != 2 or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", args[1].strip()
+        ):
+            out.append(expr[i : j + 1])
+            i = j + 1
+            continue
+        out.append(expr[i:j])
+        value = _rewrite_isinstance_calls(args[0].strip())
+        out.append(f'isinstance_sm({value}, "{args[1].strip()}")')
+        i = close + 1
+    return "".join(out)
+
+
+def _has_nonzero_imag(value: Any) -> bool:
+    if isinstance(value, ExactComplex):
+        return value.imag != 0
+    if isinstance(value, complex):
+        return math.isnan(value.imag) or value.imag != 0.0
+    return False
+
+
+def _is_exact_int_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, RatioValue):
+        return "/" not in value.text
+    return False
+
+
+def _value_matches_type(value: Any, type_name: str) -> bool:
+    if isinstance(value, tuple):
+        return type_name in ("array", "list")
+    if _has_nonzero_imag(value):
+        return type_name == "complex"
+    if isinstance(value, ExactComplex):
+        value = value.real
+    elif isinstance(value, complex):
+        value = value.real
+    if isinstance(value, Duration):
+        return type_name == "time"
+    if _is_exact_int_value(value):
+        return type_name == "int"
+    return type_name == "float"
+
+
+def isinstance_sm(value: Any, type_name: str) -> int:
+    name = str(type_name).lower()
+    for suffix in ("_sm_cx", "_sm"):
+        if name.endswith(suffix) and name[: -len(suffix)] in _INSTANCE_TYPES:
+            name = name[: -len(suffix)]
+            break
+    if name not in _INSTANCE_TYPES:
+        raise ValueError(f"unknown type name: {name}")
+    return 1 if _value_matches_type(value, name) else 0
+
+
+def iif_sm(condition: Any, when_true: Any, when_false: Any) -> Any:
+    """Evaluate only the chosen branch. Arguments are zero-arg thunks."""
+    cond = condition() if callable(condition) else condition
+    chosen = when_true if dsl_truth(cond) else when_false
+    return chosen() if callable(chosen) else chosen
+
+
+def _index_expr_is_slice(index_expr: str) -> bool:
+    depth_paren = 0
+    depth_bracket = 0
+    for ch in index_expr:
+        if ch == "(":
+            depth_paren += 1
+        elif ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+        elif ch == "[":
+            depth_bracket += 1
+        elif ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+        elif ch == ":" and depth_paren == 0 and depth_bracket == 0:
+            return True
+    return False
+
+
+def _split_element_assign(part: str) -> Optional[tuple[str, str, str]]:
+    """``name[index] = rhs`` at the start of a statement. ``None`` when it is not that form."""
+    matched = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\[", part.strip())
+    if matched is None:
+        return None
+    text = part.strip()
+    name = matched.group(1)
+    open_at = matched.end() - 1
+    depth = 0
+    close_at = -1
+    for i in range(open_at, len(text)):
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                close_at = i
+                break
+    if close_at < 0:
+        return None
+    rest = text[close_at + 1 :].lstrip()
+    if not rest.startswith("=") or rest.startswith("=="):
+        return None
+    return name, text[open_at + 1 : close_at], rest[1:].strip()
+
+
+def _resolve_array_index(length: int, idx_val: Any) -> int:
+    if isinstance(idx_val, bool) or isinstance(idx_val, (tuple, complex, ExactComplex, Duration)):
+        raise ValueError("array index must be an integer")
+    if isinstance(idx_val, int):
+        idx = idx_val
+    elif isinstance(idx_val, float) and math.isfinite(idx_val) and idx_val.is_integer():
+        idx = int(idx_val)
+    else:
+        raise ValueError("array index must be an integer")
+    if idx < 0:
+        idx += length
+    if idx < 0 or idx >= length:
+        raise ValueError("array index is out of range")
+    return idx
+
+
+def _element_assign_time_mix(base_items: list[Any], rhs_items: list[Any]) -> bool:
+    if not rhs_items or not base_items:
+        return False
+    base_time = all(isinstance(item, Duration) for item in base_items)
+    base_other = all(not isinstance(item, Duration) for item in base_items)
+    for item in rhs_items:
+        item_time = isinstance(item, Duration)
+        if (base_time and not item_time) or (base_other and item_time):
+            return True
+    return False
+
+
+def _assign_array_element(base: tuple, idx_val: Any, rhs_val: Any) -> tuple:
+    items = list(base)
+    idx = _resolve_array_index(len(items), idx_val)
+    rhs_items = list(_flatten_value(rhs_val)) if isinstance(rhs_val, tuple) else [rhs_val]
+    if _element_assign_time_mix(items, rhs_items):
+        raise ValueError("time values cannot be mixed with non-time values")
+    return tuple(items[:idx] + rhs_items + items[idx + 1 :])
+
+
+def _eval_element_assign_statement(
+    part: str, ns: dict, mode: str, expected_hint: str
+) -> Any:
+    parsed = _split_element_assign(part)
+    if parsed is None:
+        return _NO_ELEMENT_ASSIGN
+    name, index_expr, rhs = parsed
+    if _index_expr_is_slice(index_expr):
+        raise ValueError("cannot assign to an array slice")
+    if name not in ns or isinstance(ns.get(name), _UserFunction):
+        raise ValueError(f"unknown variable: {name}")
+    base = ns[name]
+    if not isinstance(base, tuple):
+        raise ValueError("indexing requires an array value")
+    idx_val = ref_eval(index_expr, ns, mode=mode, expected_hint=expected_hint)
+    rhs_val = ref_eval(rhs, ns, mode=mode, expected_hint=expected_hint)
+    new_val = _assign_array_element(base, idx_val, rhs_val)
+    ns[name] = new_val
+    ns["ans"] = new_val
+    return new_val
+
+
 def ref_eval(
     expr: str, ns: dict, *, mode: str = "real", expected_hint: str = ""
 ) -> Any:
@@ -3370,6 +5542,7 @@ def ref_eval(
     if not e:
         raise ValueError("empty")
     e = _replace_int_literals(e)
+    e = _normalize_nonfinite_names(e)
     p = _postfix_percent(e)
     if p is None:
         raise ValueError("postfix percent")
@@ -3380,24 +5553,47 @@ def ref_eval(
         e = _replace_int_literals(e)
         e = _lower_exact_int_complex_literals(e)
         e = _preprocess_complex_dsl(e)
+        e = _preprocess_word_not(e)
     elif mode == "time":
         e = _preprocess_time_expression(e)
+        e = _preprocess_unary_bang_real(e)
+        e = _preprocess_word_not(e)
     else:
         e = _preprocess_real_dsl(e)
-        e = _preprocess_hex_for_numeric_add(e, expected_hint)
+        e = _preprocess_word_not(e)
+        e = _replace_compact_time_literals(e)
+    e = _rewrite_formatters_for_value(e)
     e = _implicit_mul(e)
+    e = _rewrite_lambdas(e)
+    e = _rewrite_empty_tuples(e)
+    e = _rewrite_isinstance_calls(e)
+    e = _rewrite_exact_int_literals(e)
     t = _translate_functions(e, mode=mode)
     if t is None:
         raise ValueError("translate")
     e = t
-    if mode == "complex" and hasattr(ast, "unparse"):
+    if hasattr(ast, "unparse"):
         try:
             e = _broadcast_tuple_expr_string(e)
         except Exception:
             pass
+    def _lambda_sm(names, body):
+        name_list = [part.strip() for part in str(names).split(",") if part.strip()]
+
+        def fn(*args, _names=tuple(name_list), _body=body):
+            if len(args) != len(_names):
+                raise ValueError(f"expects {len(_names)} argument(s)")
+            local = dict(ns)
+            for name, value in zip(_names, args):
+                local[name] = value
+            return ref_eval(_body, local, mode=mode)
+
+        return fn
+
+    ns["lambda_sm"] = _lambda_sm
     if e.startswith("(") and e.endswith(")") and e.count("(") == 1:
         try:
-            return _eval_tuple_literal(e, ns, mode=mode)
+            return _flatten_value(_eval_tuple_literal(e, ns, mode=mode))
         except Exception:
             pass
     node = ast.parse(e, mode="eval")
@@ -3405,14 +5601,29 @@ def ref_eval(
         body = _SmokeAstTransform(mode).visit(node.body)
         ast.fix_missing_locations(body)
         node = ast.Expression(body=body)
-    return eval(compile(node, "<smoke>", "eval"), {"__builtins__": {}}, ns)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        env = dict(ns)
+        env["__builtins__"] = {}
+        result = eval(compile(node, "<smoke>", "eval"), env)
+    if isinstance(result, _Unpack):
+        result = result.values[0] if len(result.values) == 1 else tuple(result.values)
+    return _flatten_value(result)
 
 
 def ref_format(v: Any, *, mode: str = "real") -> str:
+    if isinstance(v, _UserFunction):
+        return f"defined {v.name}({', '.join(v.params)})"
+    if isinstance(v, RatioValue):
+        return v.text
     if isinstance(v, Duration):
         return duration_format_ms(v.ms)
     if isinstance(v, str):
         return v
+    if isinstance(v, _Unpack):
+        return ref_format(tuple(v.values), mode=mode)
+    if isinstance(v, _FactorPower):
+        return str(v)
     if isinstance(v, ExactComplex):
         return _format_exact_complex_smoke(v)
     if isinstance(v, complex):
@@ -3427,26 +5638,107 @@ def ref_format(v: Any, *, mode: str = "real") -> str:
     return str(v)
 
 
+_TRAILING_FORMATTER_STMT_RE = re.compile(
+    r"(hex|oct|bin|deg|rad|uhex|uoct|ubin)\s*(\(\s*\))?",
+    flags=re.I,
+)
+
+
+def _rewrite_trailing_formatter_stmt(part: str) -> str:
+    """Bare ``hex`` / ``hex()`` after a previous statement means ``hex(ans)``."""
+    matched = _TRAILING_FORMATTER_STMT_RE.fullmatch(part.strip())
+    if matched is None:
+        return part
+    return f"{matched.group(1).lower()}(ans)"
+
+
+_RE_USER_FN = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*"
+    r"([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?"
+    r"\s*\)\s*=(?!=)\s*(.*)$",
+    re.S,
+)
+
+
+_CALL_NS: list = [None]
+
+
+def _bind_user_function(
+    ns: dict, name: str, params: list[str], body: str, mode: str, expected_hint: str
+) -> None:
+    """Call-time binding: a later ``p(x)=...`` is visible inside an earlier ``f``."""
+
+    prior = ns.get(name)
+    if prior is not None and not isinstance(prior, _UserFunction):
+        raise ValueError("reserved name")
+
+    def fn(*args, _params=tuple(params), _body=body):
+        if len(args) != len(_params):
+            raise ValueError(f"expects {len(_params)} argument(s)")
+        live = _CALL_NS[0] if _CALL_NS[0] is not None else ns
+        local = dict(live)
+        for param, value in zip(_params, args):
+            local[param] = value
+        return ref_eval(_body, local, mode=mode, expected_hint=expected_hint)
+
+    ns[name] = _UserFunction(name, tuple(params), fn)
+
+
+def _carried_functions(ns: dict) -> dict[str, _UserFunction]:
+    return {key: value for key, value in ns.items() if isinstance(value, _UserFunction)}
+
+
 def try_reference(
-    expr_chain: str, *, mode: str = "real", expected_hint: str = ""
-) -> tuple[Optional[Any], Optional[str]]:
-    """Evaluate semicolon chain; last statement value is result."""
+    expr_chain: str,
+    *,
+    mode: str = "real",
+    expected_hint: str = "",
+    ans_seed: Any = None,
+    fn_box: Optional[dict] = None,
+) -> tuple[Optional[Any], Optional[str], Any]:
+    """Evaluate semicolon chain; last statement value is result.
+
+    The third value is ``ans`` after the last statement that succeeded. A later
+    failing statement does not clear it.
+    """
     parts = _split_statements(expr_chain)
     if mode == "time":
-        ns: dict = build_ns_time(None)
+        ns: dict = build_ns_time(ans_seed)
     elif mode == "complex":
-        ns = build_ns_complex(None)
+        ns = build_ns_complex(ans_seed)
     else:
-        ns = build_ns(None)
-    last = None
+        ns = build_ns(ans_seed)
+    if fn_box:
+        ns.update(fn_box)
+    ns["ans"] = ans_seed
+    _CALL_NS[0] = ns
+    last = ans_seed
     try:
         for part in parts:
-            part = part.strip()
+            part = _rewrite_trailing_formatter_stmt(part.strip())
+            user_fn = _RE_USER_FN.match(part)
+            if user_fn:
+                params = [
+                    name.strip()
+                    for name in (user_fn.group(2) or "").split(",")
+                    if name.strip()
+                ]
+                _bind_user_function(
+                    ns,
+                    user_fn.group(1),
+                    params,
+                    user_fn.group(3).strip(),
+                    mode,
+                    expected_hint,
+                )
+                last = ns[user_fn.group(1)]
+                ns["ans"] = last
+                continue
             if "=" in part and not any(
                 part.startswith(pref)
                 for pref in ("atan2", "pow", "log", "mod", "gcd", "lcm", "hypot", "random")
             ):
-                if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=", part):
+                if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)", part):
                     name, rhs = part.split("=", 1)
                     name = name.strip()
                     rhs = rhs.strip()
@@ -3454,11 +5746,21 @@ def try_reference(
                     ns[name] = last
                     ns["ans"] = last
                     continue
+                assigned = _eval_element_assign_statement(part, ns, mode, expected_hint)
+                if assigned is not _NO_ELEMENT_ASSIGN:
+                    last = assigned
+                    continue
             last = ref_eval(part, ns, mode=mode, expected_hint=expected_hint)
             ns["ans"] = last
-        return last, None
+        if fn_box is not None:
+            fn_box.clear()
+            fn_box.update(_carried_functions(ns))
+        return last, None, last
     except Exception as ex:
-        return None, str(ex)
+        if fn_box is not None:
+            fn_box.clear()
+            fn_box.update(_carried_functions(ns))
+        return None, str(ex), ns.get("ans", ans_seed)
 
 
 def _last_statement(expr: str) -> str:
@@ -3482,93 +5784,8 @@ def should_skip_case(case: dict) -> Optional[str]:
         return "expectNoResult"
     if case.get("expected_err"):
         return "expected error path"
-    ex_raw = case["expr"]
-    ex = _strip_line_comment(ex_raw)
-    is_co = case.get("source") == "complex_opt"
-    src = case.get("source", "")
     if case.get("expect_error"):
         return "parser error probe (error text not comparable with Python)"
-
-    if ex.strip() == "ans" and ";" not in ex:
-        return "standalone ans (no prior statement in harness)"
-
-    exp = case.get("expected", "").strip()
-
-    fmt_m = re.search(r"\b(uhex|uoct|ubin)\s*\(", ex, re.I)
-    if fmt_m and not is_co:
-        return "unsigned formatting builtin (display-only)"
-    if src not in ("complex_opt", "ratio_in_expression", "time_opt") and (
-        "sort(" in ex or "unique(" in ex or "sortby(" in ex
-    ):
-        return "sort/unique/sortby"
-    if src not in ("complex_opt", "ratio_in_expression", "time_opt") and (
-        "unpack(" in ex or "reverse(" in ex
-    ):
-        return "array DSL builtin (unpack/reverse)"
-    if "ratio(" in ex and src not in ("complex_opt", "ratio_in_expression"):
-        return "ratio() builtin"
-
-    last = _last_statement(ex_raw)
-    if re.fullmatch(r"(rad|deg|hex|bin|oct|uhex|uoct|ubin)\b(\(\))?", last.strip(), flags=re.I):
-        return "trailing formatter command (DSL)"
-
-    if ";" in ex:
-        if re.search(r"\b[a-z_][a-z0-9_]*\s*[\+\-\*/]\s*[a-z_][a-z0-9_]*\s*$", last):
-            return "broadcast / element-wise array algebra (DSL)"
-
-    if re.search(r"\b[a-z_][a-z0-9_]*\s*\([^)]*\)\s*=", ex, re.I) and "rd(t)=" not in ex:
-        if src not in ("inline_probe",):
-            return "user-defined function"
-    if re.search(r"\by\s*\(", ex) or (
-        re.search(r"\bf\s*\(", ex) and "f=x:" not in ex and "f=(" not in ex
-    ):
-        return "user-defined function (y(a)=...)"
-
-    if re.search(r"\(e=3\)|\(pi\s*=", ex):
-        return "assignment-in-parens truth (DSL scalar vs tuple)"
-    if re.search(r"a\s*=\s*\([^)]+\)\s*[\+\-\*]", ex) and re.search(
-        r"hex\s*\(\s*a\s*\[", ex, re.I
-    ):
-        return "tuple broadcast + hex(index) (DSL)"
-    if re.search(r"mod\s*\(\s*a\s*\[", ex, re.I):
-        return "mod on broadcast array element (DSL)"
-    if re.search(r"0x[fF]{8,}|1844674407370955161", ex) and (
-        "%" in ex or "mod(" in ex
-    ):
-        return "uint64-scale mod (exact uint64 not in float reference)"
-    if src == "magnitude_band" and re.search(r"2\*\*100", ex):
-        return "magnitude-band 2**100 (exact wide int; float reference)"
-    if src == "magnitude_band" and re.search(r"2\*\*64", ex):
-        if re.search(r"\b(conj|pow)\s*\(", ex, re.I):
-            return "magnitude-band 2**64 float overflow"
-        if re.search(r"\b(sqrt|ln)\s*\(\s*\(\s*-\s*\(\s*2\*\*64", ex, re.I):
-            return "complex sqrt/ln(-2**64) branch cut"
-    if src == "magnitude_band" and re.search(
-        r"4611686018427387904|9223372036854775808", ex
-    ):
-        if "mod(" in ex or "<<" in ex or ">>" in ex:
-            return "magnitude-band int64 edge (exact wide int)"
-    if is_co and re.search(r"inf\s*\+\s*i\s*\*\s*inf", ex, re.I):
-        return "complex inf*i*inf formatting (non-associative product)"
-    if re.search(r"(-?\s*inf)\s*\*\*", ex, re.I) and src == "magnitude_band":
-        return "inf**n edge (real band)"
-    if re.search(r"pow\s*\(\s*-?\s*inf", ex, re.I) and src in (
-        "magnitude_band",
-        "inline_probe",
-    ):
-        return "complex pow(inf) edge"
-    if re.search(r"(sqrt|ln)\s*\(\s*-?\s*inf", ex, re.I) and src in (
-        "magnitude_band",
-        "inline_probe",
-    ):
-        return "complex sqrt/ln(inf) edge"
-    if re.search(r"inf\s*\+\s*i\s*\*", ex, re.I) and "inf" in ex.lower():
-        return "complex inf*i product formatting"
-    if re.search(r"t=3;\s*\(t=3\)", ex):
-        return "assignment-in-parens truth (DSL scalar vs tuple)"
-    if re.search(r"a=2\*\(3,4\)", ex) and "hex(a[" in ex:
-        return "scalar-times-tuple broadcast hex (DSL)"
-
     return None
 
 
@@ -3615,7 +5832,7 @@ def main() -> int:
     root = __file__.rsplit("\\", 1)[0]
     if "/" in root and "\\" not in root:
         root = __file__.rsplit("/", 1)[0]
-    bas = root + "/../SmokeTest_MathParser.bas"
+    bas = root + "/../tests/SmokeTest_MathParser.bas"
     band = root + "/neg_band_cases_generated.bas"
     tools_dir = root
     argv = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -3645,6 +5862,8 @@ def main() -> int:
         return 0
     mismatches: list[str] = []
     skipped: list[str] = []
+    carried_ans: Any = None
+    carried_fns: dict = {}
     ok = 0
     n_complex = 0
     n_complex_opt_compared_ok = 0
@@ -3667,6 +5886,16 @@ def main() -> int:
             and not case.get("expect_error")
             and not case.get("assert_kind")
         ):
+            if case.get("source") == "smoke_main" and case.get("expected_err"):
+                _val, err, new_ans = try_reference(
+                    case["expr"],
+                    mode=case.get("ref_mode")
+                    or infer_ref_mode(case["expr"], ""),
+                    ans_seed=carried_ans,
+                    fn_box=carried_fns,
+                )
+                if err:
+                    carried_ans = new_ans
             continue
         n_compared += 1
         if n_compared % 50 == 0 or n_compared == 1:
@@ -3676,6 +5905,19 @@ def main() -> int:
             )
         reason = should_skip_case(case)
         if reason:
+            if case.get("source") == "smoke_main" and (
+                case.get("expected_err") or case.get("expect_error")
+            ):
+                _val, err, new_ans = try_reference(
+                    case["expr"],
+                    mode=case.get("ref_mode")
+                    or infer_ref_mode(case["expr"], case.get("expected", "")),
+                    expected_hint=case.get("expected", ""),
+                    ans_seed=carried_ans,
+                    fn_box=carried_fns,
+                )
+                if err:
+                    carried_ans = new_ans
             skipped.append(f"#{idx}: {reason}")
             if case.get("source") == "complex_opt":
                 n_complex_opt_skip_should += 1
@@ -3684,15 +5926,23 @@ def main() -> int:
         mode = case.get("ref_mode") or infer_ref_mode(
             case["expr"], case.get("expected", "")
         )
+        if is_co:
+            mode = "complex"
 
+        ans_seed = carried_ans if case.get("source") == "smoke_main" else None
+        fn_box = carried_fns if case.get("source") == "smoke_main" else None
         if case.get("expect_error"):
             if mode == "complex":
                 n_complex += 1
-            val, err = try_reference(
+            val, err, new_ans = try_reference(
                 case["expr"],
                 mode=mode,
                 expected_hint=case.get("expected", ""),
+                ans_seed=ans_seed,
+                fn_box=fn_box,
             )
+            if case.get("source") == "smoke_main":
+                carried_ans = new_ans
             if err:
                 substr = case.get("expected_err_substr")
                 if substr and substr.lower() not in err.lower():
@@ -3716,9 +5966,15 @@ def main() -> int:
 
         assert_kind = case.get("assert_kind")
         exp_hint = case.get("expected", "")
-        val, err = try_reference(
-            case["expr"], mode=mode, expected_hint=exp_hint
+        val, err, new_ans = try_reference(
+            case["expr"],
+            mode=mode,
+            expected_hint=exp_hint,
+            ans_seed=ans_seed,
+            fn_box=fn_box,
         )
+        if case.get("source") == "smoke_main":
+            carried_ans = new_ans
         if err:
             skipped.append(f"#{idx}: eval failed ({err[:80]})")
             if is_co:
